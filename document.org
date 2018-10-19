@@ -1,0 +1,112 @@
+*** Première approche : émulation desynchronisée
+- On fait une simulation simgrid classique, où les VM s'exécutent en
+  exclusion mutuelle, séquentiellement, chacune d'un quantum de temps.
+- On veut éviter d'avoir un quantum trop petit (on veut pas pas les
+  interrompre à chaque instruction), sinon c'est trop lent.
+- Le risque est de recevoir des messages réseau du passé (cad des
+  choses qu'on aurait dû prendre en compte à un timestamp simulé
+  antérieur), car les réceptions sont passives (=on sait pas à
+  l'avance quand on va recevoir)
+- Donc on fait des checkpoints, et des rollback en cas de pb
+- Pb supplémentaire: l'application est pas forcément déterministe
+#+BEGIN_SRC 
+def main:
+  tant qu'il reste des processus actifs, 
+    simgrid_max = simgrid.get_next_receive_time() # Date d'arrivée du prochain message déjà en vol (ou MAX_INT si pas de msg
+    achieved_time = quantum(simgrid_max)
+
+def quantum(target_time):
+  for vm in vms:
+    time = vm.try_go(target_time)
+    if time < target_time: # la VM a pas pu aller à target sans faire chier qqn
+      rollback les autres, sauf vm (celui qui fait chier)
+      return quantum(time)
+  # Toutes les VMS ont réussi à avancer jusqu'à target_time
+  checkpoint_all()
+
+def VM.trygo(target_time): # tente d'avancer jusqu'à la date indiquée
+  simulation en temps réelle, en arrêtant dès que:
+    - le temps arrive à target_time 
+      dans ce cas, on return target_time
+    - on envoie un message tel que m.fin < msg.recv.curr_time
+      dans ce cas on return vm.curr_time
+#+END_SRC
+- ça devrait marcher comme ça (l'algo semble complet et fonctionnel)
+  mais ça fait des checkpoints à tout va, ça risque d'être trop lent
+  en pratique pour être utile
+*** Approche possible: émulation synchronisée
+- On exécute les VM de façon concurrente, en s'assurant que leurs
+  horologes restent suffisament synchronisées pour qu'on puisse pas
+  recevoir de messages du passé.
+- Pour l'implémenter dans les VM:
+  - SimGrid exporte une date butoir dans une mémoire partagée
+  - quand les VM ont envie d'incrémenter leur TSC (=horloge
+    matérielle), elles font une attente active jusqu'à ce que la date
+    butoir de la mémoire partagée soit suffisament avancée pour
+    qu'elles aient le droit d'avancer.
+  - Les mises à jour par SimGrid de la date butoir se font avec des
+    opérations atomic sur le processeur.
+  - C'est possible seulement si la TSC est émulée, pas sur de la
+    virtualisation rapide gérée par le matériel
+  - Ca semble faisable en pratique dans le code des VM
+  - Le DVFS peut géner ce mécanisme:
+    - la TSC c'est le compteur de cycle, et c'est traditionnellement
+      utilisé pour mesurer le temps qui passe. Pb: si le processeur va
+      plus ou moins vite, il a l'impression que le temps va plus ou
+      moins vite. Pour corriger ça, quand le CPU modifie la valeur de
+      TSC, l'incrément utilisé dépend de la fréquence courante.
+    - Si on veut tenir compte de ça, faut synchroniser TSCs et horloge
+      centrale dans les deux sens (s'assurer que l'horloge centrale ne
+      double pas les VM)
+    - Mais c'est quand même plus simple d'interdire le DVFS dans tout ça
+- Pour décider la valeur de la date butoir:
+  - min(current + latency, prochaine_reception)
+#+BEGIN_SRC 
+double deadline=0
+barrier fin_slot(nb VM + 1) # pour simgrid
+B: vecteur d'événements en attente # TODO: c'est moins pénible en concurrent de le couper en un vecteur par VM
+
+Boucle principale de SimGrid
+  time = 0
+  tant qu’il reste des processus actifs,
+    deadline = min (time + min_latency, next_reception_time)
+    si deadline == time # slot de durée nulle
+      on envoie le ou les message sortant de SimGrid dans la ou les vm de destination
+    sinon
+      barrier(fin_slot) # les VM ont avancé jusqu'à deadline
+      trier B par temps d’émission croissant
+      pour chaque (m_e, t_e) dans B
+        avancer SimGrid jusqu’à t_e et commencer la transmission de m_e
+      B = {}
+      avancer SimGrid jusqu’à deadline. Invariant: on n'a aucune réception entre time et deadline
+
+VM::increment_de_TSC()
+  if temps(TSC) <= deadline:
+    update_TSC()
+  barrier(fin_slot)
+  while temps(TSC) >= deadline:
+    pass
+
+VM::emission()
+  # ajouter le nouveau message dans le buffer des événements futurs 
+  B += {(m_e,t_e)} les messages m_e qu’elles envoient et leur timestamp d’émission t_e]
+  
+#+END_SRC
+- Présupposés sur le workload
+  - Pas d'impact sur des machines distantes sans payer le temps de latence
+    - En particulier, pas de cancel de communication simgrid
+  - Ca devrait mal se passer avec notre façon d'avancer NS3 (pas idempotent)
+*** TODO:
+- Chercher un moyen de faire des POC pour comparer les approches
+- Explorer l'idée laissée en attente de checkpoints à intervale de
+  temps régulier.
+  - La différence avec l'émulation désynchronisée est qu'on tente de
+    faire moins de checkpoints en laissant plus de un message passer
+    entre les checkpoints.
+  - Ca demande de savoir checkpointer non seulement les modèles de
+    perf SimGrid (LMM) mais aussi la liste des messages en vol (qui
+    peuvent être modifiés à la réception).
+  - Donc, à priori, c'est plutôt à faire d'un processus séparé que
+    depuis l'intérieur du processus SimGrid. Cad, c'est proche de
+    l'architecture du MC
+
