@@ -61,6 +61,14 @@ def VM.trygo(target_time): # tente d'avancer jusqu'à la date indiquée
     - Mais c'est quand même plus simple d'interdire le DVFS dans tout ça
 - Pour décider la valeur de la date butoir:
   - min(current + latency, prochaine_reception)
+- Interface
+  - A->VM
+    - deliver_now(data)
+    - go_to_deadline(t)
+  - VM->A
+    - i_am_at_deadline()
+    - sending(t, data)
+
 #+BEGIN_SRC 
 double deadline=0
 barrier fin_slot(nb VM + 1) # pour simgrid
@@ -90,12 +98,30 @@ Boucle principale de l'acteur SimGrid coordonant les VMs
       comm = test_any(comms)
     }
 
+Actor::barrier():
+  parked_vm = 0;
+  while (parked_vm < num_vm) {
+    fd = select();
+    msg = recv(fd);
+    switch (msg.type) {
+      case DEADLINE:
+        parked_vm++;
+        break;
+      case SEND:
+        B.push_back(VM, msg.data, msg.t);
+        break;
+    }
+  }
+
 VM::increment_de_TSC()
   if temps(TSC) <= deadline:
     update_TSC()
   barrier(fin_slot)
   while temps(TSC) >= deadline:
     pass
+
+VM::barrier()
+  i_am_at_deadline()
 
 VM::emission()
   # ajouter le nouveau message dans le buffer des événements futurs 
