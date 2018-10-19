@@ -123,9 +123,8 @@ VM::increment_de_TSC()
 VM::barrier()
   i_am_at_deadline()
 
-VM::emission()
-  # ajouter le nouveau message dans le buffer des événements futurs 
-  B += {(m_e,t_e)} les messages m_e qu’elles envoient et leur timestamp d’émission t_e]
+VM::emission(msg)
+  sending(current_time, msg)
   
 #+END_SRC
 - Présupposés sur le workload
