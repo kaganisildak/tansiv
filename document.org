@@ -65,20 +65,30 @@ def VM.trygo(target_time): # tente d'avancer jusqu'à la date indiquée
 double deadline=0
 barrier fin_slot(nb VM + 1) # pour simgrid
 B: vecteur d'événements en attente # TODO: c'est moins pénible en concurrent de le couper en un vecteur par VM
+comms: vecteur de réceptions en cours
 
-Boucle principale de SimGrid
+Boucle principale de l'acteur SimGrid coordonant les VMs
   time = 0
-  tant qu’il reste des processus actifs,
+  tant qu’il reste des VM actives,
+    next_reception_time = network_model.next_event()
     deadline = min (time + min_latency, next_reception_time)
-    si deadline == time # slot de durée nulle
-      on envoie le ou les message sortant de SimGrid dans la ou les vm de destination
-    sinon
-      barrier(fin_slot) # les VM ont avancé jusqu'à deadline
-      trier B par temps d’émission croissant
-      pour chaque (m_e, t_e) dans B
-        avancer SimGrid jusqu’à t_e et commencer la transmission de m_e
-      B = {}
-      avancer SimGrid jusqu’à deadline. Invariant: on n'a aucune réception entre time et deadline
+
+    barrier(fin_slot) # les VM ont avancé jusqu'à deadline
+
+    trier B par temps d’émission croissant
+    pour chaque (m_e, t_e) dans B
+      this_actor::sleep_until(t_e)
+      MB.put_async( m_e )->detach()
+      comms.push_back( MB.get_async() )
+    B = {}
+    this_actor::sleep_until(deadline). Invariant: on n'a aucune réception entre time et deadline
+
+    # on envoie les eventuels messages sortant de SimGrid dans les vm de destination
+    comm = test_any(comms)
+    while( comm != nullptr ) { # deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
+      comm.dest_vm.deliver_now( comm.data )
+      comm = test_any(comms)
+    }
 
 VM::increment_de_TSC()
   if temps(TSC) <= deadline:
