@@ -63,6 +63,7 @@ def VM.trygo(target_time): # tente d'avancer jusqu'à la date indiquée
   - min(current + latency, prochaine_reception)
 - Interface
   - A->VM
+    - init_time(t)
     - deliver_now(data)
     - go_to_deadline(t)
   - VM->A
@@ -127,12 +128,78 @@ VM::emission(msg)
   sending(current_time, msg)
   
 #+END_SRC
+- Implémentations
+  - Sur Qemu
+  - Sur processus : fake-vm
+    - Fonctions d'observation du temps wrappées par une lib
+      - vsg_gettimeofday()
+      - vsg_rdtsc()
+    - Communications wrappées par la lib
+      - vsg_send()
+      - vsg_recv_cb() (appelé en asynchrone sur réception d'un paquet)
+    - proxy entre l'acteur SimGrid et l'application
+      - maintient le décalage entre l'heure réelle (horloge, TSC) et l'heure
+        simulée
+      - suspend (resp. réveille) l'application avec SIGSTOP (resp. SIGCONT)
+      - fait le relais entre l'acteur et l'application pour les transmission
+        de paquets
 - Présupposés sur le workload
   - Pas d'impact sur des machines distantes sans payer le temps de latence
     - En particulier, pas de cancel de communication simgrid
   - Ca devrait mal se passer avec notre façon d'avancer NS3 (pas idempotent)
+
+*** Cas de test
+- micro-benchmark
+      - différentes fonctions d'observation du temps par
+        rapport aux communications réseau
+            - dans le cas fake-vm, un mode d'exécution dit "réel" rend les
+              implémentations wrappées identique aux implémentations natives
+                    - vsg_send() et vsg_recv_cb() communiquent directement
+                      avec les autres éléments de l'application
+            - horloge
+                  - RTC
+                  - TSC
+                        - Test1 avec fake-vm
+#+BEGIN_SRC
+Application:
+      int loop_count;
+      int quantity = NUM_TSC_TICKS;
+      start = my_rdtsc();
+      for (loop_count = 0; loop_count < MAX_INT; loop_count++) {
+            if (rdtsc() - start > NUM_TSC_TICKS)
+                  break;
+      }
+      print(loop_count);
+
+Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécution réelle
+#+END_SRC
+
+                  - autres timers
+            - comparaisons avec une horloge distante
+            - quantité de travail pouvant être faite le
+              temps d'un aller/retour réseau ou entre deux
+              réceptions à intervalle de temps prédictible
+                  - nombre d'itérations d'une boucle
+                  - ...
+- à partir d'un malware
+      - reprendre comportement réseau d'un malware récent
+            - Wannacry, ...
+      - écrire un programme simulant le comportement
+            - y inclure des fonctions d'observation du temps
+- dans tous les cas, comparer observations du temps du programme en exécution sur
+  un réseau réel avec observations en exécution sur VM+SimGrid
+  (vsg)
+
 *** TODO:
 - Chercher un moyen de faire des POC pour comparer les approches
+- Se documenter sur le comportement réseau d'un malware pour écrire un
+  modèle
+- Réfléchir sérieusement à comment gérer les communications au niveau
+  Ethernet d'une VM
+      - Encapsuleur / décapsuleur IP
+      - ARP
+            - chaque est application est toute seule derrière un routeur IP ?
+            - proxy ARP ?
 - Explorer l'idée laissée en attente de checkpoints à intervale de
   temps régulier.
   - La différence avec l'émulation désynchronisée est qu'on tente de
