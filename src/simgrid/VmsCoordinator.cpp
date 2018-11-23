@@ -2,7 +2,7 @@
 #include "VmsInterface.hpp"
 #include "vsg.h"
 #include <simgrid/kernel/resource/Model.hpp>
-//#include <simgrid/surf/network_interface.hpp>
+#include <limits.h>
 
 double min_latency = 10;
 
@@ -23,12 +23,25 @@ static int receiver(std::string mailbox_name){
    simgrid::s4u::Mailbox::by_name(mailbox_name)->get();
 }
 
+static double get_next_event(){
+  double time = simgrid::s4u::Engine::get_clock();
+  double next_event_time = std::numeric_limits<double>::max();
+  for(simgrid::kernel::resource::Model *model : all_existing_models){
+    double model_event = model->next_occuring_event(time);
+    if(model_event < next_event_time){
+      next_event_time = model_event;
+    }
+  }
+  return next_event_time;
+}
+
 static int vm_coordinator(){
 
   while(vms_interface.vmActive()){
 
-    double next_reception_time = simgrid::surf_network_model->next_event();
-    double deadline = std::min(simgrid::s4u::Engine::get_clock() + min_latency, next_reception_time);
+    double time = simgrid::s4u::Engine::get_clock();
+    double next_reception_time = get_next_event();
+    double deadline = std::min(time + min_latency, next_reception_time);
 
     std::vector<vsg::message> messages = vms_interface.goTo(deadline);
 
