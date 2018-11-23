@@ -4,18 +4,24 @@
 #include <simgrid/kernel/resource/Model.hpp>
 #include <limits.h>
 
-double min_latency = 10;
+XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
-vsg::VmsInterface vms_interface;
+double min_latency = 0.0001;
+
+vsg::VmsInterface *vms_interface;
 
 std::vector<simgrid::s4u::CommPtr> pending_comms;
 
 std::unordered_map<std::string, vsg::message> pending_messages;
 
 static int sender(std::string mailbox_name){
+
+  XBT_INFO("sending a message to host %s",simgrid::s4u::this_actor::get_host()->get_name().c_str());
+
   int msg_size = pending_messages[mailbox_name].packet_size;
   simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(new std::string(mailbox_name), msg_size);
   pending_comms.push_back(comm);
+  comm->wait();
 }
 
 
@@ -27,8 +33,8 @@ static double get_next_event(){
   double time = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::max();
   for(simgrid::kernel::resource::Model *model : all_existing_models){
-    double model_event = model->next_occuring_event(time);
-    if(model_event < next_event_time){
+    double model_event = time + model->next_occuring_event(time);
+    if(model_event < next_event_time && model_event > time){
       next_event_time = model_event;
     }
   }
@@ -37,26 +43,31 @@ static double get_next_event(){
 
 static int vm_coordinator(){
 
-  while(vms_interface.vmActive()){
+  while(vms_interface->vmActive()){
 
     double time = simgrid::s4u::Engine::get_clock();
     double next_reception_time = get_next_event();
     double deadline = std::min(time + min_latency, next_reception_time);
 
-    std::vector<vsg::message> messages = vms_interface.goTo(deadline);
+    //XBT_INFO("simulating to time %f",deadline);
+
+    std::vector<vsg::message> messages = vms_interface->goTo(deadline);
 
     for(vsg::message m : messages){
-      simgrid::s4u::this_actor::sleep_until(m.time);
-	  
-      std::string src_host = vms_interface.getHostOfVm(m.src);     
-      std::string dest_host = vms_interface.getHostOfVm(m.dest);
+      if(m.time > time){
+        XBT_INFO("sleeping to time %f",m.time);
+        simgrid::s4u::this_actor::sleep_until(m.time);
+      }	  
+      std::string src_host = vms_interface->getHostOfVm(m.src);     
+      std::string dest_host = vms_interface->getHostOfVm(m.dest);
       std::string comm_name = m.src + "_" + m.dest + "_" + std::to_string(m.time);
 	  
-	  pending_messages[comm_name] = m;
-	  
+      pending_messages[comm_name] = m;
+      XBT_INFO("creating actors");	  
       simgrid::s4u::Actor::create(comm_name + "_sender", simgrid::s4u::Host::by_name(src_host), sender, comm_name);
       simgrid::s4u::Actor::create(comm_name + "_receiver", simgrid::s4u::Host::by_name(dest_host), receiver, comm_name);
-    }
+      XBT_INFO("done creating actors");  
+  }
 
     simgrid::s4u::this_actor::sleep_until(deadline);
 
@@ -67,7 +78,7 @@ static int vm_coordinator(){
       pending_comms.erase(pending_comms.begin() + changed_pos);
       std::string comm_name = comm->get_mailbox()->get_name();
 
-      vms_interface.deliverMessage(pending_messages[comm_name]);
+      vms_interface->deliverMessage(pending_messages[comm_name]);
       pending_messages.erase(comm_name);
 
       changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
@@ -84,7 +95,7 @@ int main(int argc, char *argv[])
 
   e.load_platform(argv[1]);
   
-  vms_interface = vsg::VmsInterface();
+  vms_interface = new vsg::DummyVmsInterface();
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
 
