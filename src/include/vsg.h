@@ -28,10 +28,6 @@ struct vsg_packet {
 
 /* Message bodies */
 
-struct vsg_init_time {
-	struct vsg_time origin;
-};
-
 struct vsg_deliver_packet {
 	struct vsg_packet packet;
 };
@@ -52,7 +48,6 @@ struct vsg_send_packet {
 
 /* Sent as uint32_t */
 enum vsg_msg_from_actor_type {
-	VSG_INIT_TIME,
 	VSG_DELIVER_PACKET,
 	VSG_GO_TO_DEADLINE,
 };
