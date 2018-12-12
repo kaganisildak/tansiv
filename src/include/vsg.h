@@ -44,6 +44,7 @@ struct vsg_go_to_deadline {
 /* }; */
 
 struct vsg_send_packet {
+	struct vsg_time send_time;
 	struct vsg_packet packet;
 };
 

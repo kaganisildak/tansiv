@@ -143,6 +143,32 @@ VM::emission(msg)
       - suspend (resp. réveille) l'application avec SIGSTOP (resp. SIGCONT)
       - fait le relais entre l'acteur et l'application pour les transmission
         de paquets
+- Glue entre coordinateur sur SimGrid (VmsInterface) et proxy de la VM
+  - noms VMs = @IPv4 en string (16 bytes)
+  - VmsInterface utilise un fichier décrivant les VMs à lancer et leurs paramètres
+    - crée socket UNIX serveur
+    - fork+exec les VMs avec en paramètre obligatoire l'heure initiale
+      - dégager VSG_INIT_TIME des messages à échanger
+      - éventuellement nom de la VM en paramètre (si programme pas
+      spécifique à une @IP)
+  - les VMs se connectent à la socket de VmsInterface une fois initialisation
+    terminée et prête à s'exécuter
+    - = synchro avec VmsInterface
+  - contenu d'un packet reçu depuis une VM =
+    - nom destinataire (string sur 16 octets dont NUL final)
+    - suivi de payload de vsg_packet.size - 16 octets
+  - contenu d'un packet envoyé depuis l'acteur à une VM =
+    - nom source (string sur 16 octets dont NUL final)
+    - suivi de payload de vsg_packet.size - 16 octets
+  - notion VM active = socket UNIX avec VmsInterface pas fermée
+    - critère d'arrêt d'une VM à spécifier via ses paramètres
+      (indépendamment de VmsInterface)
+    - dans VmsInterface, choix à l'initialisation entre
+      - arrêt de l'ensemble des VMs dès que une s'arrête
+      - arrêt non synchronisé des VMs
+  - si simulation continue avec des VMs inactives
+    - VmsInterface jette les messages au moment où il devrait appeler
+      deliverMesssage
 - Présupposés sur le workload
   - Pas d'impact sur des machines distantes sans payer le temps de latence
     - En particulier, pas de cancel de communication simgrid
