@@ -11,14 +11,14 @@ struct message{
   double time;
   std::string src;
   std::string dest;
-  vsg_packet data;
+  char *data;
   int packet_size;
 };
 
 class VmsInterface{
 
   public:
-    VmsInterface(std::vector<std::string> vm_names);
+    VmsInterface(std::string executable_path, std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition = false);
     ~VmsInterface();
     bool vmActive();
     std::vector<message> goTo(double deadline); 
@@ -26,7 +26,15 @@ class VmsInterface{
     void deliverMessage(message m);
 
   private:
+    const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
+    bool all_vm_active;
+ 
     std::unordered_map<std::string, int> vm_sockets;
+    std::unordered_map<std::string,std::string> vm_deployments;    
+
+    double vmToSimgridTime(vsg_time vm_time);
+    vsg_time simgridToVmTime(double simgrid_time);
+    
 };
 
 }

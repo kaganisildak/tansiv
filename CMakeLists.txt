@@ -18,7 +18,6 @@ include_directories(src/include)
 
 set(SOURCE_FILES
         src/simgrid/VmsInterface.cpp
-        src/simgrid/VmsCoordinator.cpp
   )
 
 #enable_testing()
@@ -30,6 +29,7 @@ set(SOURCE_FILES
 # Install everything
 
 add_executable(vsg ${SOURCE_FILES} src/simgrid/VmsCoordinator.cpp)
+add_executable(dummy_vm src/simgrid/DummyVm.cpp)
 
 target_link_libraries(vsg ${SimGrid_LIBRARY})
 
