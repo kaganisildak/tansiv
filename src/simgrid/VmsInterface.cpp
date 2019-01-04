@@ -13,7 +13,8 @@ bool sortMessages(message i, message j){
 VmsInterface::VmsInterface(std::string executable_path, std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition){
 
   vm_deployments = host_of_vms;
-  all_vm_active = stop_condition;
+  a_vm_stopped = false; 
+  simulate_until_any_stop = stop_condition;
 
   int connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
   XBT_INFO("socket created");
@@ -77,7 +78,7 @@ VmsInterface::~VmsInterface(){
 }
 
 bool VmsInterface::vmActive(){
-    
+  return (!vm_sockets.empty() && !simulate_until_any_stop) || (a_vm_stopped && simulate_until_any_stop);
 }
 
 vsg_time VmsInterface::simgridToVmTime(double simgrid_time){
@@ -111,31 +112,42 @@ std::vector<message> VmsInterface::goTo(double deadline){
   
   // then, we pick up all the messages send by the VM until they reach the deadline
   XBT_INFO("getting the message send by the VMs");
-  for(auto it : vm_sockets){
+  auto it = vm_sockets.begin();
+  while(it != vm_sockets.end()){
     uint32_t vm_flag = 0;
+    std::string vm_name = it->first;
+    int vm_socket = it->second;
+
     while(true){
      
-      recv(it.second, &vm_flag, sizeof(uint32_t), MSG_WAITALL);
+      recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL);
      
       // we continue until the VM reach the deadline
       if(vm_flag == vsg_msg_to_actor_type::VSG_AT_DEADLINE){
+        it++;
         break;
-     
+    
+      }else if(vm_flag == vsg_msg_to_actor_type::VSG_END_OF_EXECUTION){
+        close(vm_socket);
+        it = vm_sockets.erase(it);
+        a_vm_stopped = true; 
+        break;
+
       }else if(vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET){
         
         struct vsg_send_packet packet = {0};
         // we first get the message size
-        recv(it.second, &packet, sizeof(vsg_packet), MSG_WAITALL);
+        recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
         // then we get the message itself
 	char dest[16];
         char data[packet.packet.size - 16];
-        recv(it.second, dest, sizeof(dest), MSG_WAITALL);
-        recv(it.second, data, sizeof(data), MSG_WAITALL);
+        recv(vm_socket, dest, sizeof(dest), MSG_WAITALL);
+        recv(vm_socket, data, sizeof(data), MSG_WAITALL);
         
         struct message m;
         m.packet_size = packet.packet.size - 16;
         m.data = data;
-        m.src = it.first;
+        m.src = vm_name;
         m.dest = dest;
         m.time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
@@ -158,16 +170,20 @@ std::string VmsInterface::getHostOfVm(std::string vm_name){
 void VmsInterface::deliverMessage(message m){
   
   XBT_INFO("delivering message from vm %s to vm %s", m.src, m.dest);
-  int socket = vm_sockets[m.dest];
-  uint32_t deliver_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
-  struct vsg_packet packet;
-  packet.size = m.packet_size;
+  if(vm_sockets.find(m.dest) != vm_sockets.end()){
+    int socket = vm_sockets[m.dest];
+    uint32_t deliver_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
+    struct vsg_packet packet;
+    packet.size = m.packet_size;
 
-  send(socket, &deliver_flag, sizeof(uint32_t), 0);
-  send(socket, &packet, sizeof(vsg_packet), 0);
-  send(socket, m.data, packet.size, 0);
+    send(socket, &deliver_flag, sizeof(uint32_t), 0);
+    send(socket, &packet, sizeof(vsg_packet), 0);
+    send(socket, m.data, packet.size, 0);
 
-  XBT_INFO("message from vm %s delivered to vm %s", m.src, m.dest);
+    XBT_INFO("message from vm %s delivered to vm %s", m.src, m.dest);
+  }else{
+    XBT_INFO("message from vm %s was not delivered to vm %s because it already stopped its execution");
+  }
 }
 
 }

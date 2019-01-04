@@ -28,6 +28,8 @@ class VmsInterface{
   private:
     const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
     bool all_vm_active;
+    bool a_vm_stopped;
+    bool simulate_until_any_stop;
  
     std::unordered_map<std::string, int> vm_sockets;
     std::unordered_map<std::string,std::string> vm_deployments;    
