@@ -7,9 +7,9 @@
 #include <sys/types.h>
 #include <math.h>
 
-int max_message = 20;
+int max_message = 1;
 struct vsg_time delay = {0, 222000};
-std::vector<std::string> dest_name = {"dummy_pong1","dummy_pong2"};
+std::vector<std::string> dest_name = {"dummy_pong000001","dummy_pong000002"};
 
 // true if time1 <= time2
 bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2){
@@ -37,6 +37,10 @@ struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2){
   return time;
 }
 
+double vmToSimgridTime(vsg_time vm_time){
+  return vm_time.seconds + (vm_time.useconds * 1e-6);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -52,8 +56,8 @@ int main(int argc, char *argv[])
   }
 
   int nb_message_send = 0;
-  struct vsg_time time;
-  struct vsg_time next_message_time;
+  struct vsg_time time = {0,0};
+  struct vsg_time next_message_time = {0,0};
 
   while(nb_message_send < max_message){
     
@@ -66,16 +70,15 @@ int main(int argc, char *argv[])
       recv(vm_socket, &deadline, sizeof(vsg_time), MSG_WAITALL);
 
       while(vsg_time_leq(next_message_time, deadline)){
-        
-        
+          
         int dest_id = nb_message_send % dest_name.size();
         std::string message = dest_name[dest_id] + "ping_" + std::to_string(nb_message_send);
-        vsg_packet packet = {sizeof(message)};
+        vsg_send_packet packet = {next_message_time, sizeof(message)};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
-        printf("sending message %s to %s", message, dest_name[dest_id].c_str());
+        printf("sending message %s to %s", message.c_str(), dest_name[dest_id].c_str());
         send(vm_socket, &send_packet_flag, sizeof(uint32_t), 0);
-        send(vm_socket, &packet, sizeof(vsg_packet), 0);
+        send(vm_socket, &packet, sizeof(packet), 0);
         send(vm_socket, &message, sizeof(message), 0);
 
         nb_message_send ++;
@@ -83,17 +86,17 @@ int main(int argc, char *argv[])
       }
 
       time = deadline;
-      printf("at deadline");
+      printf("dummy ping at deadline %f",vmToSimgridTime(deadline));
       uint32_t at_deadline = vsg_msg_to_actor_type::VSG_AT_DEADLINE;
       send(vm_socket, &at_deadline, sizeof(uint32_t), 0);
 
     }else if(master_order ==  vsg_msg_from_actor_type::VSG_DELIVER_PACKET){
       
-      vsg_packet packet;
+      vsg_packet packet = {0};
       recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
       char message[packet.size] = "";
       recv(vm_socket, message, sizeof(message), MSG_WAITALL);
-      printf("received message : %s",message); 
+      //printf("dummy_ping received message : %s", message); 
 
     }else{
       printf("error unexpected message received %i",master_order);
@@ -102,7 +105,7 @@ int main(int argc, char *argv[])
 
   uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
   send(vm_socket, &end_of_execution, sizeof(uint32_t), 0);
-  shutdown(vm_socket,2);
+  //shutdown(vm_socket,SHUT_RD);
 
   return 0;
 }

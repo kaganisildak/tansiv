@@ -49,9 +49,10 @@ VmsInterface::VmsInterface(std::string executable_path, std::unordered_map<std::
         break;
       case 0:
         close(connection_socket);
-        if(execlp((executable_path+vm_name).c_str(), vm_name.c_str(), CONNECTION_SOCKET_NAME)!=0)
+        if(execlp((executable_path+vm_name).c_str(), vm_name.c_str(), CONNECTION_SOCKET_NAME)!=0){
           std::perror("unable to launch VM");
-        exit(666);
+          exit(666);
+        }
         break;
       default:
         break;
@@ -78,7 +79,7 @@ VmsInterface::~VmsInterface(){
 }
 
 bool VmsInterface::vmActive(){
-  return (!vm_sockets.empty() && !simulate_until_any_stop) || (a_vm_stopped && simulate_until_any_stop);
+  return (!vm_sockets.empty() && !simulate_until_any_stop) || (!a_vm_stopped && simulate_until_any_stop);
 }
 
 vsg_time VmsInterface::simgridToVmTime(double simgrid_time){
@@ -87,7 +88,7 @@ vsg_time VmsInterface::simgridToVmTime(double simgrid_time){
   // the simgrid time correspond to a double in second, so the number of seconds is the integer part
   vm_time.seconds = (uint64_t) (std::floor(simgrid_time));
   // and the number of usecond is the decimal number scaled accordingly
-  vm_time.useconds = (uint64_t) (std::floor((simgrid_time - vm_time.seconds) * 1e6 ));
+  vm_time.useconds = (uint64_t) (std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6 ));
 
   return vm_time;
 }
@@ -101,7 +102,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
   std::vector<message> messages;
 
   // first, we ask all the VMs to go to deadline
-  XBT_INFO("asking all the VMs to go to time %f", deadline);
+  XBT_INFO("asking all the VMs to go to time %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
   uint32_t goto_flag = vsg_msg_from_actor_type::VSG_GO_TO_DEADLINE;
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
@@ -131,13 +132,19 @@ std::vector<message> VmsInterface::goTo(double deadline){
         close(vm_socket);
         it = vm_sockets.erase(it);
         a_vm_stopped = true; 
+        XBT_INFO("the vm %s stopped its execution",vm_name);
         break;
 
       }else if(vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET){
         
-        struct vsg_send_packet packet = {0};
+	XBT_INFO("getting a message from VM %s",vm_name.c_str());
+
+        struct vsg_send_packet packet = {0,0};
         // we first get the message size
-        recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
+        recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
+        if(packet.packet.size < 16){
+          std::perror("error in packet size!");
+        }
         // then we get the message itself
 	char dest[16];
         char data[packet.packet.size - 16];
@@ -151,7 +158,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
         m.dest = dest;
         m.time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
-
+	
       }else{
         std::perror("unknown message received from VM");
         exit(666);
@@ -173,7 +180,7 @@ void VmsInterface::deliverMessage(message m){
   if(vm_sockets.find(m.dest) != vm_sockets.end()){
     int socket = vm_sockets[m.dest];
     uint32_t deliver_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
-    struct vsg_packet packet;
+    struct vsg_packet packet = {0};
     packet.size = m.packet_size;
 
     send(socket, &deliver_flag, sizeof(uint32_t), 0);

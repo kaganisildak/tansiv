@@ -96,11 +96,11 @@ int main(int argc, char *argv[])
   e.load_platform(argv[1]);
 
   std::unordered_map<std::string, std::string> host_deployments;
-  for(int i=1;i<argc;i=i+2){
+  for(int i=2;i<argc;i=i+2){
     host_deployments[argv[i]] = argv[i+1];
   }
   
-  vms_interface = new vsg::VmsInterface("/home/mecsyco/Documents/2018-vsg/", host_deployments);
+  vms_interface = new vsg::VmsInterface("/home/mecsyco/Documents/2018-vsg/", host_deployments, true);
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
 
