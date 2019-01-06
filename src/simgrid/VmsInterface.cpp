@@ -66,7 +66,7 @@ VmsInterface::VmsInterface(std::string executable_path, std::unordered_map<std::
       std::perror("unable to accept connection on socket");
 
     vm_sockets[vm_name] = vm_socket;
-    XBT_INFO("connection for VM %s established",vm_name.c_str());
+    XBT_INFO("connection for VM %s established", vm_name.c_str());
   }
 
   close(connection_socket);
@@ -132,7 +132,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
         close(vm_socket);
         it = vm_sockets.erase(it);
         a_vm_stopped = true; 
-        XBT_INFO("the vm %s stopped its execution",vm_name);
+        XBT_INFO("the vm %s stopped its execution",vm_name.c_str());
         break;
 
       }else if(vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET){
@@ -144,18 +144,19 @@ std::vector<message> VmsInterface::goTo(double deadline){
         recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
         if(packet.packet.size < 16){
           std::perror("error in packet size!");
+          exit(666);
         }
-        // then we get the message itself
-	char dest[16];
-        char data[packet.packet.size - 16];
+        // then we get the message itself (nb: we use sizeof(vm_name) because we assume all the vm id to have the same size
+	char dest[vm_name.length()];
+        char data[packet.packet.size - vm_name.length()];
         recv(vm_socket, dest, sizeof(dest), MSG_WAITALL);
         recv(vm_socket, data, sizeof(data), MSG_WAITALL);
         
         struct message m;
-        m.packet_size = packet.packet.size - 16;
-        m.data = data;
+        m.packet_size = sizeof(data);
+        m.data.append(data);
         m.src = vm_name;
-        m.dest = dest;
+        m.dest.append(dest);
         m.time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
 	
@@ -171,12 +172,19 @@ std::vector<message> VmsInterface::goTo(double deadline){
 }
 
 std::string VmsInterface::getHostOfVm(std::string vm_name){
+  if(vm_deployments.find(vm_name)==vm_deployments.end()){
+    for(auto it : vm_deployments){
+       XBT_INFO("host of vm [%s] is [%s] (size = %lu)", it.first.c_str(), it.second.c_str(), sizeof(it.first));
+    }
+    XBT_ERROR("unknown host for vm [%s] (size(%lu)) !!!", vm_name.c_str(), sizeof(vm_name));
+    exit(666);
+  }
   return vm_deployments[vm_name];  
 }
 
 void VmsInterface::deliverMessage(message m){
   
-  XBT_INFO("delivering message from vm %s to vm %s", m.src, m.dest);
+  XBT_INFO("delivering message %s of size %i from vm %s to vm %s", m.data.c_str(), m.packet_size, m.src.c_str(), m.dest.c_str());
   if(vm_sockets.find(m.dest) != vm_sockets.end()){
     int socket = vm_sockets[m.dest];
     uint32_t deliver_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
@@ -184,12 +192,12 @@ void VmsInterface::deliverMessage(message m){
     packet.size = m.packet_size;
 
     send(socket, &deliver_flag, sizeof(uint32_t), 0);
-    send(socket, &packet, sizeof(vsg_packet), 0);
-    send(socket, m.data, packet.size, 0);
+    send(socket, &packet, sizeof(packet), 0);
+    send(socket, m.data.c_str(), packet.size, 0);
 
-    XBT_INFO("message from vm %s delivered to vm %s", m.src, m.dest);
+    XBT_INFO("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   }else{
-    XBT_INFO("message from vm %s was not delivered to vm %s because it already stopped its execution");
+    XBT_INFO("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(), m.dest.c_str());
   }
 }
 

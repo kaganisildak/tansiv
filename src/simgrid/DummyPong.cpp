@@ -10,6 +10,8 @@
 
 struct vsg_time delay = {0, 111200};
 std::string dest_name = "dummy_ping000000";
+int max_message = 2;
+
 
 // true if time1 <= time2
 bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2){
@@ -53,9 +55,9 @@ int main(int argc, char *argv[])
 
   int nb_message_send = 0;
   struct vsg_time time = {0,0};
-  struct vsg_time next_message_time = {0,0};
+  struct vsg_time next_message_time = {std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max()};
 
-  while(true){
+  while(nb_message_send < max_message){
     
     uint32_t master_order = 0;
     recv(vm_socket, &master_order, sizeof(uint32_t), MSG_WAITALL);
@@ -67,14 +69,17 @@ int main(int argc, char *argv[])
 
       while(vsg_time_leq(next_message_time, deadline)){
         
-        std::string message = dest_name + "pong_" + std::to_string(nb_message_send);
-        vsg_send_packet packet = {next_message_time, sizeof(message)};
+        std::string message = "pong_" + std::to_string(nb_message_send);
+        uint64_t message_size = message.length() + dest_name.length();
+        vsg_send_packet packet = {next_message_time, message_size};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
         send(vm_socket, &send_packet_flag, sizeof(uint32_t), 0);
         send(vm_socket, &packet, sizeof(packet), 0);
-        send(vm_socket, &message, sizeof(message), 0);
+        send(vm_socket, dest_name.c_str(), dest_name.length(), 0);
+        send(vm_socket, message.c_str(), message.length(), 0);
         printf("sending message to dummy_ping");
+        nb_message_send++;
 
         next_message_time.seconds = std::numeric_limits<uint64_t>::max();
         next_message_time.useconds =  std::numeric_limits<uint64_t>::max();
@@ -88,20 +93,21 @@ int main(int argc, char *argv[])
     }else if(master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET){
       
       vsg_packet packet = {0};
-      recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
+      recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
       char message[packet.size] = "";
       recv(vm_socket, message, sizeof(message), MSG_WAITALL);
       next_message_time = vsg_time_add(time, delay);
-      printf("dummy_pong received message : %s", message); 
+      //printf("dummy_pong received message : %s", message); 
 
     }else{
       printf("error unexpected message received %i",master_order);
     }
   }
 
+  printf("done, see you");
   uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
   send(vm_socket, &end_of_execution, sizeof(uint32_t), 0);
-  shutdown(vm_socket,2);
+  //shutdown(vm_socket,2);
 
   return 0;
 }

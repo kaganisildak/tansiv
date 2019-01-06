@@ -16,17 +16,20 @@ std::unordered_map<std::string, vsg::message> pending_messages;
 
 static int sender(std::string mailbox_name){
 
-  XBT_INFO("sending a message to host %s",simgrid::s4u::this_actor::get_host()->get_name().c_str());
+  XBT_INFO("sending a message from host %s",simgrid::s4u::this_actor::get_host()->get_name().c_str());
 
   int msg_size = pending_messages[mailbox_name].packet_size;
   simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(new std::string(mailbox_name), msg_size);
   pending_comms.push_back(comm);
   comm->wait();
+  XBT_INFO("message send");
 }
 
 
 static int receiver(std::string mailbox_name){
-   simgrid::s4u::Mailbox::by_name(mailbox_name)->get();
+  XBT_INFO("receiving a message from host %s", simgrid::s4u::this_actor::get_host()->get_name().c_str());
+  simgrid::s4u::Mailbox::by_name(mailbox_name)->get();
+  XBT_INFO("message received");
 }
 
 static double get_next_event(){
@@ -63,7 +66,7 @@ static int vm_coordinator(){
       std::string comm_name = m.src + "_" + m.dest + "_" + std::to_string(m.time);
 	  
       pending_messages[comm_name] = m;
-      XBT_INFO("creating actors");	  
+      XBT_INFO("creating actors to exchange data from vm %s to vm %s", m.src.c_str(), m.dest.c_str());	  
       simgrid::s4u::Actor::create(comm_name + "_sender", simgrid::s4u::Host::by_name(src_host), sender, comm_name);
       simgrid::s4u::Actor::create(comm_name + "_receiver", simgrid::s4u::Host::by_name(dest_host), receiver, comm_name);
       XBT_INFO("done creating actors");  
@@ -83,7 +86,8 @@ static int vm_coordinator(){
 
       changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
     }
-  } 
+  }
+  XBT_INFO("end of simulation"); 
 }
 
 
@@ -100,7 +104,7 @@ int main(int argc, char *argv[])
     host_deployments[argv[i]] = argv[i+1];
   }
   
-  vms_interface = new vsg::VmsInterface("/home/mecsyco/Documents/2018-vsg/", host_deployments, true);
+  vms_interface = new vsg::VmsInterface("/home/mecsyco/Documents/2018-vsg/", host_deployments, false);
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
 

@@ -11,7 +11,7 @@ struct message{
   double time;
   std::string src;
   std::string dest;
-  char *data;
+  std::string data;
   int packet_size;
 };
 

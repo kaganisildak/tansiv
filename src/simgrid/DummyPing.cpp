@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <math.h>
 
-int max_message = 1;
+int max_message = 4;
 struct vsg_time delay = {0, 222000};
 std::vector<std::string> dest_name = {"dummy_pong000001","dummy_pong000002"};
 
@@ -72,14 +72,17 @@ int main(int argc, char *argv[])
       while(vsg_time_leq(next_message_time, deadline)){
           
         int dest_id = nb_message_send % dest_name.size();
-        std::string message = dest_name[dest_id] + "ping_" + std::to_string(nb_message_send);
-        vsg_send_packet packet = {next_message_time, sizeof(message)};
+        std::string message = "ping_" + std::to_string(nb_message_send);
+        std::string dest = dest_name[dest_id];
+        uint64_t message_size = message.length() + dest.length();
+        vsg_send_packet packet = {next_message_time, message_size};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
         printf("sending message %s to %s", message.c_str(), dest_name[dest_id].c_str());
-        send(vm_socket, &send_packet_flag, sizeof(uint32_t), 0);
+        send(vm_socket, &send_packet_flag, sizeof(send_packet_flag), 0);
         send(vm_socket, &packet, sizeof(packet), 0);
-        send(vm_socket, &message, sizeof(message), 0);
+        send(vm_socket, dest.c_str(), dest.length(), 0);
+        send(vm_socket, message.c_str(), message.length(), 0);
 
         nb_message_send ++;
         next_message_time = vsg_time_add(next_message_time, delay);
@@ -103,6 +106,7 @@ int main(int argc, char *argv[])
     }
   }
 
+  printf("done, see you");
   uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
   send(vm_socket, &end_of_execution, sizeof(uint32_t), 0);
   //shutdown(vm_socket,SHUT_RD);
