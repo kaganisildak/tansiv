@@ -52,7 +52,7 @@ static int vm_coordinator(){
     double next_reception_time = get_next_event();
     double deadline = std::min(time + min_latency, next_reception_time);
 
-    //XBT_INFO("simulating to time %f",deadline);
+    XBT_DEBUG("simulating to time %f",deadline);
 
     std::vector<vsg::message> messages = vms_interface->goTo(deadline);
 
@@ -70,22 +70,22 @@ static int vm_coordinator(){
       simgrid::s4u::Actor::create(comm_name + "_sender", simgrid::s4u::Host::by_name(src_host), sender, comm_name);
       simgrid::s4u::Actor::create(comm_name + "_receiver", simgrid::s4u::Host::by_name(dest_host), receiver, comm_name);
       XBT_INFO("done creating actors");  
-  }
+   }
 
-    simgrid::s4u::this_actor::sleep_until(deadline);
+   simgrid::s4u::this_actor::sleep_until(deadline);
 
-    int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+   int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
 
-    while( changed_pos >= 0 ) { //deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
-      simgrid::s4u::CommPtr comm = pending_comms[changed_pos];
-      pending_comms.erase(pending_comms.begin() + changed_pos);
-      std::string comm_name = comm->get_mailbox()->get_name();
+   while( changed_pos >= 0 ) { //deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
+     simgrid::s4u::CommPtr comm = pending_comms[changed_pos];
+     pending_comms.erase(pending_comms.begin() + changed_pos);
+     std::string comm_name = comm->get_mailbox()->get_name();
 
-      vms_interface->deliverMessage(pending_messages[comm_name]);
-      pending_messages.erase(comm_name);
+     vms_interface->deliverMessage(pending_messages[comm_name]);
+     pending_messages.erase(comm_name);
 
-      changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
-    }
+     changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+   }
   }
   XBT_INFO("end of simulation"); 
 }

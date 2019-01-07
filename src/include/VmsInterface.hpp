@@ -12,7 +12,7 @@ struct message{
   std::string src;
   std::string dest;
   std::string data;
-  int packet_size;
+  uint32_t packet_size;
 };
 
 class VmsInterface{
@@ -36,7 +36,7 @@ class VmsInterface{
 
     double vmToSimgridTime(vsg_time vm_time);
     vsg_time simgridToVmTime(double simgrid_time);
-    
+    void closeAndExit(int connection_socket);   
 };
 
 }
