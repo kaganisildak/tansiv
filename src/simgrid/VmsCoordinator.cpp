@@ -14,7 +14,7 @@ std::vector<simgrid::s4u::CommPtr> pending_comms;
 
 std::unordered_map<std::string, vsg::message> pending_messages;
 
-static int sender(std::string mailbox_name){
+static void sender(std::string mailbox_name){
 
   XBT_INFO("sending a message from host %s",simgrid::s4u::this_actor::get_host()->get_name().c_str());
 
@@ -26,7 +26,7 @@ static int sender(std::string mailbox_name){
 }
 
 
-static int receiver(std::string mailbox_name){
+static void receiver(std::string mailbox_name){
   XBT_INFO("receiving a message from host %s", simgrid::s4u::this_actor::get_host()->get_name().c_str());
   simgrid::s4u::Mailbox::by_name(mailbox_name)->get();
   XBT_INFO("message received");
@@ -44,7 +44,7 @@ static double get_next_event(){
   return next_event_time;
 }
 
-static int vm_coordinator(){
+static void vm_coordinator(){
 
   while(vms_interface->vmActive()){
 
@@ -57,13 +57,13 @@ static int vm_coordinator(){
     std::vector<vsg::message> messages = vms_interface->goTo(deadline);
 
     for(vsg::message m : messages){
-      if(m.time > time){
-        XBT_INFO("sleeping to time %f",m.time);
-        simgrid::s4u::this_actor::sleep_until(m.time);
+      if(m.sent_time > time){
+        XBT_INFO("sleeping to time %f",m.sent_time);
+        simgrid::s4u::this_actor::sleep_until(m.sent_time);
       }	  
       std::string src_host = vms_interface->getHostOfVm(m.src);     
       std::string dest_host = vms_interface->getHostOfVm(m.dest);
-      std::string comm_name = m.src + "_" + m.dest + "_" + std::to_string(m.time);
+      std::string comm_name = m.src + "_" + m.dest + "_" + std::to_string(m.sent_time);
 	  
       pending_messages[comm_name] = m;
       XBT_INFO("creating actors to exchange data from vm %s to vm %s", m.src.c_str(), m.dest.c_str());	  

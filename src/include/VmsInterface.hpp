@@ -4,11 +4,12 @@
 #include <unordered_map>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <cmath>
 
 namespace vsg{
 
 struct message{
-  double time;
+  double sent_time;
   std::string src;
   std::string dest;
   std::string data;

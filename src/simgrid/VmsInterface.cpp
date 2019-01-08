@@ -7,7 +7,7 @@ XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface
 namespace vsg{
 
 bool sortMessages(message i, message j){
-  return i.time < i.time;
+  return i.sent_time < j.sent_time;
 }
 
 VmsInterface::VmsInterface(std::string executable_path, std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition){
@@ -167,7 +167,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
         m.data.append(data);
         m.src = vm_name;
         m.dest.append(dest);
-        m.time = vmToSimgridTime(packet.send_time);
+        m.sent_time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
 	
       }else{
