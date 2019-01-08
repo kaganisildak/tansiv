@@ -6,6 +6,7 @@
 #include <sys/un.h>
 #include <sys/types.h>
 #include <math.h>
+#include <unistd.h>
 
 int max_message = 4;
 struct vsg_time delay = {0, 222000};
@@ -44,7 +45,7 @@ double vmToSimgridTime(vsg_time vm_time){
 
 int main(int argc, char *argv[])
 {
-  int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 0);  
+  int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 0); 
   
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
@@ -116,7 +117,8 @@ int main(int argc, char *argv[])
   //printf("done, see you");
   uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
   send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
-  //shutdown(vm_socket,SHUT_RD);
+  
+  close(vm_socket);
 
   return 0;
 }

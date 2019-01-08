@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <math.h>
 #include <limits>
+#include <unistd.h>
 
 struct vsg_time delay = {0, 11200};
 std::string dest_name = "dummy_ping000000";
@@ -90,6 +91,7 @@ int main(int argc, char *argv[])
         if(nb_message_send >= max_message){
           uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
           send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
+
           break;
         }
         
@@ -116,7 +118,8 @@ int main(int argc, char *argv[])
   //printf("done, see you");
   uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
   send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
-  //shutdown(vm_socket,2);
+
+  close(vm_socket);
 
   return 0;
 }

@@ -19,12 +19,13 @@ struct message{
 class VmsInterface{
 
   public:
-    VmsInterface(std::string executable_path, std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition = false);
+    VmsInterface(std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition = false);
     ~VmsInterface();
     bool vmActive();
     std::vector<message> goTo(double deadline); 
     std::string getHostOfVm(std::string vm_name);
     void deliverMessage(message m);
+    void endSimulation();
 
   private:
     const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";

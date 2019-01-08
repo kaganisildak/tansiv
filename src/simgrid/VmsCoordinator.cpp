@@ -6,13 +6,36 @@
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
-double min_latency = 0.0001;
+
+double min_latency = 0;
 
 vsg::VmsInterface *vms_interface;
 
 std::vector<simgrid::s4u::CommPtr> pending_comms;
 
 std::unordered_map<std::string, vsg::message> pending_messages;
+
+
+static void compute_min_latency(){
+
+  min_latency = std::numeric_limits<double>::max();
+  
+  for(simgrid::s4u::Host *sender : simgrid::s4u::Engine::get_instance()->get_all_hosts()){
+    for(simgrid::s4u::Host *receiver : simgrid::s4u::Engine::get_instance()->get_all_hosts()){
+      if(sender != receiver){
+        std::vector<simgrid::s4u::Link*> links;
+        double latency = 0;
+        sender->route_to(receiver, links, &latency);
+        if(latency < min_latency)
+          min_latency = latency;
+      }
+    }
+  }
+  
+  xbt_assert(min_latency > 0, "error with the platform file : the minimum latency between host is %f  <= 0", min_latency);
+  XBT_INFO("the minimum latency on the network is %f sec",min_latency); 
+}
+
 
 static void sender(std::string mailbox_name){
 
@@ -22,7 +45,7 @@ static void sender(std::string mailbox_name){
   simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(new std::string(mailbox_name), msg_size);
   pending_comms.push_back(comm);
   comm->wait();
-  XBT_INFO("message send");
+  XBT_INFO("message sent");
 }
 
 
@@ -58,7 +81,7 @@ static void vm_coordinator(){
 
     for(vsg::message m : messages){
       if(m.sent_time > time){
-        XBT_INFO("sleeping to time %f",m.sent_time);
+        XBT_DEBUG("sleeping to time %f",m.sent_time);
         simgrid::s4u::this_actor::sleep_until(m.sent_time);
       }	  
       std::string src_host = vms_interface->getHostOfVm(m.src);     
@@ -66,10 +89,9 @@ static void vm_coordinator(){
       std::string comm_name = m.src + "_" + m.dest + "_" + std::to_string(m.sent_time);
 	  
       pending_messages[comm_name] = m;
-      XBT_INFO("creating actors to exchange data from vm %s to vm %s", m.src.c_str(), m.dest.c_str());	  
+      XBT_INFO("exchanging data [%s] from vm %s to vm %s", m.data.c_str(), m.src.c_str(), m.dest.c_str());	  
       simgrid::s4u::Actor::create(comm_name + "_sender", simgrid::s4u::Host::by_name(src_host), sender, comm_name);
-      simgrid::s4u::Actor::create(comm_name + "_receiver", simgrid::s4u::Host::by_name(dest_host), receiver, comm_name);
-      XBT_INFO("done creating actors");  
+      simgrid::s4u::Actor::create(comm_name + "_receiver", simgrid::s4u::Host::by_name(dest_host), receiver, comm_name);  
    }
 
    simgrid::s4u::this_actor::sleep_until(deadline);
@@ -81,12 +103,16 @@ static void vm_coordinator(){
      pending_comms.erase(pending_comms.begin() + changed_pos);
      std::string comm_name = comm->get_mailbox()->get_name();
 
-     vms_interface->deliverMessage(pending_messages[comm_name]);
+     vsg::message m = pending_messages[comm_name];
+     XBT_INFO("delivering data [%s] from vm [%s] to vm [%s]", m.data.c_str(), m.src.c_str(), m.dest.c_str());
+     vms_interface->deliverMessage(m);
      pending_messages.erase(comm_name);
 
      changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
    }
   }
+  
+  vms_interface->endSimulation();
   XBT_INFO("end of simulation"); 
 }
 
@@ -99,12 +125,14 @@ int main(int argc, char *argv[])
 
   e.load_platform(argv[1]);
 
+  compute_min_latency();  
+
   std::unordered_map<std::string, std::string> host_deployments;
   for(int i=2;i<argc;i=i+2){
     host_deployments[argv[i]] = argv[i+1];
   }
   
-  vms_interface = new vsg::VmsInterface("/home/mecsyco/Documents/2018-vsg/", host_deployments, false);
+  vms_interface = new vsg::VmsInterface(host_deployments, false);
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
 
