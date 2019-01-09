@@ -17,9 +17,7 @@ VmsInterface::VmsInterface(std::unordered_map<std::string,std::string> host_of_v
   simulate_until_any_stop = stop_at_any_stop;
 
   int connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
-  int option = 1;
-  setsockopt(connection_socket, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
-  XBT_INFO("socket created");
+   XBT_INFO("socket created");
 
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
@@ -151,7 +149,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
         break;
     
       }else if(vm_flag == vsg_msg_to_actor_type::VSG_END_OF_EXECUTION){
-        XBT_INFO("the vm %s stopped its execution",vm_name.c_str());
+        XBT_INFO("the vm %s stop its execution",vm_name.c_str());
         shutdown(vm_socket, SHUT_RDWR);
         close(vm_socket);
         it = vm_sockets.erase(it);
@@ -164,9 +162,12 @@ std::vector<message> VmsInterface::goTo(double deadline){
         struct vsg_send_packet packet = {0,0};
         // we first get the message size
         recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
-        // then we get the message itself (nb: we use vm_name.length() because we assume all the vm id to have the same size)
+        // then we get the message itself and we split
+        //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
+        //   - and the data transfer, that correspond to the data actually send through the (simulated) network
+        // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id to have the same size)
         char dest[vm_name.length()+1];
-        char data[packet.packet.size];
+        char data[packet.packet.size - vm_name.length()];
         if(recv(vm_socket, dest, vm_name.length(), MSG_WAITALL) <= 0){
           XBT_ERROR("can not receive the detination of the message from VM %s. The socket may be closed",vm_name.c_str());
           closeAndExit(-1);
@@ -180,6 +181,8 @@ std::vector<message> VmsInterface::goTo(double deadline){
         XBT_DEBUG("got the message [%s] (size %lu) from VM [%s] to VM [%s]",data, sizeof(data), vm_name.c_str(), dest);
         
         struct message m;
+        // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network. 
+        //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
         m.packet_size = sizeof(data);
         m.data.append(data);
         m.src = vm_name;
@@ -213,18 +216,17 @@ void VmsInterface::deliverMessage(message m){
   if(vm_sockets.find(m.dest) != vm_sockets.end()){
     int socket = vm_sockets[m.dest];
     uint32_t deliver_flag = vsg_msg_from_actor_type::VSG_DELIVER_PACKET;
-    struct vsg_packet packet = {m.packet_size};
+    std::string data = m.src + m.data;
+    struct vsg_packet packet = {data.length()};
 
     send(socket, &deliver_flag, sizeof(deliver_flag), 0);
     send(socket, &packet, sizeof(packet), 0);
-    send(socket, m.data.c_str(), packet.size, 0);
+    send(socket, data.c_str(), data.length(), 0);
 
     XBT_DEBUG("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   }else{
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(), m.dest.c_str());
   }
 }
-
-
 
 }

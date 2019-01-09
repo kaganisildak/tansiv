@@ -76,15 +76,15 @@ int main(int argc, char *argv[])
       while(vsg_time_leq(next_message_time, deadline)){
           
         int dest_id = nb_message_send % dest_name.size();
-        std::string message = "ping_" + std::to_string(nb_message_send);
         std::string dest = dest_name[dest_id];
+        std::string message = dest + "ping_" + std::to_string(nb_message_send);
         vsg_send_packet packet = {next_message_time, message.length()};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
         //printf("sending message %s to %s", message.c_str(), dest.c_str());
         send(vm_socket, &send_packet_flag, sizeof(send_packet_flag), 0);
         send(vm_socket, &packet, sizeof(packet), 0);
-        send(vm_socket, dest.c_str(), dest.length(), 0);
+        //send(vm_socket, dest.c_str(), dest.length(), 0);
         send(vm_socket, message.c_str(), message.length(), 0);
 
         nb_message_send ++;
