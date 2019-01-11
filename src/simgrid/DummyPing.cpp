@@ -10,7 +10,7 @@
 
 int max_message = 4;
 struct vsg_time delay = {0, 222000};
-std::vector<std::string> dest_name = {"dummy_pong000001","dummy_pong000002"};
+std::vector<std::string> dest_name;
 
 // true if time1 <= time2
 bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2){
@@ -45,6 +45,11 @@ double vmToSimgridTime(vsg_time vm_time){
 
 int main(int argc, char *argv[])
 {
+
+  for(int i=1;i<argc;i++){
+    dest_name.push_back(std::string(argv[i]));
+  }
+
   int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 0); 
   
   struct sockaddr_un address;

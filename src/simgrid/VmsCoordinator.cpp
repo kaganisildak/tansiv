@@ -62,6 +62,7 @@ static void sender(std::string mailbox_name, vsg::message m){
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
   comm->wait();
+  // for the receiver to be able to get the message
   simgrid::s4u::this_actor::yield();
 }
 
@@ -74,8 +75,8 @@ static void receiver(std::vector<std::string> args){
   std::string mailbox_name = simgrid::s4u::this_actor::get_host()->get_name();
   // we separate the first two arguments, that correspond respectively the VM ID and the executable name, to the other ones, that correspond to the arguments used to launch the VM executable.
   xbt_assert(args.size()>=3,"need at least two arguments to launch a %s: (1) the VM ID, and (2) the executable name. You should fix your deployment file.", vsg_vm_name.c_str());
-  std::vector<std::string> fork_command(args.size()-3);
-  std::copy(args.begin()+3,args.end(),fork_command.begin());
+  std::vector<std::string> fork_command(args.size()-2);
+  std::copy(args.begin()+2,args.end(),fork_command.begin());
   
   // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start AFTER all the registrations.
   vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);

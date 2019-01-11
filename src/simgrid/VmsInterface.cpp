@@ -67,11 +67,11 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
 
   std::vector<char *> command; 
   std::string exec_line = file;
-  for(std::string arg : argv){ 
-    command.push_back(const_cast<char *>(arg.c_str())); 
+  for(auto const& arg : argv){ 
+    command.emplace_back(const_cast<char *>(arg.c_str())); 
     exec_line += " " + arg;
   } 
-  command.push_back(NULL);
+  command.push_back(nullptr);
  
   XBT_INFO("fork and exec of [%s]", exec_line.c_str() );
 

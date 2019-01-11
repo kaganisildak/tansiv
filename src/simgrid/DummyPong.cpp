@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 struct vsg_time delay = {0, 11200};
-std::string dest_name = "dummy_ping000000";
+std::string dest_name = "";
 int max_message = 2;
 
 
@@ -43,6 +43,8 @@ struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2){
 
 int main(int argc, char *argv[])
 {
+  int dest_size = std::atoi(argv[1]);
+
   int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 0);  
   
   struct sockaddr_un address;
@@ -105,8 +107,15 @@ int main(int argc, char *argv[])
       //printf("dummy_pong is receiving a message...");
       vsg_packet packet = {0};
       recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
-      char message[packet.size+1];
-      recv(vm_socket, message, packet.size, MSG_WAITALL);
+      char message[packet.size - dest_size + 1];
+      char dest[dest_size+1];
+      recv(vm_socket, dest, dest_size, MSG_WAITALL);
+      recv(vm_socket, message, packet.size - dest_size, MSG_WAITALL);
+      message[packet.size - dest_size] = '\0';    
+      
+      dest_name = "";
+      dest[dest_size] = '\0';
+      dest_name.append(dest);
       next_message_time = vsg_time_add(time, delay);
       //printf("dummy_pong received message : %s", message); 
 
