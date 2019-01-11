@@ -1,8 +1,11 @@
 #include "VmsInterface.hpp"
 #include <simgrid/s4u.hpp>
 #include <unistd.h>
+#include <vsg.h>
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
+
+
 
 namespace vsg{
 
@@ -10,14 +13,30 @@ bool sortMessages(message i, message j){
   return i.sent_time < j.sent_time;
 }
 
-VmsInterface::VmsInterface(std::unordered_map<std::string,std::string> host_of_vms, bool stop_at_any_stop){
 
-  vm_deployments = host_of_vms;
+vsg_time simgridToVmTime(double simgrid_time){ 
+  struct vsg_time vm_time; 
+ 
+  // the simgrid time correspond to a double in second, so the number of seconds is the integer part 
+  vm_time.seconds = (uint64_t) (std::floor(simgrid_time)); 
+  // and the number of usecond is the decimal number scaled accordingly 
+  vm_time.useconds = (uint64_t) (std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6 )); 
+ 
+  return vm_time; 
+} 
+ 
+double vmToSimgridTime(vsg_time vm_time){ 
+  return vm_time.seconds + (vm_time.useconds * 1e-6); 
+} 
+
+
+VmsInterface::VmsInterface(bool stop_at_any_stop){
+
   a_vm_stopped = false; 
   simulate_until_any_stop = stop_at_any_stop;
 
-  int connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
-   XBT_INFO("socket created");
+  connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
+  XBT_INFO("socket created");
 
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
@@ -25,94 +44,87 @@ VmsInterface::VmsInterface(std::unordered_map<std::string,std::string> host_of_v
 
   if(bind(connection_socket, (sockaddr*)(&address), sizeof(address)) != 0){
     std::perror("unable to bind connection socket");
-    closeAndExit(connection_socket);
+    end_simulation();
   }
   XBT_DEBUG("socket binded");
 
   if(listen(connection_socket, 1) != 0){
     std::perror("unable to listen on connection socket");
-    closeAndExit(connection_socket);
+    end_simulation();
   }
   XBT_DEBUG("listen on socket");
 
-  for(auto it : vm_deployments){
-    std::string vm_name = it.first;
-
-    switch(fork()){
-      case -1:
-        close(connection_socket);
-        std::perror("unable to fork process");
-        closeAndExit(-1);
-        break;
-      case 0:
-        close(connection_socket);
-        for(auto it : vm_sockets){
-          close(it.second);
-        }
-        if(execlp(("./"+vm_name).c_str(), vm_name.c_str(), CONNECTION_SOCKET_NAME)!=0){
-          std::perror("unable to launch VM");
-          closeAndExit(connection_socket);
-        }
-        break;
-      default:
-        break;
-    }
-    XBT_DEBUG("fork done for VM %s",vm_name.c_str());
-
-    struct sockaddr_un vm_address = {0};
-    unsigned int len = sizeof(vm_address);
-    int vm_socket = accept(connection_socket, (sockaddr*)(&vm_address), &len);
-    if(vm_socket<0)
-      std::perror("unable to accept connection on socket");
-
-    vm_sockets[vm_name] = vm_socket;
-    XBT_INFO("connection for VM %s established", vm_name.c_str());
-  }
-
-  close(connection_socket);
 }
 
 VmsInterface::~VmsInterface(){
-  endSimulation();
+  end_simulation(true, false);
 }
 
 
-void VmsInterface::endSimulation(){
+void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::string file, std::vector<std::string> argv){
+
+  vm_deployments[vm_name] = host_name;
+
+  std::vector<char *> command; 
+  std::string exec_line = file;
+  for(std::string arg : argv){ 
+    command.push_back(const_cast<char *>(arg.c_str())); 
+    exec_line += " " + arg;
+  } 
+  command.push_back(NULL);
+ 
+  XBT_INFO("fork and exec of [%s]", exec_line.c_str() );
+
+  switch(fork()){
+    case -1:
+      std::perror("unable to fork process");
+      end_simulation();
+      break;
+    case 0:
+      end_simulation(false, false);
+      
+      if(execvp(file.c_str(), command.data())!=0){
+        std::perror("unable to launch VM");
+        end_simulation();
+      }
+      break;
+    default:
+      break;
+  }
+  XBT_DEBUG("fork done for VM %s",vm_name.c_str());
+
+  struct sockaddr_un vm_address = {0};
+  unsigned int len = sizeof(vm_address);
+  int vm_socket = accept(connection_socket, (sockaddr*)(&vm_address), &len);
+  if(vm_socket<0)
+    std::perror("unable to accept connection on socket");
+
+  vm_sockets[vm_name] = vm_socket;
+  XBT_INFO("connection for VM %s established", vm_name.c_str());
+}
+
+
+
+void VmsInterface::end_simulation(bool must_unlink, bool must_exit){
+  close(connection_socket);
   for(auto it : vm_sockets){
     close(it.second);
+  }  
+  XBT_DEBUG("vm sockets are down");
+  
+  if(must_unlink)
+   unlink(CONNECTION_SOCKET_NAME);
+
+  if(must_exit){
+    exit(666);
   }
-  unlink(CONNECTION_SOCKET_NAME);
-  XBT_INFO("vm sockets are down");
 }
-
-void VmsInterface::closeAndExit(int connection_socket){
-   if(connection_socket>=0)
-     close(connection_socket);
-
-   endSimulation();
-   exit(666);
-}
-
 
 
 bool VmsInterface::vmActive(){
   return (!vm_sockets.empty() && !simulate_until_any_stop) || (!a_vm_stopped && simulate_until_any_stop);
 }
 
-vsg_time VmsInterface::simgridToVmTime(double simgrid_time){
-  struct vsg_time vm_time;
-
-  // the simgrid time correspond to a double in second, so the number of seconds is the integer part
-  vm_time.seconds = (uint64_t) (std::floor(simgrid_time));
-  // and the number of usecond is the decimal number scaled accordingly
-  vm_time.useconds = (uint64_t) (std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6 ));
-
-  return vm_time;
-}
-
-double VmsInterface::vmToSimgridTime(vsg_time vm_time){
-  return vm_time.seconds + (vm_time.useconds * 1e-6);
-}
 
 std::vector<message> VmsInterface::goTo(double deadline){
   
@@ -140,7 +152,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
      
       if(recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL) <= 0){
         XBT_ERROR("can not receive the flags of VM %s. The socket may be closed",vm_name.c_str());
-        closeAndExit(-1);
+        end_simulation();
       }
      
       // we continue until the VM reach the deadline
@@ -170,11 +182,11 @@ std::vector<message> VmsInterface::goTo(double deadline){
         char data[packet.packet.size - vm_name.length()];
         if(recv(vm_socket, dest, vm_name.length(), MSG_WAITALL) <= 0){
           XBT_ERROR("can not receive the detination of the message from VM %s. The socket may be closed",vm_name.c_str());
-          closeAndExit(-1);
+          end_simulation();
         }
         if(recv(vm_socket, data, sizeof(data), MSG_WAITALL) <= 0){
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed",vm_name.c_str());
-          closeAndExit(-1);
+          end_simulation();
         }
         dest[vm_name.length()] = '\0';
 
@@ -192,7 +204,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
 	
       }else{
         XBT_ERROR("unknown message received from VM %s : %lu",vm_name.c_str(), vm_flag);
-        closeAndExit(-1);
+        end_simulation();
       }
     }
   }
@@ -206,7 +218,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
 std::string VmsInterface::getHostOfVm(std::string vm_name){
   if(vm_deployments.find(vm_name)==vm_deployments.end()){ 
     XBT_ERROR("unknown host for vm [%s] (size(%lu)) !!!", vm_name.c_str(), sizeof(vm_name));
-    closeAndExit(-1);
+    end_simulation();
   }
   return vm_deployments[vm_name];  
 }

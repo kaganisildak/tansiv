@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
+
 /* Messages types */
 /*
  * Communication over the network:

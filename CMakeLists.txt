@@ -29,9 +29,8 @@ set(SOURCE_FILES
 # Install everything
 
 add_executable(vsg ${SOURCE_FILES} src/simgrid/VmsCoordinator.cpp)
-add_executable(dummy_ping000000 src/simgrid/DummyPing.cpp)
-add_executable(dummy_pong000001 src/simgrid/DummyPong.cpp)
-add_executable(dummy_pong000002 src/simgrid/DummyPong.cpp)
+add_executable(dummy_ping src/simgrid/DummyPing.cpp)
+add_executable(dummy_pong src/simgrid/DummyPong.cpp)
 
 target_link_libraries(vsg ${SimGrid_LIBRARY})
 

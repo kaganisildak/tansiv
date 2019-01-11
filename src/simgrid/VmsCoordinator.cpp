@@ -1,15 +1,10 @@
 #include "simgrid/s4u.hpp"
 #include "VmsInterface.hpp"
-#include "vsg.h"
 #include <simgrid/kernel/resource/Model.hpp>
 #include <limits.h>
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
-
-double min_latency = 0;
-
-int nb_comm = 0;
 
 vsg::VmsInterface *vms_interface;
 
@@ -19,9 +14,11 @@ std::vector<vsg::message> pending_messages;
 
 std::vector<simgrid::s4u::Host*> hosts;
 
-static void compute_min_latency(){
+const std::string vsg_vm_name = "vsg_vm";
 
-  min_latency = std::numeric_limits<double>::max();
+static double compute_min_latency(){
+
+  double min_latency = std::numeric_limits<double>::max();
   
   for(simgrid::s4u::Host *sender : hosts){
     for(simgrid::s4u::Host *receiver : hosts){
@@ -36,40 +33,11 @@ static void compute_min_latency(){
   }
   
   xbt_assert(min_latency > 0, "error with the platform file : the minimum latency between hosts is %f  <= 0", min_latency);
-  XBT_INFO("the minimum latency on the network is %f sec",min_latency); 
+  XBT_INFO("the minimum latency on the network is %f sec", min_latency);
+ 
+  return min_latency;
 }
 
-static void sender(std::string mailbox_name, vsg::message m){
-
-  XBT_INFO("sending [%s] (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.data.c_str(), m.packet_size, m.src.c_str(), m.dest.c_str(), mailbox_name.c_str());
-
-  int msg_size = m.packet_size;
-  simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(&m, msg_size);
-  pending_comms.push_back(comm);
-  pending_messages.push_back(m);
-  comm->wait();
-}
-
-static void receiver()
-{
-  std::string mailbox_name = simgrid::s4u::this_actor::get_host()->get_name();
-  simgrid::s4u::MailboxPtr mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
-
-  while(true){
-    vsg::message *m = static_cast<vsg::message*>(mailbox->get());
-    XBT_INFO("delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(), m->dest.c_str());
-  }
-}
-
-static void deploy_permanent_receivers(){
-  int nb_receiver = 0;
-  for(simgrid::s4u::Host *host : hosts){
-    simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("receiver_"+std::to_string(nb_receiver), host, receiver);
-    nb_receiver++;
-    simgrid::s4u::Mailbox::by_name(host->get_name())->set_receiver(actor);
-    actor->daemonize();
-  }
-}
 
 static double get_next_event(){
   double time = simgrid::s4u::Engine::get_clock();
@@ -83,7 +51,56 @@ static double get_next_event(){
   return next_event_time;
 }
 
+
+
+static void sender(std::string mailbox_name, vsg::message m){
+
+  XBT_INFO("sending [%s] (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.data.c_str(), m.packet_size, m.src.c_str(), m.dest.c_str(), mailbox_name.c_str());
+
+  int msg_size = m.packet_size;
+  simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(&m, msg_size);
+  pending_comms.push_back(comm);
+  pending_messages.push_back(m);
+  comm->wait();
+  simgrid::s4u::this_actor::yield();
+}
+
+
+static void receiver(std::vector<std::string> args){
+
+  XBT_INFO("running receiver");
+
+  // we consider only one mailbox per host. The mailbox has the name of its host.  
+  std::string mailbox_name = simgrid::s4u::this_actor::get_host()->get_name();
+  // we separate the first two arguments, that correspond respectively the VM ID and the executable name, to the other ones, that correspond to the arguments used to launch the VM executable.
+  xbt_assert(args.size()>=3,"need at least two arguments to launch a %s: (1) the VM ID, and (2) the executable name. You should fix your deployment file.", vsg_vm_name.c_str());
+  std::vector<std::string> fork_command(args.size()-3);
+  std::copy(args.begin()+3,args.end(),fork_command.begin());
+  
+  // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start AFTER all the registrations.
+  vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);
+  hosts.push_back(simgrid::s4u::this_actor::get_host());
+
+  simgrid::s4u::ActorPtr myself = simgrid::s4u::Actor::self();
+  simgrid::s4u::MailboxPtr mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
+  
+  // this actor is a permanent receiver on its host mailbox.
+  mailbox->set_receiver(myself);
+  // For the simulation to end with the coordinator actor, we daemonize all the other actors.
+  myself->daemonize();
+
+  while(true){
+    vsg::message *m = static_cast<vsg::message*>(mailbox->get());
+    XBT_INFO("delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(), m->dest.c_str());
+  }
+}
+
+
 static void vm_coordinator(){
+
+  // IMPORTANT: we ensure that all the receiver actors registered their VMs to the interface before going further
+  simgrid::s4u::this_actor::yield();
+  double min_latency = compute_min_latency();
 
   while(vms_interface->vmActive()){
 
@@ -107,9 +124,9 @@ static void vm_coordinator(){
 	  
       std::string src_host = vms_interface->getHostOfVm(m.src);
       std::string dest_host = vms_interface->getHostOfVm(m.dest);     
-      std::string comm_name = "sender_"+std::to_string(nb_comm);
-      nb_comm++;
-      simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create(comm_name, simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
+
+      simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
+      // For the simulation to end with the coordinator actor, we daemonize all the other actors.
       actor->daemonize();
     }
 
@@ -131,33 +148,26 @@ static void vm_coordinator(){
     }
   }
   
-  vms_interface->endSimulation();
+  vms_interface->end_simulation(true, false);
   XBT_INFO("end of simulation"); 
 }
 
 
 int main(int argc, char *argv[])
 {
-  xbt_assert(argc > 1, "Usage: %s platform_file\n", argv[0]);
+  xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
 
   simgrid::s4u::Engine e(&argc, argv);
 
   e.load_platform(argv[1]); 
-
-  std::unordered_map<std::string, std::string> host_deployments;
-
-  for(int i=2;i<argc;i=i+2){
-    host_deployments[argv[i]] = argv[i+1];
-    hosts.push_back(e.host_by_name(argv[i+1]));
-  }
-
-  compute_min_latency();
-   
-  vms_interface = new vsg::VmsInterface(host_deployments, false);
-
-  deploy_permanent_receivers();
+  
+  vms_interface = new vsg::VmsInterface();
+  
+  e.register_function(vsg_vm_name, &receiver);
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
+
+  e.load_deployment(argv[2]);
 
   e.run();
 

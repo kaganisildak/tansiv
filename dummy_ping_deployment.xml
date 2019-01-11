@@ -1,0 +1,25 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+
+  <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="dummy_ping000000"/>
+    <argument value="./dummy_ping"/>
+    <argument value="dummy_pong000001"/>
+    <argument value="dummy_pong000002"/>
+  </actor>
+
+  <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="dummy_pong000001"/>
+    <argument value="./dummy_pong"/>
+    <argument value="dummy_pong000001"/>
+  </actor>
+
+  <actor host="nova-3.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="dummy_pong000002"/>
+    <argument value="./dummy_pong"/>
+    <argument value="dummy_pong000002"/>
+  </actor>
+
+</platform>
+

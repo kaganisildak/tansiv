@@ -1,4 +1,3 @@
-#include "vsg.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -19,26 +18,25 @@ struct message{
 class VmsInterface{
 
   public:
-    VmsInterface(std::unordered_map<std::string,std::string> host_of_vms, bool stop_condition = false);
+    VmsInterface(bool stop_condition = false);
     ~VmsInterface();
     bool vmActive();
     std::vector<message> goTo(double deadline); 
     std::string getHostOfVm(std::string vm_name);
     void deliverMessage(message m);
-    void endSimulation();
+    void end_simulation(bool must_unlink = true, bool must_exit = true);
+    void register_vm(std::string host_name, std::string vm_name, std::string file, std::vector<std::string> args);
 
   private:
-    const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
     bool all_vm_active;
     bool a_vm_stopped;
     bool simulate_until_any_stop;
+
+    int connection_socket;
  
     std::unordered_map<std::string, int> vm_sockets;
-    std::unordered_map<std::string,std::string> vm_deployments;    
-
-    double vmToSimgridTime(vsg_time vm_time);
-    vsg_time simgridToVmTime(double simgrid_time);
-    void closeAndExit(int connection_socket);   
+    std::unordered_map<std::string,std::string> vm_deployments;
 };
 
 }
+

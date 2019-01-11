@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
   
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
-  strcpy(address.sun_path, argv[1]);
+  strcpy(address.sun_path, CONNECTION_SOCKET_NAME);
 
   if(connect(vm_socket, (sockaddr*)(&address), sizeof(address)) != 0){
     std::perror("unable to create VM socket");
