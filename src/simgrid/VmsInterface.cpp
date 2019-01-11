@@ -217,8 +217,7 @@ std::vector<message> VmsInterface::goTo(double deadline){
 
 std::string VmsInterface::getHostOfVm(std::string vm_name){
   if(vm_deployments.find(vm_name)==vm_deployments.end()){ 
-    XBT_ERROR("unknown host for vm [%s] (size(%lu)) !!!", vm_name.c_str(), sizeof(vm_name));
-    end_simulation();
+    return "";
   }
   return vm_deployments[vm_name];  
 }

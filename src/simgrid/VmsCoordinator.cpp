@@ -118,17 +118,22 @@ static void vm_coordinator(){
       time =  simgrid::s4u::Engine::get_clock();
       xbt_assert(m.sent_time >= time, "violation of the causality constraint : trying to send a message at time %f whereas we are already at time %f", m.sent_time, time);
       if(m.sent_time > time){
-        XBT_DEBUG("going to time %f",m.sent_time);
+        XBT_DEBUG("going to time %f", m.sent_time);
         simgrid::s4u::this_actor::sleep_until(m.sent_time);
         time = simgrid::s4u::Engine::get_clock();
       }
 	  
       std::string src_host = vms_interface->getHostOfVm(m.src);
-      std::string dest_host = vms_interface->getHostOfVm(m.dest);     
+      xbt_assert(src_host != "", "The VM %s tries to send a message but we do not know its PM", m.src.c_str());
 
-      simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
-      // For the simulation to end with the coordinator actor, we daemonize all the other actors.
-      actor->daemonize();
+      std::string dest_host = vms_interface->getHostOfVm(m.dest);
+      if(dest_host != ""){
+        simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
+        // For the simulation to end with the coordinator actor, we daemonize all the other actors.
+        actor->daemonize();
+      }else{
+        XBT_WARN("the VM %s tries to send a message to the unknown VM %s", m.src.c_str(), m.dest.c_str());
+      }
     }
 
     simgrid::s4u::this_actor::sleep_until(deadline);
