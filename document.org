@@ -238,3 +238,30 @@ Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécutio
     depuis l'intérieur du processus SimGrid. Cad, c'est proche de
     l'architecture du MC
 
+*** Idées de stage potentielle
+  - Faire une version modifiée de QEMU qui se branche sur le proto existant
+    - Travail surtout focus sur l'environnement réseau:
+      - V1: modif SLIRP qui balance sur SG, au lieu de sortir sur un
+        vrai réseau.C'est pas ultime car le réseau est forcément
+        NATé, mais c'est un bon début. Peut-être qu'on aura déjà fait
+        ça au début du stage. Peut-être.
+      - V2: Tjs une modif de SLIRP, mais sans l'aspect NAT.
+    - Le proto "existant" doit contenir la transmission des comms à
+      travers simgrid. Pour l'instant il manque
+      - L'ouverture des entêtes pour trouver l'IP dest
+      - Interception du temps indétectable, qui est indispensable à
+        l'ensemble mais qui ferait trop pour l'étudiant.
+    - Avoir un proxy ARP (répond tjs "c'est moi" à chaque requete)
+      - Y'a qqch dont on peut s'inspirer dans la pile slurp
+    - => c'est là qu'est le gros du travail du stage
+    - Fallback possible sur une solution docker+TAP
+  - Refaire un environnement réseau: peut-être avec EnosLib?
+    - Générer les configs, les disques virtuels, les /etc de chacun
+    - DNS:
+      - on peut faire un (ou +ieurs) vrais serveurs dans des VM
+      - Y'a un DNS virtuel dans la pile slirp (et un SMB)
+    - => c'est pas drôle, mais pas dur
+  - Faire des expérimentations avec du vrai code
+    - Code "normal", pas malicieux
+      - Une infra sharelatex un peu simple
+      - les tests d'intégration Ceph si possible, mais semble ambitieux
