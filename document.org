@@ -238,7 +238,12 @@ Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécutio
     depuis l'intérieur du processus SimGrid. Cad, c'est proche de
     l'architecture du MC
 
-*** Idées de stage potentielle
+*** Idées de stage potentiel
+
+  - Time-accurate Network Simulation Interconnecting QEMU VMs (TANSIV)
+
+
+  - Bridging Virtual Machines to Simulated 
   - Faire une version modifiée de QEMU qui se branche sur le proto existant
     - Travail surtout focus sur l'environnement réseau:
       - V1: modif SLIRP qui balance sur SG, au lieu de sortir sur un
@@ -265,3 +270,25 @@ Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécutio
     - Code "normal", pas malicieux
       - Une infra sharelatex un peu simple
       - les tests d'intégration Ceph si possible, mais semble ambitieux
+* Journal
+** 23 janvier
+- Mt n'a pas avancé sur le sujet de stage, même pas commité les notes
+  de la dernière fois...
+- Benjamin:
+  - Fini sur le fichier de déploiement. On passe assez d'infos pour
+    fork+exec les VM 
+  - On crée 1 acteur à chaque envoi applicatif, et y'a un permanent
+    receiver par mailbox qui peut potentiellement recevoir. C'est
+    beaucoup mais les solutions plus économes en ressource simgrid
+    sont compliquées à faire marcher dans tous les cas et SG devrait
+    tenir la charge.
+- Que faire quand on parle à qqun de déjà mort/pas encore né
+  - S'il est déjà mort, on laisse les paquets transiter dans SimGrid
+    jusqu'à destination, et l'interface vers les VM ignore les données
+  - S'il n'est pas encore né, le coordinateur ne sait pas router,
+    alors il ignore les données
+- Gestion du temps
+  - On ajoute dans chaque VM un offset pour convertir entre d'une part
+    l'epoch donné par simgrid et d'autre part l'heure locale de la
+    VM. Ca peut permettre de gérer des VM qui ne sont pas dans la même
+    timezone.
