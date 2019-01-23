@@ -100,89 +100,25 @@ this internship is to leverage the predictive power of SimGrid on
 unmodified, non-trivial distributed applications.
 
 \subsection*{Description}
-This proposal aims at extending over the current situation in two
-directions. 
 
-First, we want to enable the study of arbitrary applications through a
-specifically tailored virtualization mechanism. More precisely, all
-system calls would have to be intercepted.  The communications would
-be mediated according to the results computed by the simulator while
-the computations would only be benchmarked to reinject their timings
-into the simulator. 
+%\subsection*{Detailed work plan}
 
-Several proof of concepts were developed by previous interns, but many
-problems remain to be solved, both on the theoretical and practical
-sides. The applicant is expected to contribute a framework to mediate
-any actions of arbitrary distributed applications. The developed proof
-of concept is necessary to the practical evaluation of the
-contribution, and it will be technically reinforced by an engineer
-afterward. The SimGrid models will have to be reviewed and possibly
-adapted to improve the simulation accuracy in this new settings.
+The proposed work consists in three main steps:
+\begin{itemize}
+\item Modifying QEMU's user mode network emulation (based on SLIRP) to make the VM
+communicate with the network simulator instead of the real network. This is the
+core of the technical contribution of the internship.
+%This step will be already partly achieved at the beginning of the internship.
+\item Building a minimal required network environment to run the applications, that is typically a DNS and possibly file and mail servers. The building blocks could use parts of QEMU's user mode network emulation as well as real servers in virtual machines. Building this environment should be automated.
+\item Validating the network environment on top of the network simulator by experimenting with real applications. We especially propose to experiment with ShareLatex and Ceph to gradually stress the implemented mechanisms and show their completeness.
+\end{itemize}
+The experiments will leverage the Grid'5000 testbed and associated tools like EnosLib developed in the Myriads team.
 
-The second work direction aims at the formal verification of real
-applications. If the performance simulation only requires an
-virtualization mechanism that can observe the application, the formal
-verification needs to save and restore the application state, and also
-to introspect this state.
+%\subsection*{Skills required}
 %
-To the best of our knowledge, no such virtualization layer enables
-these operations on arbitrary applications. The solutions existing in
-SimGrid are a very strong basis, but they will have to be extended to
-allow to the study of separate processes directly at the system layer.
-
-\subsection*{Detailed work plan}
-After a refresh of our literature review, the first year will be
-devoted to the technical framework. The existing proof of concepts
-will be extended and combined to enable the emulation of simplistic
-distributed applications. Evaluating solutions that are intended to
-assess distributed applications can be challenging \textit{per se},
-and the applicant will also have to setup an appropriate testing
-framework with relevant test applications. This framework itself will
-be exercised through the assessment and improvement of the performance
-models.
-
-During the second year, the student will turn his/her interception
-framework dedicated to the performance simulation into a full
-virtualization framework enabling the formal verification of arbitrary
-applications. Several existing features of the SimGrid dynamic
-verification tool will be adapted for the verification of separate
-arbitrary applications: save \& restore, incremental checkpointing and
-state introspection.
-
-During the last year of this work, the student will apply his/her work
-on complex applications under realistic workloads, and write the
-manuscript. The ultimate goal is to assess modern distributed
-infrastructures, such as the Ceph distributed storage solution, the
-Storm event processing system or the Samba networked disk server.
-
-
-
-% \item Conduct a throughout bibliographical study of the field. The
-%   goal is to gain a better understanding of the system parts that
-%   Simterpose should emulate (CPU, communication, DNS, threads, etc),
-%   and the possible approaches for each aspect.
-% \item Implement the selected approaches. This development is necessary
-%   to the practical evaluation of the contribution. The goal is to only
-%   develop a proof of concept, that will be technically reinforced by
-%   an engineer afterward.
-% \item Evaluate the feasibility of the contribution. An evaluation
-%   framework should be designed, with the selection beforehand of the
-%   applications and workload. The goal is to study which approaches are
-%   \textit{possible} to lightly virtualize distributed
-%   applications. The emulation performance (that is, the overhead of
-%   the virtualization) should also be assessed. 
-% \item Evaluate the correctness of our models in this context. The
-%   simulation results should be compared to measurements on real
-%   platforms such as Grid'5000, and (if time permits) the SimGrid
-%   models should be modified if they prove unadapted to this new
-%   context.
-
-
-\subsection*{Skills required}
-
-In addition to the skills that can reasonably be expected from Master-level
-students, the applicant should have a \textbf{very strong} knowledge of system
-programming in C, and of Linux and other modern Unix-based Operating Systems.
+%In addition to the skills that can reasonably be expected from Master-level
+%students, the applicant should have a \textbf{very strong} knowledge of system
+%programming in C, and of Linux and other modern Unix-based Operating Systems.
 
 \subsection*{Bibliography}
 \begin{compactitem}
@@ -212,6 +148,8 @@ programming in C, and of Linux and other modern Unix-based Operating Systems.
   S. Schwab. \textit{The DETER Project: Advancing the Science of Cyber
     Security Experimentation and Test.}  In Proceedings of the IEEE
   Technologies for Homeland Security Conference 2010 (HST'10).
+\item \url{https://www.grid5000.fr/}
+\item \url{https://gitlab.inria.fr/discovery/enoslib}
 \end{compactitem}
 
 \end{document}
