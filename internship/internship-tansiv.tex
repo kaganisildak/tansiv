@@ -53,7 +53,7 @@ and VMs; System Programming on Linux.
 
 
 \medskip
-\subsection*{Context}
+\subsection*{Context and Description}
 
 Distributed systems such as Peer-to-Peer systems, Internet of Things
 and Cloud Computing, benefit of an ever increasing popularity
@@ -96,26 +96,38 @@ SimGrid, as the standard is reimplemented on top of the simulator. For
 other real applications, users have to extract the applicative logic
 and rewrite it using the SimGrid interfaces. Several application
 authors did so to test and tune their application within the simulator
-but this work remains tedious and error-prone. The overall goal of
-this internship is to leverage the predictive power of SimGrid on
-unmodified, non-trivial distributed applications. In the future, this
-work could be extended towards the stealthy analysis of malicious
+but this work remains labor-intensive. %tedious.% and error-prone.
+
+The overall goal of this internship is to leverage the predictive
+power of SimGrid on unmodified, non-trivial distributed applications
+executed within modified QEMU-based virtual machines. In the future,
+this work could be extended towards the stealthy analysis of malicious
 distributed applications
 
-\subsection*{Description}
+%\subsection*{Description}
 
-%\subsection*{Detailed work plan}
+\subsection*{Detailed Work Plan}
 
 The proposed work consists in three main steps:
 \begin{itemize}
-\item Modifying QEMU's user mode network emulation (based on SLIRP) to make the VM
-communicate with the network simulator instead of the real network. This is the
-core of the technical contribution of the internship.
+\item Modifying QEMU's user mode network emulation (based on SLIRP) to
+  make the VM communicate with the network simulator instead of the
+  real network. This work will leverage an existing PoC prototype
+  interfacing simple mocked applications within the SimGrid simulation
+  framework.
 %This step will be already partly achieved at the beginning of the internship.
-\item Building a minimal required network environment to run the applications, that is typically a DNS and possibly file and mail servers. The building blocks could use parts of QEMU's user mode network emulation as well as real servers in virtual machines. Building this environment should be automated.
-\item Validating the network environment on top of the network simulator by experimenting with real applications. We especially propose to experiment with ShareLatex and Ceph to gradually stress the implemented mechanisms and show their completeness.
+\item Building a minimal required network environment to run the
+  applications, that is typically a DNS and possibly file and mail
+  servers. The building blocks could use parts of QEMU's user mode
+  network emulation as well as real servers in virtual
+  machines. Building this environment should be automated.
+\item Validating the network environment on top of the network
+  simulator by experimenting with real applications. We especially
+  propose to experiment with ShareLatex and Ceph to gradually stress
+  the implemented mechanisms and show their completeness.
 \end{itemize}
-The experiments will leverage the Grid'5000 testbed and associated tools like EnosLib developed in the Myriads team.
+The experiments will leverage the Grid'5000 testbed and associated
+tools like EnosStack that are developed in part in the Myriads team.
 
 %\subsection*{Skills required}
 %
@@ -131,11 +143,11 @@ The experiments will leverage the Grid'5000 testbed and associated tools like En
   \textit{Versatile, Scalable, and Accurate Simulation of Distributed
     Applications and Platforms}, Journal of Parallel and Distributed Computing
   74(10), 2014. \url{http://hal.inria.fr/hal-01017319}.
-\item M. Guthmuller. \textit{Dynamic formal verification of temporal
-    properties over real distributed applications}. PhD thesis,
-  2015. \url{https://tel.archives-ouvertes.fr/tel-01231868}
-\item M. Quinson. \textit{Computational Science of Computer Systems.}
-  HdR thesis, 2013. \url{https://tel.archives-ouvertes.fr/tel-00927316}
+%\item M. Guthmuller. \textit{Dynamic formal verification of temporal
+%    properties over real distributed applications}. PhD thesis,
+%  2015. \url{https://tel.archives-ouvertes.fr/tel-01231868}
+%\item M. Quinson. \textit{Computational Science of Computer Systems.}
+%  HdR thesis, 2013. \url{https://tel.archives-ouvertes.fr/tel-00927316}
 \item H. Song, X. Liu, D. Jakobsen, R. Bhagwan, X. Zhang, K. Taura,
   and A. Chien. \textit{MicroGrid: a scientific tool for modeling
     computational grids.} In SuperComputing Conf. 2000.
@@ -152,7 +164,27 @@ The experiments will leverage the Grid'5000 testbed and associated tools like En
     Security Experimentation and Test.}  In Proceedings of the IEEE
   Technologies for Homeland Security Conference 2010 (HST'10).
 \item \url{https://www.grid5000.fr/}
-\item \url{https://gitlab.inria.fr/discovery/enoslib}
+\item R.-A. Cherrueau, M. Simonin and A. van Kempen.
+  \textit{EnosStack: A LAMP-like stack for the experimenter.}  In IEEE
+  International Conference on Computer Communications,
+  2018. \url{https://hal.inria.fr/hal-01916484/document}
+  % \url{https://gitlab.inria.fr/discovery/enoslib}
+\item N. Miramirkhani, M. Priya Appini, N. Nikiforakis,
+  M. Polychronakis. \textit{Spotless Sandboxes: Evading Malware
+    Analysis Systems using Wear-and-Tear Artifacts.}  In Proceedings
+  of the 2017 IEEE Symposium on Security and Privacy.
+  \url{https://securitee.org/files/wearntear-oakland2017.pdf}
+\item Y. Zhang, J. Crowcroft, D. Li, C. Zhang, H. Li, Y. Wang, K. Yu,
+  Y. Xiong, and G. Chen, \textit{Kylinx: A dynamic library operating
+    system for simplified and efficient cloud virtualization}. In 2018
+  USENIX Annual Technical Conference.
+  \url{https://www.usenix.org/conference/atc18/presentation/zhang-yiming} 
+\item H. Tazaki, F. Urbani, E. Mancini, M. Lacage, D. Camara,
+  T. Turletti, and W. Dabbous, \textit{Direct Code Execution:
+    Revisiting Library OS Architecture for Reproducible Network
+    Experiments}. In the 9th International Conference on emerging
+  Networking EXperiments and Technologies
+  (CoNEXT'13). \url{https://hal.inria.fr/hal-00880870}
 \end{compactitem}
 
 \end{document}
