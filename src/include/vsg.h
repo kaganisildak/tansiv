@@ -20,44 +20,41 @@ const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
 /* Common types in message bodies */
 
 struct vsg_time {
-	uint64_t seconds;
-	uint64_t useconds;
+  uint64_t seconds;
+  uint64_t useconds;
 };
 
 struct vsg_packet {
-	uint32_t size;
+  uint32_t size;
 };
 
 /* Message bodies */
 
 struct vsg_deliver_packet {
-	struct vsg_packet packet;
+  struct vsg_packet packet;
 };
 
 struct vsg_go_to_deadline {
-	struct vsg_time deadline;
+  struct vsg_time deadline;
 };
 
 /* struct vsg_at_deadline { */
 /* }; */
 
 struct vsg_send_packet {
-	struct vsg_time send_time;
-	struct vsg_packet packet;
+  struct vsg_time send_time;
+  struct vsg_packet packet;
 };
 
 /* Message type tags */
 
 /* Sent as uint32_t */
 enum vsg_msg_from_actor_type {
-	VSG_DELIVER_PACKET,
-	VSG_GO_TO_DEADLINE,
+  VSG_DELIVER_PACKET,
+  VSG_GO_TO_DEADLINE,
 };
 
 /* Sent as uint32_t */
-enum vsg_msg_to_actor_type {
-	VSG_AT_DEADLINE,
-    VSG_SEND_PACKET
-};
+enum vsg_msg_to_actor_type { VSG_AT_DEADLINE, VSG_SEND_PACKET };
 
 #endif /* __VSG_H__ */
