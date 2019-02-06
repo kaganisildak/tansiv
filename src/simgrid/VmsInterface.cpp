@@ -1,7 +1,9 @@
 #include "VmsInterface.hpp"
-#include <simgrid/s4u.hpp>
+#include <xbt/log.hpp>
 #include <unistd.h>
 #include <vsg.h>
+
+#include <algorithm>
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
 
@@ -127,8 +129,9 @@ bool VmsInterface::vmActive()
 
 std::vector<message> VmsInterface::goTo(double deadline)
 {
-
-  std::vector<message> messages;
+  // Beforehand, forget about the VMs that bailed out recently.
+  // We hope that the coordinator cleaned the SimGrid side in between
+  vm_sockets_trash.clear();
 
   // first, we ask all the VMs to go to deadline
   XBT_DEBUG("asking all the VMs to go to time %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
@@ -141,6 +144,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   }
 
   // then, we pick up all the messages send by the VM until they reach the deadline
+  std::vector<message> messages;
   XBT_DEBUG("getting the message send by the VMs");
   for (auto kv : vm_sockets) {
     uint32_t vm_flag    = 0;
@@ -201,10 +205,11 @@ std::vector<message> VmsInterface::goTo(double deadline)
       }
     }
   }
+  // Remove all invalid sockets from our list, but leave a chance to the coordinator to notice about them
   for (auto sock_name : vm_sockets_trash)
     vm_sockets.erase(sock_name);
-  vm_sockets_trash.clear();
-  XBT_DEBUG("forwarding all the message to SimGrid");
+
+  XBT_DEBUG("forwarding all the messages to SimGrid");
 
   std::sort(messages.begin(), messages.end(), sortMessages);
 
@@ -226,6 +231,12 @@ void VmsInterface::close_vm_socket(std::string vm_name)
   vm_sockets_trash.push_back(vm_name);
   a_vm_stopped = true;
 }
+const std::vector<std::string> VmsInterface::get_dead_vms()
+{
+    return vm_sockets_trash;
+}
+
+
 
 void VmsInterface::deliverMessage(message m)
 {

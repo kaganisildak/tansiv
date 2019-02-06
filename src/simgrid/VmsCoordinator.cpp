@@ -11,7 +11,7 @@ std::vector<simgrid::s4u::CommPtr> pending_comms;
 
 std::vector<vsg::message> pending_messages;
 
-std::vector<simgrid::s4u::Host*> hosts;
+static std::vector<simgrid::s4u::ActorPtr> receivers;
 
 const std::string vsg_vm_name = "vsg_vm";
 
@@ -20,12 +20,12 @@ static double compute_min_latency()
 
   double min_latency = std::numeric_limits<double>::max();
 
-  for (simgrid::s4u::Host* sender : hosts) {
-    for (simgrid::s4u::Host* receiver : hosts) {
+  for (simgrid::s4u::ActorPtr sender : receivers) {
+    for (simgrid::s4u::ActorPtr receiver : receivers) {
       if (sender != receiver) {
         std::vector<simgrid::s4u::Link*> links;
         double latency = 0;
-        sender->route_to(receiver, links, &latency);
+        sender->get_host()->route_to(receiver->get_host(), links, &latency);
         if (latency < min_latency)
           min_latency = latency;
       }
@@ -86,7 +86,7 @@ static void receiver(std::vector<std::string> args)
   // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start
   // AFTER all the registrations.
   vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);
-  hosts.push_back(simgrid::s4u::this_actor::get_host());
+  receivers.push_back(simgrid::s4u::Actor::self());
 
   simgrid::s4u::ActorPtr myself    = simgrid::s4u::Actor::self();
   simgrid::s4u::MailboxPtr mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
@@ -110,6 +110,22 @@ static void vm_coordinator()
   double min_latency = compute_min_latency();
 
   while (vms_interface->vmActive()) {
+
+    bool deads = false;
+    for (auto vm : vms_interface->get_dead_vms()) {
+
+        std::remove_if(receivers.begin(), receivers.end(), [vm](const simgrid::s4u::ActorPtr & o) {
+            if (o->get_name() == vm) {
+                o->kill(); // This is cheating: our predicate is not const but also kill the actor
+                return true;
+            }
+            return false;
+        });
+
+        deads = true;
+    }
+    if (deads)
+        min_latency = compute_min_latency();
 
     double time                = simgrid::s4u::Engine::get_clock();
     double next_reception_time = get_next_event();
