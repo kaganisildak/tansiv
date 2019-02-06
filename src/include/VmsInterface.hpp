@@ -35,7 +35,10 @@ class VmsInterface{
     int connection_socket;
  
     std::unordered_map<std::string, int> vm_sockets;
+    std::vector<std::string> vm_sockets_trash;
     std::unordered_map<std::string,std::string> vm_deployments;
+
+    void close_vm_socket(std::string vm_name);
 };
 
 }

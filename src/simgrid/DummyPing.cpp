@@ -96,8 +96,7 @@ int main(int argc, char *argv[])
         next_message_time = vsg_time_add(next_message_time, delay);
 
         if(nb_message_send >= max_message){
-          uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
-          send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
+            // Bail out -- no need to warn the coordinator beforehand
           break;
         }
       }
@@ -110,7 +109,8 @@ int main(int argc, char *argv[])
       
       vsg_packet packet = {0};
       recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
-      char message[packet.size] = "";
+      char message[packet.size];
+      message[0] = '\0';
       recv(vm_socket, message, sizeof(message), MSG_WAITALL);
       //printf("dummy_ping received message : %s", message); 
 
@@ -120,9 +120,7 @@ int main(int argc, char *argv[])
   }
 
   //printf("done, see you");
-  uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
-  send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
-  
+  // Bail out -- the coordinator will notice on its own
   close(vm_socket);
 
   return 0;

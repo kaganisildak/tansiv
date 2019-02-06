@@ -91,9 +91,7 @@ int main(int argc, char *argv[])
         next_message_time.useconds =  std::numeric_limits<uint64_t>::max();
 
         if(nb_message_send >= max_message){
-          uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
-          send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
-
+          // Bail out -- no need to warn the coordinator beforehand
           break;
         }
         
@@ -125,9 +123,6 @@ int main(int argc, char *argv[])
   }
 
   //printf("done, see you");
-  uint32_t end_of_execution = vsg_msg_to_actor_type::VSG_END_OF_EXECUTION;
-  send(vm_socket, &end_of_execution, sizeof(end_of_execution), 0);
-
   close(vm_socket);
 
   return 0;

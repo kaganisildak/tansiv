@@ -57,8 +57,7 @@ enum vsg_msg_from_actor_type {
 /* Sent as uint32_t */
 enum vsg_msg_to_actor_type {
 	VSG_AT_DEADLINE,
-	VSG_SEND_PACKET,
-        VSG_END_OF_EXECUTION
+    VSG_SEND_PACKET
 };
 
 #endif /* __VSG_H__ */

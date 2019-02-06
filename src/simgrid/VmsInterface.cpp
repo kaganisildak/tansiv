@@ -142,32 +142,22 @@ std::vector<message> VmsInterface::goTo(double deadline){
   
   // then, we pick up all the messages send by the VM until they reach the deadline
   XBT_DEBUG("getting the message send by the VMs");
-  auto it = vm_sockets.begin();
-  while(it != vm_sockets.end()){
+  for (auto kv : vm_sockets) {
     uint32_t vm_flag = 0;
-    std::string vm_name = it->first;
-    int vm_socket = it->second;
+    std::string vm_name = kv.first;
+    int vm_socket = kv.second;
 
     while(true){
      
       if(recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL) <= 0){
-        XBT_ERROR("can not receive the flags of VM %s. The socket may be closed",vm_name.c_str());
-        end_simulation();
+        XBT_ERROR("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",vm_name.c_str());
+        close_vm_socket(vm_name);
       }
      
-      // we continue until the VM reach the deadline
+      // When the VM reaches the deadline, we're done with it, let's consider the next VM
       if(vm_flag == vsg_msg_to_actor_type::VSG_AT_DEADLINE){
-        it++;
         break;
     
-      }else if(vm_flag == vsg_msg_to_actor_type::VSG_END_OF_EXECUTION){
-        XBT_INFO("the vm %s stop its execution",vm_name.c_str());
-        shutdown(vm_socket, SHUT_RDWR);
-        close(vm_socket);
-        it = vm_sockets.erase(it);
-        a_vm_stopped = true; 
-        break;
-
       }else if(vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET){
         
 	XBT_DEBUG("getting a message from VM %s", vm_name.c_str());
@@ -208,6 +198,9 @@ std::vector<message> VmsInterface::goTo(double deadline){
       }
     }
   }
+  for (auto sock_name : vm_sockets_trash)
+      vm_sockets.erase(sock_name);
+  vm_sockets_trash.clear();
   XBT_DEBUG("forwarding all the message to SimGrid");
 
   std::sort(messages.begin(), messages.end(), sortMessages);
@@ -221,6 +214,14 @@ std::string VmsInterface::getHostOfVm(std::string vm_name){
   }
   return vm_deployments[vm_name];  
 }
+void VmsInterface::close_vm_socket(std::string vm_name) {
+    int vm_socket = vm_sockets.at(vm_name);
+    shutdown(vm_socket, SHUT_RDWR);
+    close(vm_socket);
+    vm_sockets_trash.push_back(vm_name);
+    a_vm_stopped = true;
+}
+
 
 void VmsInterface::deliverMessage(message m){
   
