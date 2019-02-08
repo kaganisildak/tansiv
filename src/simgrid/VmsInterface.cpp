@@ -2,7 +2,7 @@
 #include <xbt/log.hpp>
 #include <unistd.h>
 #include <vsg.h>
-
+#include <signal.h>
 #include <algorithm>
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
@@ -55,6 +55,8 @@ VmsInterface::VmsInterface(bool stop_at_any_stop)
     end_simulation();
   }
   XBT_DEBUG("listen on socket");
+
+  signal(SIGPIPE, SIG_IGN);
 }
 
 VmsInterface::~VmsInterface()
@@ -154,7 +156,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
     while (true) {
 
       if (recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL) <= 0) {
-        XBT_ERROR("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
+        XBT_INFO("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
                   vm_name.c_str());
         close_vm_socket(vm_name);
       }
@@ -231,9 +233,14 @@ void VmsInterface::close_vm_socket(std::string vm_name)
   vm_sockets_trash.push_back(vm_name);
   a_vm_stopped = true;
 }
-const std::vector<std::string> VmsInterface::get_dead_vms()
+const std::vector<std::string> VmsInterface::get_dead_vm_hosts()
 {
-    return vm_sockets_trash;
+  std::vector<std::string> dead_hosts;
+  for(std::string vm : vm_sockets_trash){
+    dead_hosts.push_back(getHostOfVm(vm));
+  }
+
+  return dead_hosts;
 }
 
 

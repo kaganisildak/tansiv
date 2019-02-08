@@ -26,7 +26,7 @@ public:
   void deliverMessage(message m);
   void end_simulation(bool must_unlink = true, bool must_exit = true);
   void register_vm(std::string host_name, std::string vm_name, std::string file, std::vector<std::string> args);
-  const std::vector<std::string> get_dead_vms();
+  const std::vector<std::string> get_dead_vm_hosts();
 
 private:
   bool all_vm_active;

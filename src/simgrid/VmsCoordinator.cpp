@@ -112,19 +112,21 @@ static void vm_coordinator()
   while (vms_interface->vmActive()) {
 
     bool deads = false;
-    for (auto vm : vms_interface->get_dead_vms()) {
+    for (auto host : vms_interface->get_dead_vm_hosts()) {
 
-        std::remove_if(receivers.begin(), receivers.end(), [vm](const simgrid::s4u::ActorPtr & o) {
-            if (o->get_name() == vm) {
-                o->kill(); // This is cheating: our predicate is not const but also kill the actor
-                return true;
+        auto erased_section_begin = std::remove_if(receivers.begin(), receivers.end(), [host](const simgrid::s4u::ActorPtr & o) {
+            if (o->get_host()->get_name() == host) {
+               return true;
             }
             return false;
         });
+        
+        receivers.erase(erased_section_begin, receivers.end());
 
         deads = true;
     }
-    if (deads)
+    
+   if (deads && receivers.size() > 1)
         min_latency = compute_min_latency();
 
     double time                = simgrid::s4u::Engine::get_clock();
