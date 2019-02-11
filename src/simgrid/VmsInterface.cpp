@@ -18,10 +18,17 @@ vsg_time simgridToVmTime(double simgrid_time)
 {
   struct vsg_time vm_time;
 
-  // the simgrid time correspond to a double in second, so the number of seconds is the integer part
-  vm_time.seconds = (uint64_t)(std::floor(simgrid_time));
-  // and the number of usecond is the decimal number scaled accordingly
-  vm_time.useconds = (uint64_t)(std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6));
+  // when only one VM remains, simgrid_time = DOUBLE_MAX.
+  // we use the code below to avoid conversion issue of DOUBLE_MAX to uint64_t.
+  if(simgrid_time > std::numeric_limits<uint64_t>::max()){
+    vm_time.seconds = std::numeric_limits<uint64_t>::max();
+    vm_time.useconds = std::numeric_limits<uint64_t>::max();
+  }else{
+    // the simgrid time correspond to a double in second, so the number of seconds is the integer part
+    vm_time.seconds = (uint64_t)(std::floor(simgrid_time));
+    // and the number of usecond is the decimal number scaled accordingly
+    vm_time.useconds = (uint64_t)(std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6));
+  }
 
   return vm_time;
 }
@@ -48,13 +55,13 @@ VmsInterface::VmsInterface(bool stop_at_any_stop)
     std::perror("unable to bind connection socket");
     end_simulation();
   }
-  XBT_DEBUG("socket binded");
+  XBT_VERB("socket binded");
 
   if (listen(connection_socket, 1) != 0) {
     std::perror("unable to listen on connection socket");
     end_simulation();
   }
-  XBT_DEBUG("listen on socket");
+  XBT_VERB("listen on socket");
 
   signal(SIGPIPE, SIG_IGN);
 }
@@ -96,7 +103,7 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
     default:
       break;
   }
-  XBT_DEBUG("fork done for VM %s", vm_name.c_str());
+  XBT_VERB("fork done for VM %s", vm_name.c_str());
 
   struct sockaddr_un vm_address = {0};
   unsigned int len              = sizeof(vm_address);
@@ -114,7 +121,7 @@ void VmsInterface::end_simulation(bool must_unlink, bool must_exit)
   for (auto it : vm_sockets) {
     close(it.second);
   }
-  XBT_DEBUG("vm sockets are down");
+  XBT_VERB("vm sockets are down");
 
   if (must_unlink)
     unlink(CONNECTION_SOCKET_NAME);
@@ -167,7 +174,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
 
       } else if (vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET) {
 
-        XBT_DEBUG("getting a message from VM %s", vm_name.c_str());
+        XBT_VERB("getting a message from VM %s", vm_name.c_str());
         struct vsg_send_packet packet = {0, 0};
         // we first get the message size
         recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
@@ -189,7 +196,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
         }
         dest[vm_name.length()] = '\0';
 
-        XBT_DEBUG("got the message [%s] (size %lu) from VM [%s] to VM [%s]", data, sizeof(data), vm_name.c_str(), dest);
+        XBT_VERB("got the message [%s] (size %lu) from VM [%s] to VM [%s]", data, sizeof(data), vm_name.c_str(), dest);
 
         struct message m;
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
@@ -258,7 +265,7 @@ void VmsInterface::deliverMessage(message m)
     send(socket, &packet, sizeof(packet), 0);
     send(socket, data.c_str(), data.length(), 0);
 
-    XBT_DEBUG("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
+    XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   } else {
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(),
              m.dest.c_str());

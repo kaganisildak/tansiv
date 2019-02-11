@@ -18,7 +18,7 @@ const std::string vsg_vm_name = "vsg_vm";
 static double compute_min_latency()
 {
 
-  double min_latency = std::numeric_limits<double>::max();
+  double min_latency = std::numeric_limits<double>::infinity();
 
   for (simgrid::s4u::ActorPtr sender : receivers) {
     for (simgrid::s4u::ActorPtr receiver : receivers) {
@@ -63,7 +63,7 @@ static void sender(std::string mailbox_name, vsg::message m)
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
   comm->wait();
-  // for the receiver to be able to get the message
+  // for the receiver to be able to get the message (just useful for login purpose)
   simgrid::s4u::this_actor::yield();
 }
 
@@ -111,6 +111,7 @@ static void vm_coordinator()
 
   while (vms_interface->vmActive()) {
 
+    // first we check if a VM stops. If so, we recompute the minimum latency.
     bool deads = false;
     for (auto host : vms_interface->get_dead_vm_hosts()) {
 
@@ -122,13 +123,12 @@ static void vm_coordinator()
         });
         
         receivers.erase(erased_section_begin, receivers.end());
-
         deads = true;
-    }
-    
-   if (deads && receivers.size() > 1)
+    }    
+   if (deads)
         min_latency = compute_min_latency();
 
+    // then we go forward with the VM.
     double time                = simgrid::s4u::Engine::get_clock();
     double next_reception_time = get_next_event();
     double deadline            = std::min(time + min_latency, next_reception_time);
