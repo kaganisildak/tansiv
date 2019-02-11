@@ -42,7 +42,7 @@ static double compute_min_latency()
 static double get_next_event()
 {
   double time            = simgrid::s4u::Engine::get_clock();
-  double next_event_time = std::numeric_limits<double>::max();
+  double next_event_time = std::numeric_limits<double>::infinity();
   for (simgrid::kernel::resource::Model* model : all_existing_models) {
     double model_event = time + model->next_occuring_event(time);
     if (model_event < next_event_time && model_event > time) {
@@ -164,7 +164,10 @@ static void vm_coordinator()
       }
     }
 
-    simgrid::s4u::this_actor::sleep_until(deadline);
+    // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
+    // so we do not have to sleep until "infinity" because the simulation is done
+    if(deadline!=std::numeric_limits<double>::infinity())
+      simgrid::s4u::this_actor::sleep_until(deadline);
 
     int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
 
