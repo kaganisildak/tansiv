@@ -143,6 +143,71 @@ VM::emission(msg)
       - suspend (resp. réveille) l'application avec SIGSTOP (resp. SIGCONT)
       - fait le relais entre l'acteur et l'application pour les transmission
         de paquets
+#+BEGIN_SRC
+global next_deadline
+global time_offset
+global recv_packet_buffers
+global recv_packet_time
+global in_recv_packet = false
+
+vsg_getttimeofday() {
+      if (in_recv_packet)
+            return recv_packet_time
+      return gettimeofday() - time_offset
+}
+
+vsg_rdtsc() {
+      if (in_recv_packet)
+            return recv_packet_time
+      return rdtsc() - time_offset
+}
+
+FakeVM::init() {
+      // Initialiser mémoire réception de messages
+      // Initialiser timer pour gestion des deadlines, handler = deadline_handler()
+      deadline_handler()
+}
+
+// 
+FakeVM::deadline_handler() {
+      local start, stop
+
+      start = gettimeofday()
+
+      do {
+            actor_msg = recv(actor_socket)
+            switch (actor_msg.type) {
+            case GoToDeadline:
+                  break;
+            case DeliverPacket:
+                  recv_packet_buffers += actor_msg.packet
+                  break;
+            }
+      } while (actor_msg.type != GoToDeadline);
+
+      recv_packet_time = next_deadline
+      in_recv_packet = true
+      for packet in recv_packet_buffers {
+            vsg_call_recv_cb(packet)
+      }
+      in_recv_packet = false
+
+      next_deadline = actor_msg.deadline
+      setitimer(next_deadline)
+
+      stop = gettimeofday()
+      time_offset += stop - start
+}
+#+END_SRC
+    - contraintes sur les applications fake-vm:
+      - passer par l'API vsg pour observation du temps et communications
+        réseau
+      - mono-thread
+      - recv_cb() doit:
+        - être appelable en handler de signal
+        - supporter le fait que le temps est figé pour la durée de son
+          exécution et pour plusieurs exécutions successives (cas particulier
+          de réception de plusieurs messages en même temps)
 - Glue entre coordinateur sur SimGrid (VmsInterface) et proxy de la VM
   - noms VMs = @IPv4 en string (16 bytes)
   - VmsInterface utilise un fichier décrivant les VMs à lancer et leurs paramètres
@@ -227,7 +292,7 @@ Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécutio
             - chaque est application est toute seule derrière un routeur IP ?
             - proxy ARP ?
 - Explorer l'idée laissée en attente de checkpoints à intervale de
-  temps régulier.
+  temps régulier. --> on abandonne
   - La différence avec l'émulation désynchronisée est qu'on tente de
     faire moins de checkpoints en laissant plus de un message passer
     entre les checkpoints.
