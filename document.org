@@ -146,7 +146,6 @@ VM::emission(msg)
 #+BEGIN_SRC
 global next_deadline
 global time_offset
-global recv_packet_buffers
 global recv_packet_time
 global in_recv_packet = false
 
@@ -168,11 +167,14 @@ FakeVM::init() {
       deadline_handler()
 }
 
-// 
+// Appelé en contexte de traitement de signal
 FakeVM::deadline_handler() {
       local start, stop
 
       start = gettimeofday()
+
+      recv_packet_time = next_deadline
+      in_recv_packet = true
 
       do {
             actor_msg = recv(actor_socket)
@@ -180,16 +182,11 @@ FakeVM::deadline_handler() {
             case GoToDeadline:
                   break;
             case DeliverPacket:
-                  recv_packet_buffers += actor_msg.packet
+                  vsg_recv_cb(actor_msg.packet)
                   break;
             }
       } while (actor_msg.type != GoToDeadline);
 
-      recv_packet_time = next_deadline
-      in_recv_packet = true
-      for packet in recv_packet_buffers {
-            vsg_call_recv_cb(packet)
-      }
       in_recv_packet = false
 
       next_deadline = actor_msg.deadline
@@ -203,8 +200,10 @@ FakeVM::deadline_handler() {
       - passer par l'API vsg pour observation du temps et communications
         réseau
       - mono-thread
+      - ne pas masquer le signal dédié à la gestion du temps
       - recv_cb() doit:
-        - être appelable en handler de signal
+        - être appelable en handler de signal avec tous les autres signaux
+          masqués (seul contexte dans lequel vsg appelle la fonction)
         - supporter le fait que le temps est figé pour la durée de son
           exécution et pour plusieurs exécutions successives (cas particulier
           de réception de plusieurs messages en même temps)
