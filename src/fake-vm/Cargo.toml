@@ -1,2 +1,2 @@
 [workspace]
-members = ["fake-vm"]
+members = ["fake_vm"]

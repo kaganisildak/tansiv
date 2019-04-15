@@ -1,5 +1,5 @@
 [package]
-name = "fake-vm"
+name = "fake_vm"
 version = "0.1.0"
 authors = ["Louis Rilling <l.rilling@av7.net>"]
 edition = "2018"
