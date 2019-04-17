@@ -44,8 +44,8 @@ impl Connector for UnixConnector {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test_helpers {
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers {
     use log::{error, info};
     use std::os::unix::net::UnixListener;
     use std::path::PathBuf;

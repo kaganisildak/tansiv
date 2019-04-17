@@ -5,8 +5,8 @@ use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
 pub(super) use unix::*;
-#[cfg(test)]
-pub(crate) use unix::test_helpers;
+#[cfg(any(test, feature = "test-helpers"))]
+pub use unix::test_helpers;
 
 mod unix;
 
