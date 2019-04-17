@@ -6,6 +6,7 @@ use chrono::{Duration, naive::NaiveDateTime};
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
 use libc;
+#[allow(unused_imports)]
 use log::{debug, error};
 use std::io::Result;
 
@@ -78,6 +79,7 @@ pub mod test_helpers {
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
     use log::{error, info};
     use std::path::PathBuf;
     use super::connector::Connector;
