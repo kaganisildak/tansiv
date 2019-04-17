@@ -9,7 +9,7 @@ use libc;
 use log::{debug, error};
 use std::io::Result;
 
-const MAX_PACKET_SIZE: usize = 2048;
+pub const MAX_PACKET_SIZE: usize = 2048;
 
 mod config;
 mod connector;
