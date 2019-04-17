@@ -8,6 +8,7 @@ edition = "2018"
 fake_vm = {version = "0.1.0", path = "../fake_vm"}
 libc = "0.2"
 log = "0.4"
+static_assertions = "0.3.1"
 
 [dev-dependencies]
 fake_vm = {version = "0.1.0", path = "../fake_vm", features = ["test-helpers"]}

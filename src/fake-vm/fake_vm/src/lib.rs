@@ -15,14 +15,17 @@ pub const MAX_PACKET_SIZE: usize = 2048;
 mod config;
 mod connector;
 
+pub type RecvCallback = Box<FnMut(&Context, &[u8]) -> ()>;
+
 pub struct Context {
     time_offset: Duration,
     connector: ConnectorImpl,
     input_buffer: Vec<u8>,
+    recv_callback: RecvCallback,
 }
 
 impl Context {
-    fn new(config: &Config) -> Result<Box<Context>> {
+    fn new(config: &Config, recv_callback: RecvCallback) -> Result<Box<Context>> {
         // Here is where the time reference is recorded
         let time_offset = config.time_offset - chrono::offset::Local::now().naive_local();
         let (connector, input_buffer) = ConnectorImpl::new(&config)?;
@@ -31,11 +34,12 @@ impl Context {
                 time_offset: time_offset,
                 connector: connector,
                 input_buffer: input_buffer,
+                recv_callback: recv_callback,
         }))
     }
 }
 
-pub fn init<I>(args: I) -> Result<Box<Context>>
+pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Box<Context>>
     where I: IntoIterator,
           I::Item: Into<std::ffi::OsString> + Clone {
     use structopt::StructOpt;
@@ -43,7 +47,7 @@ pub fn init<I>(args: I) -> Result<Box<Context>>
     let config = Config::from_iter_safe(args).or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     debug!("{:?}", config);
 
-    Context::new(&config)
+    Context::new(&config, recv_callback)
 }
 
 pub fn gettimeofday(context: &Context) -> libc::timeval {
@@ -101,13 +105,16 @@ mod test {
         }
     }
 
+    fn dummy_recv_callback(_context: &super::Context, _packet: &[u8]) -> () {
+    }
+
     #[test]
     fn init_valid() {
         init();
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args!());
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback));
         assert!(context.is_ok());
 
         let context = context.unwrap();
@@ -122,7 +129,7 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(invalid_args!());
+        let context = super::init(invalid_args!(), Box::new(dummy_recv_callback));
         assert!(context.is_err());
 
         test_cleanup_connect(&server_path);
@@ -134,7 +141,7 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args!());
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback));
         assert!(context.is_ok());
 
         let mut context = context.unwrap();
@@ -152,7 +159,7 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args_h1!());
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback));
         assert!(context.is_ok());
 
         let mut context = context.unwrap();
@@ -170,7 +177,7 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args_h1!());
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback));
         assert!(context.is_ok());
 
         let mut context = context.unwrap();

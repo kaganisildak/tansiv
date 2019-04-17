@@ -2,6 +2,7 @@ use fake_vm::Context;
 use libc;
 #[allow(unused_imports)]
 use log::{debug, error};
+use static_assertions::const_assert;
 use std::io::Result;
 use std::os::raw::{c_char, c_int};
 
@@ -35,9 +36,14 @@ unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F)
     }
 }
 
+type CRecvCallback = extern "C" fn(*const Context, u32, *const u8);
+
 #[no_mangle]
-pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int) -> *mut Context {
-    match parse_os_args(argc, argv, |args| fake_vm::init(args)) {
+pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback) -> *mut Context {
+    const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
+    let callback: fake_vm::RecvCallback = Box::new(move |context, payload| recv_callback(context, payload.len() as u32, payload.as_ptr()));
+
+    match parse_os_args(argc, argv, |args| fake_vm::init(args, callback)) {
         Ok((context, next_arg)) => {
             if let Some(next_arg_p) = next_arg_p.as_mut() {
                 *next_arg_p = next_arg;
@@ -202,6 +208,9 @@ mod test {
         assert_eq!(3, next);
     }
 
+    extern "C" fn dummy_recv_callback(_context: *const Context, _packet_len: u32, _packet: *const u8) -> () {
+    }
+
     #[test]
     fn init_valid() {
         init();
@@ -210,7 +219,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(!context.is_null());
         assert_eq!(2, next_arg);
 
@@ -225,7 +234,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut()) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
         unsafe { vsg_cleanup(context) };
@@ -240,7 +249,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(context.is_null());
         assert_eq!(0, next_arg);
 
@@ -254,7 +263,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut()) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(context.is_null());
 
         test_cleanup_connect(&server_path);
@@ -279,7 +288,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut()) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
         let mut tv = TIMEVAL_POISON;;
@@ -299,7 +308,7 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut()) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_gettimeofday(context, std::ptr::null_mut(), std::ptr::null_mut()) };
