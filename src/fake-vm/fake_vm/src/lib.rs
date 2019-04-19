@@ -1,5 +1,3 @@
-#![feature(try_from)]
-#![feature(uniform_paths)]
 // Use chrono::Duration (re-exported from time::Duration) to allow negative values, which are not
 // allowed in std::time::Duration
 use chrono::{Duration, naive::NaiveDateTime};
