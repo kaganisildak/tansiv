@@ -1,0 +1,9 @@
+[package]
+name = "libc_timer"
+version = "0.1.0"
+authors = ["Louis Rilling <l.rilling@av7.net>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+nix = "0.11"
