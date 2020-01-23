@@ -189,7 +189,7 @@ pub trait FromStream: Sized {
 }
 
 pub trait Validate {
-    unsafe fn validate(_v: *const Self, _endianness: Endianness) -> Result<()> {
+    fn validate(_v: *const Self, _endianness: Endianness) -> Result<()> {
         Ok(())
     }
 }
@@ -203,11 +203,9 @@ impl<T> FromBytes for T where T: Validate + FromLe {
         if bytes.len() < size_of::<T>() {
             Err(IoError::new(ErrorKind::UnexpectedEof, "Missing data"))
         } else {
-            let v = unsafe {
-                let tmp = std::ptr::read_unaligned(bytes.as_ptr() as *const T);
-                T::validate((&tmp) as *const T, src_endianness)?;
-                tmp
-            };
+            let ptr = bytes.as_ptr() as *const T;
+            T::validate(ptr, src_endianness)?;
+            let v = unsafe { std::ptr::read_unaligned(ptr) };
             let v = match src_endianness {
                 Endianness::Native => v,
                 Endianness::Little => T::from_le(v),
