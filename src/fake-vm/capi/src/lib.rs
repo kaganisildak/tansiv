@@ -66,10 +66,14 @@ pub unsafe extern fn vsg_cleanup(context: *mut Context) {
 
 #[no_mangle]
 pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut libc::timeval, _timezone: *mut libc::c_void) -> c_int {
-    if let Some(timeval) = timeval.as_mut() {
-        *timeval = fake_vm::gettimeofday(&*context);
+    if let Some(context) = context.as_ref() {
+        if let Some(timeval) = timeval.as_mut() {
+            *timeval = context.gettimeofday();
+        }
+        0
+    } else {
+        libc::EINVAL
     }
-    0
 }
 
 #[cfg(test)]
@@ -316,5 +320,16 @@ mod test {
 
         unsafe { vsg_cleanup(context) };
         test_cleanup_connect(&server_path);
+    }
+
+    #[test]
+    fn gettimeofday_no_context() {
+        init();
+
+        let mut tv = TIMEVAL_POISON;;
+        let res: c_int = unsafe { vsg_gettimeofday(std::ptr::null(), &mut tv, std::ptr::null_mut()) };
+        assert_eq!(libc::EINVAL, res);
+        assert_eq!(TIMEVAL_POISON.tv_sec, tv.tv_sec);
+        assert_eq!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
     }
 }
