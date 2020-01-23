@@ -1,9 +1,8 @@
-use fake_vm::Context;
+use fake_vm::{Context, Error, Result};
 use libc;
 #[allow(unused_imports)]
 use log::{debug, error};
 use static_assertions::const_assert;
-use std::io::Result;
 use std::os::raw::{c_char, c_int};
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
@@ -155,9 +154,9 @@ mod test {
         if num_required_args == count {
             Ok(())
         } else if num_required_args > count {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("raw_args and args differ at index {}", count - 1)))
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("raw_args and args differ at index {}", count - 1)).into())
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("parse_os_args() iterated {} args too far", count - num_required_args)))
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("parse_os_args() iterated {} args too far", count - num_required_args)).into())
         }
     }
 

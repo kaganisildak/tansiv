@@ -3,15 +3,23 @@
 use chrono::{Duration, naive::NaiveDateTime};
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
+pub use error::Error;
 use libc;
 #[allow(unused_imports)]
 use log::{debug, error};
-use std::io::Result;
 
 pub const MAX_PACKET_SIZE: usize = 2048;
 
 mod config;
 mod connector;
+pub mod error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+// Cannot write a generic From<std::io::Result<T>> for Result<T>
+fn from_io_result<T>(result: std::io::Result<T>) -> Result<T> {
+    result.map_err(Into::into)
+}
 
 pub type RecvCallback = Box<FnMut(&Context, &[u8]) -> ()>;
 

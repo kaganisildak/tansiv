@@ -46,9 +46,37 @@ impl Connector for UnixConnector {
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
+    use crate::from_io_result;
     use log::{error, info};
+    use std::fmt;
     use std::os::unix::net::UnixListener;
     use std::path::PathBuf;
+
+    #[derive(Debug)]
+    pub struct Error {
+        error: crate::error::Error,
+        context: &'static str,
+    }
+
+    impl Error {
+        pub fn new(error: crate::error::Error, context: &'static str) -> Error {
+            Error {
+                error: error,
+                context: context,
+            }
+        }
+    }
+
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}: ", self.context)?;
+            self.error.fmt(f)
+        }
+    }
+
+    impl std::error::Error for Error {}
+
+    pub type TestResult<T> = std::result::Result<T, Error>;
 
     pub fn test_prepare_connect<F>(path: &PathBuf, server_fn: F)
         where F: FnOnce(UnixListener) -> (),
