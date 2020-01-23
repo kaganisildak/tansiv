@@ -1,9 +1,9 @@
 use binser::{Endianness, FromBytes, FromStream, SizedAsBytes, ToBytes, ToStream, ValidAsBytes, Validate};
 use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
-use chrono::Duration;
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
+use std::time::Duration;
 pub(super) use unix::*;
 #[cfg(any(test, feature = "test-helpers"))]
 pub use unix::test_helpers;
@@ -196,8 +196,16 @@ impl<'a> MsgIn<'a> {
             },
             MsgInType::GoToDeadline => {
                 let deadline = GoToDeadline::from_stream(src, input_buffer, src_endianness)?.deadline;
-                if let (Ok(seconds), Ok(useconds)) = (i64::try_from(deadline.seconds), i64::try_from(deadline.useconds)) {
-                    Ok(MsgIn::GoToDeadline(Duration::seconds(seconds) + Duration::microseconds(useconds)))
+                if let (Ok(seconds), Ok(nseconds)) = (
+                    u64::try_from(deadline.seconds),
+                    u32::try_from(deadline.useconds).map_err(|_| ()).and_then(|usecs|
+                                                         if usecs < 1000000 {
+                                                             Ok(usecs * 1000)
+                                                         } else {
+                                                             Err(())
+                                                         })
+                ) {
+                    Ok(MsgIn::GoToDeadline(Duration::new(seconds, nseconds)))
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Time out of bounds"))
                 }
@@ -226,16 +234,12 @@ impl<'a> MsgOut<'a> {
         match self {
             MsgOut::AtDeadline => Ok(()),
             MsgOut::SendPacket(send_time, packet) => {
-                let seconds = send_time.num_seconds();
-                let subsec_useconds = (send_time - Duration::seconds(seconds)).num_microseconds().unwrap();
-                assert!(seconds >= 0);
-                assert!(subsec_useconds >= 0);
                 assert!(packet.len() <= std::u32::MAX as usize);
 
                 let send_packet_header = SendPacket {
                     send_time: Time {
-                        seconds: seconds as u64,
-                        useconds: subsec_useconds as u64,
+                        seconds: send_time.as_secs(),
+                        useconds: send_time.subsec_micros() as u64,
                     },
                     packet: Packet {
                         size: packet.len() as u32,

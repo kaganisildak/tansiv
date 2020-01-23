@@ -214,30 +214,42 @@ mod test {
         recv_partial_go_to_deadline_srv)
     }
 
-    fn recv_go_to_deadline_oob_seconds_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-
-        let msg = GoToDeadline {
-            deadline: Time {
-                seconds: std::u64::MAX,
-                useconds: 0,
-            },
-        };
-        send_go_to_deadline(&mut client, msg);
-    }
-
+    // If types used to represent seconds change, the test will just not compile.
+    // If types used to represent seconds have to differ between network representation and
+    // internal representation, then uncomment and adapt the next test case.
     #[test]
-    fn recv_go_to_deadline_oob_seconds() {
-        run_client_server(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
-            match msg {
-                Ok(_) => assert!(false),
-                Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
-            }
-        },
-        recv_go_to_deadline_oob_seconds_srv)
+    fn go_to_deadline_seconds_not_overflowable() {
+        use std::time::Duration;
+        use super::super::GoToDeadline;
+        use super::super::MsgIn;
+
+        #[allow(unused_variables)]
+        let net_should_use_u64 = GoToDeadline { deadline: Time { seconds: 0u64, useconds: 0u64, } };
+        #[allow(unused_variables)]
+        let internal_should_use_u64 = MsgIn::GoToDeadline(Duration::new(0u64, 0u32));
     }
+
+    // fn recv_go_to_deadline_oob_seconds_srv(server: UnixListener) {
+        // let (mut client, address) = server.accept().expect("Failed to accept connection");
+        // info!("New client: {:?}", address);
+
+        // let msg = GoToDeadline {
+            // deadline: Time {
+                // seconds: std::u64::MAX,
+                // useconds: 0,
+            // },
+        // };
+        // send_go_to_deadline(&mut client, msg);
+    // }
+
+    // #[test]
+    // fn recv_go_to_deadline_oob_seconds() {
+        // run_client_server(|mut connector, input_buffer| {
+            // let error = connector.recv(input_buffer).unwrap_err();
+            // assert_eq!(error.kind(), ErrorKind::InvalidData);
+        // },
+        // recv_go_to_deadline_oob_seconds_srv)
+    // }
 
     fn recv_go_to_deadline_oob_useconds_srv(server: UnixListener) {
         let (mut client, address) = server.accept().expect("Failed to accept connection");
@@ -287,10 +299,10 @@ mod test {
             let msg = msg.unwrap();
             match msg {
                 MsgIn::GoToDeadline(deadline) => {
-                    let seconds = deadline.num_seconds();
-                    assert_eq!(seconds, GO_TO_DEADLINE.deadline.seconds as i64);
-                    let useconds = (deadline - chrono::Duration::seconds(seconds)).num_microseconds().unwrap();
-                    assert_eq!(useconds, GO_TO_DEADLINE.deadline.useconds as i64);
+                    let seconds = deadline.as_secs();
+                    assert_eq!(seconds, GO_TO_DEADLINE.deadline.seconds);
+                    let useconds = deadline.subsec_micros();
+                    assert_eq!(useconds as u64, GO_TO_DEADLINE.deadline.useconds);
                 },
                 _ => assert!(false),
             }
@@ -447,7 +459,7 @@ mod test {
     }
 
     fn make_ref_send_packet() -> MsgOut<'static> {
-        MsgOut::SendPacket(Duration::seconds(3) + Duration::microseconds(200),
+        MsgOut::SendPacket(Duration::new(3, 200),
                        b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")
     }
 
@@ -458,9 +470,9 @@ mod test {
         let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
         let msg = recv_send_packet(&mut client, &mut buffer);
         if let MsgOut::SendPacket(ref_send_time, ref_payload) = make_ref_send_packet() {
-            let seconds = ref_send_time.num_seconds();
-            let useconds = (ref_send_time - Duration::seconds(seconds)).num_microseconds().unwrap();
-            assert_eq!(msg.send_time.seconds, seconds as u64);
+            let seconds = ref_send_time.as_secs();
+            let useconds = ref_send_time.subsec_micros();
+            assert_eq!(msg.send_time.seconds, seconds);
             assert_eq!(msg.send_time.useconds, useconds as u64);
             let payload_len = msg.packet.size as usize;
             assert_eq!(&buffer[..payload_len], ref_payload);
