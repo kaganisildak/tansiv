@@ -67,7 +67,6 @@ fn gen_from_le(name: &Ident, data: &Data) -> TokenStream {
                             }
                         }
                     }
-
                 },
                 Fields::Unit => {
                     Error::new(Span::call_site(), "Empty structs cannot be automatically made FromLe").to_compile_error()
@@ -143,7 +142,6 @@ fn gen_into_le(name: &Ident, data: &Data) -> TokenStream {
                             }
                         }
                     }
-
                 },
                 Fields::Unit => {
                     Error::new(Span::call_site(), "Empty structs cannot be automatically made IntoLe").to_compile_error()
