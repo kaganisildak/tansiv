@@ -1,5 +1,6 @@
 use binser::{Endianness, FromBytes, FromStream, SizedAsBytes, ToBytes, ToStream, ValidAsBytes, Validate};
 use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
+use crate::buffer_pool::BufferPool;
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
@@ -13,7 +14,7 @@ mod unix;
 pub(crate) type ConnectorImpl = UnixConnector;
 
 pub(crate) trait Connector where Self: Sized {
-    fn new(config: &super::Config) -> Result<(Self, Vec<u8>)>;
+    fn new(config: &super::Config) -> Result<(Self, BufferPool)>;
     fn recv<'a, 'b>(&'a mut self, input_buffer: &'b mut [u8]) -> Result<MsgIn<'b>>;
     fn send<'a, 'b>(&'a mut self, msg: MsgOut<'b>) -> Result<()>;
 }

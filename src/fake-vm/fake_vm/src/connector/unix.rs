@@ -1,3 +1,4 @@
+use crate::buffer_pool::BufferPool;
 use std::io::Result;
 use std::os::unix::net::UnixStream;
 use super::{Connector, Endianness, MsgIn, MsgOut};
@@ -23,14 +24,13 @@ impl UnixConnector {
 }
 
 impl Connector for UnixConnector {
-    fn new(config: &crate::Config) -> Result<(UnixConnector, Vec<u8>)> {
+    fn new(config: &crate::Config) -> Result<(UnixConnector, BufferPool)> {
         let connector = UnixConnector::inner_new(config)?;
 
         let input_buffer_size = usize::max(MsgIn::max_header_size(), crate::MAX_PACKET_SIZE);
-        let mut input_buffer = Vec::with_capacity(input_buffer_size);
-        input_buffer.resize(input_buffer_size, 0);
+        let input_buffer_pool = BufferPool::new(input_buffer_size, config.num_buffers.get());
 
-        Ok((connector, input_buffer))
+        Ok((connector, input_buffer_pool))
     }
 
     fn recv<'a, 'b>(&'a mut self, input_buffer: &'b mut [u8]) -> Result<MsgIn<'b>> {
@@ -174,7 +174,8 @@ mod test {
         test_prepare_connect(&server_path, test_dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
 
-        let (_, input_buffer) = UnixConnector::new(&config).unwrap();
+        let (_, input_buffer_pool) = UnixConnector::new(&config).unwrap();
+        let input_buffer = input_buffer_pool.allocate_buffer(crate::MAX_PACKET_SIZE).unwrap();
         assert_eq!(input_buffer.len(), usize::max(MsgIn::max_header_size(), crate::MAX_PACKET_SIZE));
 
         test_cleanup_connect(&server_path);
@@ -187,7 +188,8 @@ mod test {
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, server_fn);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
-        let (connector, mut input_buffer) = UnixConnector::new(&config).unwrap();
+        let (connector, input_buffer_pool) = UnixConnector::new(&config).unwrap();
+        let mut input_buffer = BufferPool::allocate_buffer(&input_buffer_pool, crate::MAX_PACKET_SIZE).unwrap();
 
         client_fn(connector, &mut input_buffer);
 

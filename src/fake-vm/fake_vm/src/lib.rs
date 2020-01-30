@@ -1,6 +1,7 @@
 // Use chrono::Duration (re-exported from time::Duration) to allow negative values, which are not
 // allowed in std::time::Duration
 use chrono::{Duration, naive::NaiveDateTime};
+use buffer_pool::BufferPool;
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
 pub use error::Error;
@@ -10,9 +11,19 @@ use log::{debug, error};
 
 pub const MAX_PACKET_SIZE: usize = 2048;
 
+mod buffer_pool;
 mod config;
 mod connector;
 pub mod error;
+
+impl From<buffer_pool::Error> for Error {
+    fn from(error: buffer_pool::Error) -> Error {
+        match error {
+            buffer_pool::Error::NoBufferAvailable => Error::NoMemoryAvailable,
+            buffer_pool::Error::SizeTooBig => Error::SizeTooBig,
+        }
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -26,7 +37,7 @@ pub type RecvCallback = Box<FnMut(&Context, &[u8]) -> ()>;
 pub struct Context {
     time_offset: Duration,
     connector: ConnectorImpl,
-    input_buffer: Vec<u8>,
+    input_buffer_pool: BufferPool,
     recv_callback: RecvCallback,
 }
 
@@ -34,12 +45,12 @@ impl Context {
     fn new(config: &Config, recv_callback: RecvCallback) -> Result<Box<Context>> {
         // Here is where the time reference is recorded
         let time_offset = config.time_offset - chrono::offset::Local::now().naive_local();
-        let (connector, input_buffer) = ConnectorImpl::new(&config)?;
+        let (connector, input_buffer_pool) = ConnectorImpl::new(&config)?;
 
         Ok(Box::new(Context {
                 time_offset: time_offset,
                 connector: connector,
-                input_buffer: input_buffer,
+                input_buffer_pool: input_buffer_pool,
                 recv_callback: recv_callback,
         }))
     }
@@ -177,6 +188,8 @@ mod test {
 
     #[test]
     fn message_loop() {
+        use std::ops::DerefMut;
+
         init();
 
         let server_path = PathBuf::from("titi");
@@ -186,10 +199,12 @@ mod test {
 
         let mut context = context.unwrap();
         let connector = &mut context.connector;
-        let input_buffer = &mut context.input_buffer;
+        let input_buffer_pool = &context.input_buffer_pool;
+        let mut allocated_input_buffer = input_buffer_pool.allocate_buffer(super::MAX_PACKET_SIZE).unwrap();
+        let input_buffer = allocated_input_buffer.deref_mut();
 
         loop {
-            let msg = connector.recv(input_buffer.as_mut_slice());
+            let msg = connector.recv(input_buffer);
             match msg {
                 Ok(msg) => super::handle_actor_msg(connector, msg),
                 Err(e) => match e.kind() {
