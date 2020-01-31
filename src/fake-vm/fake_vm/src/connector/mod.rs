@@ -48,11 +48,16 @@ struct GoToDeadline {
     deadline: Time,
 }
 
+// #[repr(C)]
+// struct EndSimulation {
+// }
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u32)]
 enum MsgInType {
     DeliverPacket,
     GoToDeadline,
+    EndSimulation,
 }
 
 impl SizedAsBytes for MsgInType {
@@ -74,6 +79,8 @@ impl FromBytes for MsgInType {
                 Some(MsgInType::DeliverPacket)
             } else if tmp == MsgInType::GoToDeadline as u32 {
                 Some(MsgInType::GoToDeadline)
+            } else if tmp == MsgInType::EndSimulation as u32 {
+                Some(MsgInType::EndSimulation)
             } else {
                 None
             };
@@ -171,15 +178,17 @@ impl ToBytes for MsgOutType {
 
 // Crate-level interface
 
+#[derive(Debug)]
 pub enum MsgIn<'a> {
     DeliverPacket(&'a [u8]),
     GoToDeadline(Duration),
+    EndSimulation,
 }
 
 impl<'a> MsgIn<'a> {
     // No const max macro...
     fn max_header_size() -> usize {
-        let max_msg_in_second_buf_size = usize::max(DeliverPacket::NUM_BYTES, GoToDeadline::NUM_BYTES);
+        let max_msg_in_second_buf_size = usize::max(DeliverPacket::NUM_BYTES, GoToDeadline::NUM_BYTES /*, EndSimulation::NUM_BYTES */);
         usize::max(MsgInType::NUM_BYTES, max_msg_in_second_buf_size)
     }
 
@@ -211,6 +220,7 @@ impl<'a> MsgIn<'a> {
                     Err(Error::new(ErrorKind::InvalidData, "Time out of bounds"))
                 }
             },
+            MsgInType::EndSimulation => Ok(MsgIn::EndSimulation),
         }
     }
 
@@ -219,6 +229,7 @@ impl<'a> MsgIn<'a> {
         let msg_type = match self {
             MsgIn::DeliverPacket(_) => MsgInType::DeliverPacket,
             MsgIn::GoToDeadline(_) => MsgInType::GoToDeadline,
+            MsgIn::EndSimulation => MsgInType::EndSimulation,
         };
         msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
         match self {
@@ -243,6 +254,7 @@ impl<'a> MsgIn<'a> {
                 };
                 go_to_deadline.to_stream(dst, scratch_buffer, dst_endianness)
             },
+            MsgIn::EndSimulation => Ok(()),
         }
     }
 }

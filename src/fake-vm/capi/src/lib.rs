@@ -64,12 +64,60 @@ pub unsafe extern fn vsg_cleanup(context: *mut Context) {
 }
 
 #[no_mangle]
+pub unsafe extern fn vsg_start(context: *const Context) -> c_int {
+    if let Some(context) = context.as_ref() {
+        match (*context).start() {
+            Ok(_) => 0,
+            Err(e) => match e {
+                Error::AlreadyStarted => libc::EALREADY,
+                Error::NoMemoryAvailable => libc::ENOMEM,
+                Error::ProtocolViolation => libc::EPROTO,
+                Error::SizeTooBig => libc::E2BIG,
+                _ => // Unknown error, fallback to EIO
+                    libc::EIO,
+            },
+        }
+    } else {
+        libc::EINVAL
+    }
+}
+
+#[no_mangle]
+pub unsafe extern fn vsg_stop(context: *const Context) -> c_int {
+    if let Some(context) = context.as_ref() {
+        (*context).stop();
+        0
+    } else {
+        libc::EINVAL
+    }
+}
+
+#[no_mangle]
 pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut libc::timeval, _timezone: *mut libc::c_void) -> c_int {
     if let Some(context) = context.as_ref() {
         if let Some(timeval) = timeval.as_mut() {
             *timeval = context.gettimeofday();
         }
         0
+    } else {
+        libc::EINVAL
+    }
+}
+
+#[no_mangle]
+pub unsafe extern fn vsg_send(context: *const Context, msglen: u32, msg: *const u8) -> c_int {
+    if let Some(context) = context.as_ref() {
+        let payload = std::slice::from_raw_parts(msg, msglen as usize);
+
+        match (*context).send(payload) {
+            Ok(_) => 0,
+            Err(e) => match e {
+                Error::NoMemoryAvailable => libc::ENOMEM,
+                Error::SizeTooBig => libc::E2BIG,
+                _ => // Unknown error, fallback to EIO
+                    libc::EIO,
+            },
+        }
     } else {
         libc::EINVAL
     }
@@ -285,20 +333,123 @@ mod test {
     };
 
     #[test]
-    fn gettimeofday() {
+    fn start_stop() {
         init();
 
         let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        test_prepare_connect(&server_path, start_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
-        let mut tv = TIMEVAL_POISON;;
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        test_cleanup_connect(&server_path);
+    }
+
+    #[test]
+    fn start_no_context() {
+        init();
+
+        let res: c_int = unsafe { vsg_start(std::ptr::null()) };
+        assert_eq!(libc::EINVAL, res);
+    }
+
+    #[test]
+    fn stop_no_context() {
+        init();
+
+        let res: c_int = unsafe { vsg_stop(std::ptr::null()) };
+        assert_eq!(libc::EINVAL, res);
+    }
+
+    #[test]
+    fn send() {
+        init();
+
+        let server_path = PathBuf::from("titi");
+        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let buffer = b"Foo msg";
+        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        test_cleanup_connect(&server_path);
+    }
+
+    #[test]
+    fn send_too_big() {
+        init();
+
+        let server_path = PathBuf::from("titi");
+        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
+        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, (&buffer).as_ptr()) };
+        assert_eq!(libc::E2BIG, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        test_cleanup_connect(&server_path);
+    }
+
+    #[test]
+    fn send_no_context() {
+        init();
+
+        let buffer =  b"Foo msg";
+        let res: c_int = unsafe { vsg_send(std::ptr::null(), buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(libc::EINVAL, res);
+    }
+
+    #[test]
+    fn gettimeofday() {
+        init();
+
+        let server_path = PathBuf::from("titi");
+        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let mut tv = TIMEVAL_POISON;
         let res: c_int = unsafe { vsg_gettimeofday(context, &mut tv, std::ptr::null_mut()) };
         assert_eq!(0, res);
         assert_ne!(TIMEVAL_POISON.tv_sec, tv.tv_sec);
         assert_ne!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
+
+        let buffer = b"This is the end";
+        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
         test_cleanup_connect(&server_path);
@@ -309,12 +460,22 @@ mod test {
         init();
 
         let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        test_prepare_connect(&server_path, recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
         let res: c_int = unsafe { vsg_gettimeofday(context, std::ptr::null_mut(), std::ptr::null_mut()) };
+        assert_eq!(0, res);
+
+        let buffer = b"This is the end";
+        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
