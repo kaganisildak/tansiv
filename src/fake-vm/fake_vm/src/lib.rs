@@ -120,8 +120,8 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback));
-        assert!(context.is_ok());
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+            .expect("init failed");
 
         let context = context.unwrap();
         info!("context.time_offset: {:?}", context.time_offset);
@@ -135,8 +135,8 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(invalid_args!(), Box::new(dummy_recv_callback));
-        assert!(context.is_err());
+        let context = super::init(invalid_args!(), Box::new(dummy_recv_callback))
+            .expect_err("init returned a context");
 
         test_cleanup_connect(&server_path);
     }
@@ -147,10 +147,9 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback));
-        assert!(context.is_ok());
+        let mut context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+            .expect("init failed");
 
-        let mut context = context.unwrap();
         let tv = super::gettimeofday(&mut context);
         // 10 seconds should be enough for slow machines...
         assert!(tv.tv_sec >= 0 && tv.tv_sec < 10);
@@ -165,10 +164,9 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback));
-        assert!(context.is_ok());
+        let mut context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
+            .expect("init failed");
 
-        let mut context = context.unwrap();
         let tv = super::gettimeofday(&mut context);
         // 10 seconds should be enough for slow machines...
         assert!(tv.tv_sec >= 3600 && tv.tv_sec < 3610);
@@ -183,8 +181,8 @@ mod test {
 
         let server_path = PathBuf::from("titi");
         test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback));
-        assert!(context.is_ok());
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
+            .expect("init() failed");
 
         let mut context = context.unwrap();
         let connector = &mut context.connector;
