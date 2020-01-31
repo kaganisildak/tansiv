@@ -46,10 +46,13 @@ impl Connector for UnixConnector {
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
+    use binser::Endianness;
     use crate::from_io_result;
+    use crate::connector::{MsgIn, MsgOut};
     use log::{error, info};
     use std::fmt;
-    use std::os::unix::net::UnixListener;
+    use std::io::Read;
+    use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
 
     #[derive(Debug)]
@@ -90,6 +93,30 @@ pub mod test_helpers {
         std::fs::remove_file(path).expect(&format!("Server socket '{:?}' could not be removed", path))
     }
 
+    pub fn test_actor<F>(server: UnixListener, actor_fn: F) -> ()
+        where F: FnOnce(&mut UnixStream) -> TestResult<()> {
+        info!("Server listening at address {:?}", server);
+        match server.accept() {
+            Ok((mut client, address)) => {
+                info!("New client: {:?}", address);
+                match actor_fn(&mut client) {
+                    Err(e) => error!("Actor failed: {:?}", e),
+                    _ => {
+                        // Just drain until the VM ends, do not make it fail when sending messages
+                        for _ in client.bytes() {
+                        }
+                    },
+                }
+            },
+            Err(e) => error!("Failed to accept connection: {:?}", e),
+        }
+    }
+
+    pub fn test_actor_check<T>(result: crate::Result<T>, context: &'static str) -> TestResult<T> {
+        result.map_err(|e| Error::new(e, context))
+    }
+
+    // Could be replaced with test_actor(server, |_| ())
     pub fn test_dummy_actor(server: UnixListener) {
         while let Ok((_, address)) = server.accept() {
             info!("New client: {:?}", address);
@@ -97,6 +124,14 @@ pub mod test_helpers {
         error!("Failed to accept connection");
     }
 
+    pub fn test_actor_send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
+        let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
+        test_actor_check(from_io_result(msg.send(client, &mut buffer, Endianness::Native)), "Send failed")
+    }
+
+    pub fn test_actor_recv<'a>(client: &mut UnixStream, buffer: &'a mut [u8]) -> TestResult<MsgOut<'a>> {
+        test_actor_check(from_io_result(MsgOut::recv(client, buffer, Endianness::Native)), "Recv failed")
+    }
 }
 
 #[cfg(test)]

@@ -212,6 +212,38 @@ impl<'a> MsgIn<'a> {
             },
         }
     }
+
+    #[cfg(any(test, feature = "test-helpers"))]
+    fn send<'b>(self, dst: &mut impl Write, scratch_buffer: &'b mut [u8], dst_endianness: Endianness) -> Result<()> {
+        let msg_type = match self {
+            MsgIn::DeliverPacket(_) => MsgInType::DeliverPacket,
+            MsgIn::GoToDeadline(_) => MsgInType::GoToDeadline,
+        };
+        msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
+        match self {
+            MsgIn::DeliverPacket(packet) => {
+                assert!(packet.len() <= std::u32::MAX as usize);
+
+                let deliver_packet_header = DeliverPacket {
+                    packet: Packet {
+                        size: packet.len() as u32,
+                    },
+                };
+
+                deliver_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
+                dst.write_all(packet)
+            },
+            MsgIn::GoToDeadline(deadline) => {
+                let go_to_deadline = GoToDeadline {
+                    deadline: Time {
+                        seconds: deadline.as_secs(),
+                        useconds: deadline.subsec_micros() as u64,
+                    },
+                };
+                go_to_deadline.to_stream(dst, scratch_buffer, dst_endianness)
+            },
+        }
+    }
 }
 
 pub enum MsgOut<'a> {
@@ -248,6 +280,35 @@ impl<'a> MsgOut<'a> {
 
                 send_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
                 dst.write_all(packet)
+            },
+        }
+    }
+
+    #[cfg(any(test, feature = "test-helpers"))]
+    fn recv(src: &mut impl Read, input_buffer: &'a mut [u8], src_endianness: Endianness) -> Result<MsgOut<'a>> {
+        let msg_type = MsgOutType::from_stream(src, input_buffer, src_endianness)?;
+        match msg_type {
+            MsgOutType::AtDeadline => Ok(MsgOut::AtDeadline),
+            MsgOutType::SendPacket => {
+                let header = SendPacket::from_stream(src, input_buffer, src_endianness)?;
+                if let (Ok(seconds), Ok(nseconds)) = (
+                    u64::try_from(header.send_time.seconds),
+                    u32::try_from(header.send_time.useconds).map_err(|_| ()).and_then(|usecs|
+                                                                                      if usecs < 1000000 {
+                                                                                          Ok(usecs * 1000)
+                                                                                      } else {
+                                                                                          Err(())
+                                                                                      })
+                ) {
+                    if let Some(buffer) = input_buffer.get_mut(..(header.packet.size as usize)) {
+                        src.read_exact(buffer)?;
+                        Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), buffer))
+                    } else {
+                        Err(Error::new(ErrorKind::InvalidData, "Packet size too big"))
+                    }
+                } else {
+                    Err(Error::new(ErrorKind::InvalidData, "Time out of bounds"))
+                }
             },
         }
     }
