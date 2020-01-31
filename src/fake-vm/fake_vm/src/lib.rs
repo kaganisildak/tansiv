@@ -15,12 +15,21 @@ mod buffer_pool;
 mod config;
 mod connector;
 pub mod error;
+mod output_msg_set;
 
 impl From<buffer_pool::Error> for Error {
     fn from(error: buffer_pool::Error) -> Error {
         match error {
             buffer_pool::Error::NoBufferAvailable => Error::NoMemoryAvailable,
             buffer_pool::Error::SizeTooBig => Error::SizeTooBig,
+        }
+    }
+}
+
+impl From<output_msg_set::Error> for Error {
+    fn from(error: output_msg_set::Error) -> Error {
+        match error {
+            output_msg_set::Error::NoSlotAvailable {buffer: _} => Error::NoMemoryAvailable,
         }
     }
 }
