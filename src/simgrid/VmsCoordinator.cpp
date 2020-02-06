@@ -89,7 +89,7 @@ static void receiver(std::vector<std::string> args)
   receivers.push_back(simgrid::s4u::Actor::self());
 
   simgrid::s4u::ActorPtr myself    = simgrid::s4u::Actor::self();
-  simgrid::s4u::MailboxPtr mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
+  simgrid::s4u::Mailbox *mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
 
   // this actor is a permanent receiver on its host mailbox.
   mailbox->set_receiver(myself);
@@ -121,10 +121,10 @@ static void vm_coordinator()
             }
             return false;
         });
-        
+
         receivers.erase(erased_section_begin, receivers.end());
         deads = true;
-    }    
+    }
    if (deads)
         min_latency = compute_min_latency();
 
