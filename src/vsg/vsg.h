@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
+static const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
 
 /* Messages types */
 /*
@@ -56,5 +56,7 @@ enum vsg_msg_from_actor_type {
 
 /* Sent as uint32_t */
 enum vsg_msg_to_actor_type { VSG_AT_DEADLINE, VSG_SEND_PACKET };
+
+int vsg_connect(void);
 
 #endif /* __VSG_H__ */

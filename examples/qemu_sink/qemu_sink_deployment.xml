@@ -1,0 +1,16 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+
+  <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="vm1"/> <!-- first argument is the ID of the VM (e.g. the IP)-->
+    <argument value="./examples/qemu_sink/boot_and_log.sh"/> <!-- second argument is the executable to start the VM -->
+  </actor>
+
+  <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="sink"/>
+    <argument value="./examples/qemu_sink/sink.c"/>
+  </actor>
+
+</platform>
+
