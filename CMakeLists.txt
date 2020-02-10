@@ -14,12 +14,13 @@ find_package(SimGrid REQUIRED)
 
 include_directories("${SimGrid_INCLUDE_DIR}" SYSTEM)
 
-include_directories(src/include
-                    src/vsg)
+# include_directories(src/include
+#                    src/vsg)
 
-set(SOURCE_FILES
-    src/simgrid/VmsInterface.cpp
-  )
+# set(SOURCE_FILES
+#    src/simgrid/VmsInterface.cpp
+#  )
+
 add_subdirectory(src/vsg)
 
 #enable_testing()
@@ -30,11 +31,15 @@ add_subdirectory(src/vsg)
 
 # Install everything
 
-add_executable(tansiv ${SOURCE_FILES} src/simgrid/VmsCoordinator.cpp)
+
+add_executable(tansiv src/simgrid/VmsInterface.cpp src/simgrid/VmsCoordinator.cpp)
 target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg)
+target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 
 add_executable(dummy_ping examples/dummy_ping/DummyPing.cpp)
 add_executable(dummy_pong examples/dummy_ping/DummyPong.cpp)
+target_link_libraries(dummy_pong PUBLIC vsg)
+target_link_libraries(dummy_ping PUBLIC vsg)
 set_target_properties(dummy_ping PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
 set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
 
