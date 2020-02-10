@@ -95,7 +95,10 @@ int vsg_recv_order(int fd, uint32_t *order)
 
 int vsg_recv_deadline(int fd, struct vsg_time *deadline)
 {
-  return recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
+  int ret = recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
+  // TODO(msimonin): this can be verbose, I really need to add a logger
+  // printf("VSG] -- deadline = %d.%d\n", deadline->seconds, deadline->useconds);
+  return ret;
 }
 
 int vsg_recv_packet(int fd, struct vsg_packet *packet)
@@ -103,7 +106,11 @@ int vsg_recv_packet(int fd, struct vsg_packet *packet)
   return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
 }
 
-int vsg_recv_payload(int fd, char* buffer, int len)
+int vsg_recv_payload(int fd, char* dest, int dest_size, char* message, int message_size)
 {
-  return recv(fd, buffer, len, MSG_WAITALL);
+  // TODO(msimonin): handle errors
+  recv(fd, dest, dest_size, MSG_WAITALL);
+  dest[dest_size] = '\0';
+  recv(fd, message, message_size, MSG_WAITALL);
+  message[message_size] = '\0';
 }

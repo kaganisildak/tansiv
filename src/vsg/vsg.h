@@ -90,5 +90,6 @@ int vsg_recv_deadline(int, struct vsg_time *deadline);
 
 int vsg_recv_packet(int fd, struct vsg_packet* packet);
 
-int vsg_recv_payload(int fd, char *buffer, int length);
+int vsg_recv_payload(int, char *, int, char *, int);
+
 #endif /* __VSG_H__ */

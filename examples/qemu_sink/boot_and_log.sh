@@ -21,8 +21,8 @@ if [ ! -f debian10-x64-min.qcow2 ]; then
 fi
 
 # boot it with filter-dump object
-export SLIRP_DEBUG="all"
-export G_MESSAGES_DEBUG="Slirp"
+# export SLIRP_DEBUG="all"
+# export G_MESSAGES_DEBUG="Slirp"
 export QEMU=/home/msimonin/workspace/repos/qemu/build/x86_64-softmmu/qemu-system-x86_64
 $QEMU \
   -m 1g \

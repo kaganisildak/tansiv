@@ -71,21 +71,12 @@ int main(int argc, char* argv[])
        * with the benefit of no data copy.
        *
        */
-      char buffer[packet.size];
-      vsg_recv_payload(vm_socket, buffer, packet.size);
-
-      // This is called dest here because we send a pong message
-      // in the vsg protocol the app payload is prefixed with the src
-      char dest[dest_size + 1];
-      std::copy(&buffer[0], &buffer[dest_size], dest);
-      dest[dest_size] = '\0';
-      dest_name = "";
-      dest_name.append(dest);
-      printf("--Decoded src=%s\n", dest);
-
+      char src[dest_size+1];
       char message[packet.size - dest_size + 1];
-      std::copy(&buffer[dest_size], &buffer[packet.size], message);
-      message[packet.size - dest_size] = '\0';
+      vsg_recv_payload(vm_socket, src, dest_size, message, packet.size - dest_size);
+      dest_name = "";
+      dest_name.append(src);
+      printf("--Decoded src=%s\n", src);
       printf("--Decoded message=%s\n", message);
 
       next_message_time = vsg_time_add(time, delay);

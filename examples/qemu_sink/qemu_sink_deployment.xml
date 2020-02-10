@@ -9,7 +9,7 @@
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="sink"/>
-    <argument value="./examples/qemu_sink/sink.c"/>
+    <argument value="./examples/qemu_sink/sink"/>
   </actor>
 
 </platform>
