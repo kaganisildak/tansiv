@@ -2,8 +2,9 @@
 #define __VSG_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
-const char* CONNECTION_SOCKET_NAME = "simgrid_connection_socket";
+#define CONNECTION_SOCKET_NAME "simgrid_connection_socket"
 
 /* Messages types */
 /*
@@ -56,5 +57,39 @@ enum vsg_msg_from_actor_type {
 
 /* Sent as uint32_t */
 enum vsg_msg_to_actor_type { VSG_AT_DEADLINE, VSG_SEND_PACKET };
+
+/*
+ *
+ * Some util functions mostly extracted from the first examples (e.g,
+ * DummyPing/Pong...)
+ *
+ */
+
+struct vsg_time vsg_time_add(struct vsg_time, struct vsg_time);
+
+bool vsg_time_leq(struct vsg_time, struct vsg_time);
+
+/*
+ *
+ * Some naive functions to handle the vsg protocol
+ *
+ */
+int vsg_connect(void);
+
+int vsg_close(int);
+
+int vsg_shutdown(int);
+
+int vsg_send(int, struct vsg_time, const char*, int);
+
+int vsg_send_at_deadline(int);
+
+int vsg_recv_order(int, uint32_t *master_order);
+
+int vsg_recv_deadline(int, struct vsg_time *deadline);
+
+int vsg_recv_packet(int fd, struct vsg_packet* packet);
+
+int vsg_recv_payload(int, char *, int, char *, int);
 
 #endif /* __VSG_H__ */

@@ -3,7 +3,7 @@
 <platform version="4.1">
 
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
-    <argument value="dummy_ping1"/> <!-- first argument is the ID of the VM (e.g. the IP)--> 
+    <argument value="dummy_ping1"/> <!-- first argument is the ID of the VM (e.g. the IP)-->
     <argument value="./examples/dummy_ping/dummy_ping"/> <!-- second argument is the executable to start the VM -->
     <argument value="dummy_pong1"/> <!-- then we have all the arguments that will be used in the command to start the VM -->
     <argument value="dummy_pong2"/> <!-- in our dummy ping example, the two arguments correspond to the ID of the VM to ping-->
