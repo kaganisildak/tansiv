@@ -3,6 +3,7 @@ use std::io::Result;
 use std::os::unix::net::UnixStream;
 use super::{Connector, Endianness, MsgIn, MsgOut};
 
+#[derive(Debug)]
 pub(crate) struct UnixConnector {
     actor: UnixStream,
     output_buffer: Vec<u8>,
