@@ -117,12 +117,8 @@ pub mod test_helpers {
         result.map_err(|e| Error::new(e, context))
     }
 
-    // Could be replaced with test_actor(server, |_| ())
     pub fn test_dummy_actor(server: UnixListener) {
-        while let Ok((_, address)) = server.accept() {
-            info!("New client: {:?}", address);
-        }
-        error!("Failed to accept connection");
+        test_actor(server, |_| Ok(()))
     }
 
     pub fn test_actor_send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
