@@ -54,7 +54,7 @@ pub mod test_helpers {
     use std::fmt;
     use std::io::Read;
     use std::os::unix::net::{UnixListener, UnixStream};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[derive(Debug)]
     pub struct Error {
@@ -82,56 +82,96 @@ pub mod test_helpers {
 
     pub type TestResult<T> = std::result::Result<T, Error>;
 
-    pub fn test_prepare_connect<F>(path: &PathBuf, server_fn: F)
-        where F: FnOnce(UnixListener) -> () {
-        use nix::unistd::{fork, ForkResult};
+    pub struct TestActor {
+        socket_path: PathBuf,
+        pid: nix::unistd::Pid,
+    }
 
-        std::fs::remove_file(path).ok();
-        let server = UnixListener::bind(path).expect(&format!("Could not create server socket '{:?}'", path));
-        if let ForkResult::Child = fork().expect("Forking server failed") {
-            server_fn(server);
-            std::process::exit(0);
+    // Application-side API
+    impl TestActor {
+        pub fn new<P: AsRef<Path> + std::fmt::Debug, F>(path: P, server_fn: F) -> TestActor
+            where F: FnOnce(UnixListener) -> () {
+            use nix::unistd::{fork, ForkResult};
+
+            Self::remove_file_if_present(&path).expect(&format!("Server socket path '{:?}' is busy", &path));
+            let server = UnixListener::bind(&path).expect(&format!("Could not create server socket '{:?}'", &path));
+            let fork_res = fork().expect("Forking server failed");
+            match fork_res {
+                ForkResult::Child => {
+                    server_fn(server);
+                    // The server socket is deleted when TestActorDescriptor is dropped
+                    // std::fs::remove_file(&path).expect(&format!("Server socket '{:?}' could not be removed", &path));
+                    std::process::exit(0)
+                },
+                ForkResult::Parent { child: child_pid, .. } => {
+                    TestActor {
+                        socket_path: path.as_ref().to_path_buf(),
+                        pid: child_pid,
+                    }
+                },
+            }
+        }
+
+        fn remove_file_if_present<P: AsRef<Path> + std::fmt::Debug>(path: P) -> std::io::Result<()> {
+            std::fs::remove_file(&path).or_else(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(()),
+                _ => Err(e),
+            })
         }
     }
 
-    pub fn test_cleanup_connect(path: &PathBuf) {
-        std::fs::remove_file(path).expect(&format!("Server socket '{:?}' could not be removed", path))
-    }
+    // Application-side API
+    impl Drop for TestActor {
+        fn drop(&mut self) {
+            use nix::sys::signal::{kill, Signal};
+            use nix::sys::wait::{waitpid, WaitPidFlag};
 
-    pub fn test_actor<F>(server: UnixListener, actor_fn: F) -> ()
-        where F: FnOnce(&mut UnixStream) -> TestResult<()> {
-        info!("Server listening at address {:?}", server);
-        match server.accept() {
-            Ok((mut client, address)) => {
-                info!("New client: {:?}", address);
-                match actor_fn(&mut client) {
-                    Err(e) => error!("Actor failed: {:?}", e),
-                    _ => {
-                        // Just drain until the VM ends, do not make it fail when sending messages
-                        for _ in client.bytes() {
-                        }
-                    },
-                }
-            },
-            Err(e) => error!("Failed to accept connection: {:?}", e),
+            Self::remove_file_if_present(&self.socket_path).expect(&format!("Server socket '{:?}' could not be removed", &self.socket_path));
+            #[allow(unused_must_use)] {
+                kill(self.pid, Signal::SIGTERM);
+                // Not required for concurrency but avoids interleaving traces
+                waitpid(self.pid, Some(WaitPidFlag::WEXITED));
+            }
         }
     }
 
-    pub fn test_actor_check<T>(result: crate::Result<T>, context: &'static str) -> TestResult<T> {
-        result.map_err(|e| Error::new(e, context))
-    }
+    // Actor-side API
+    impl TestActor {
+        pub fn run<F>(server: UnixListener, actor_fn: F) -> ()
+            where F: FnOnce(&mut UnixStream) -> TestResult<()> {
+            info!("Server listening at address {:?}", server);
+            match server.accept() {
+                Ok((mut client, address)) => {
+                    info!("New client: {:?}", address);
+                    match actor_fn(&mut client) {
+                        Err(e) => error!("Actor failed: {:?}", e),
+                        _ => {
+                            // Just drain until the VM ends, do not make it fail when sending messages
+                            for _ in client.bytes() {
+                            }
+                        },
+                    }
+                },
+                Err(e) => error!("Failed to accept connection: {:?}", e),
+            }
+        }
 
-    pub fn test_dummy_actor(server: UnixListener) {
-        test_actor(server, |_| Ok(()))
-    }
+        pub fn check<T>(result: crate::Result<T>, context: &'static str) -> TestResult<T> {
+            result.map_err(|e| Error::new(e, context))
+        }
 
-    pub fn test_actor_send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
-        let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
-        test_actor_check(from_io_result(msg.send(client, &mut buffer, Endianness::Native)), "Send failed")
-    }
+        pub fn dummy_actor(server: UnixListener) {
+            Self::run(server, |_| Ok(()))
+        }
 
-    pub fn test_actor_recv<'a>(client: &mut UnixStream, buffer: &'a mut [u8]) -> TestResult<MsgOut<'a>> {
-        test_actor_check(from_io_result(MsgOut::recv(client, buffer, Endianness::Native)), "Recv failed")
+        pub fn send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
+            let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
+            Self::check(from_io_result(msg.send(client, &mut buffer, Endianness::Native)), "Send failed")
+        }
+
+        pub fn recv<'a>(client: &mut UnixStream, buffer: &'a mut [u8]) -> TestResult<MsgOut<'a>> {
+            Self::check(from_io_result(MsgOut::recv(client, buffer, Endianness::Native)), "Recv failed")
+        }
     }
 }
 
@@ -147,54 +187,50 @@ mod test {
 
     #[test]
     fn valid_server_path() {
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::inner_new(&config);
         assert!(connector.is_ok());
         assert_eq!(connector.unwrap().output_buffer.len(), MsgOut::max_header_size());
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn invalid_server_path() {
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-amust not exist", "-t1970-01-02T00:00:00"]).unwrap();
 
         assert!(UnixConnector::inner_new(&config).is_err());
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn valid_input_buffer_size() {
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
 
         let (_, input_buffer_pool) = UnixConnector::new(&config).unwrap();
         let input_buffer = input_buffer_pool.allocate_buffer(crate::MAX_PACKET_SIZE).unwrap();
         assert_eq!(input_buffer.len(), usize::max(MsgIn::max_header_size(), crate::MAX_PACKET_SIZE));
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     fn run_client_server<C, S>(client_fn: C, server_fn: S)
         where C: FnOnce(UnixConnector, &mut [u8]) -> (),
               S: FnOnce(UnixListener) -> (),
               S: Send + 'static {
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, server_fn);
+        let actor = TestActor::new("titi", server_fn);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
         let (connector, input_buffer_pool) = UnixConnector::new(&config).unwrap();
         let mut input_buffer = BufferPool::allocate_buffer(&input_buffer_pool, crate::MAX_PACKET_SIZE).unwrap();
 
         client_fn(connector, &mut input_buffer);
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     fn send_partial_msg_type(socket: &mut UnixStream) {

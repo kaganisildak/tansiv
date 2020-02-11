@@ -132,7 +132,6 @@ mod test {
     use std::ffi::CString;
     use std::os::raw::{c_char, c_int};
     use std::os::unix::ffi::OsStrExt;
-    use std::path::PathBuf;
     use super::*;
 
     struct OsArgs {
@@ -267,29 +266,27 @@ mod test {
         init();
 
         let mut next_arg: c_int = 0;
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(!context.is_null());
         assert_eq!(2, next_arg);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn init_valid_no_next_arg() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
@@ -297,27 +294,25 @@ mod test {
         init();
 
         let mut next_arg: c_int = 0;
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(context.is_null());
         assert_eq!(0, next_arg);
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn init_invalid_no_next_arg() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(context.is_null());
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
@@ -336,8 +331,7 @@ mod test {
     fn start_stop() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, start_actor);
+        let actor = TestActor::new("titi", start_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -349,7 +343,7 @@ mod test {
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
@@ -372,8 +366,7 @@ mod test {
     fn send() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -389,15 +382,14 @@ mod test {
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn send_too_big() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -413,7 +405,7 @@ mod test {
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
@@ -429,8 +421,7 @@ mod test {
     fn gettimeofday() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -452,15 +443,14 @@ mod test {
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn gettimeofday_no_tv() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -479,7 +469,7 @@ mod test {
         assert_eq!(0, res);
 
         unsafe { vsg_cleanup(context) };
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]

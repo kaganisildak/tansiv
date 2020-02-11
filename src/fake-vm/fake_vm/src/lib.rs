@@ -281,9 +281,9 @@ pub mod test_helpers {
     }
 
     pub fn start_actor(server: UnixListener) -> () {
-        test_actor(server, |client| {
-            test_actor_send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
-            test_actor_send(client, MsgIn::EndSimulation)
+        TestActor::run(server, |client| {
+            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
+            TestActor::send(client, MsgIn::EndSimulation)
         })
     }
 
@@ -291,18 +291,18 @@ pub mod test_helpers {
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
     pub fn recv_one_msg_actor(server: UnixListener) -> () {
-        test_actor(server, |client| {
+        TestActor::run(server, |client| {
             let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
 
             loop {
-                test_actor_send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
-                let msg = test_actor_recv(client, &mut buffer)?;
+                TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
+                let msg = TestActor::recv(client, &mut buffer)?;
                 match msg {
                     MsgOut::AtDeadline => (),
                     MsgOut::SendPacket(_, _) => break,
                 }
             }
-            test_actor_send(client, MsgIn::EndSimulation)
+            TestActor::send(client, MsgIn::EndSimulation)
         })
     }
 
@@ -320,7 +320,6 @@ pub mod test_helpers {
 mod test {
     #[allow(unused_imports)]
     use log::{error, info};
-    use std::path::PathBuf;
     use super::connector::Connector;
     use super::{connector::test_helpers::*, test_helpers::*};
 
@@ -328,34 +327,31 @@ mod test {
     fn init_valid() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
         // assert_eq!(chrono::NaiveDateTime::from_timestamp(0, 0), context.0.simulation_offset);
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn init_invalid() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
-        let context = super::init(invalid_args!(), Box::new(dummy_recv_callback))
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        super::init(invalid_args!(), Box::new(dummy_recv_callback))
             .expect_err("init returned a context");
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn start_stop() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, start_actor);
+        let actor = TestActor::new("titi", start_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -364,15 +360,14 @@ mod test {
 
         context.stop();
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn start_already() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, start_actor);
+        let actor = TestActor::new("titi", start_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -386,15 +381,14 @@ mod test {
 
         context.stop();
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn send() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -406,15 +400,14 @@ mod test {
 
         context.stop();
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn gettimeofday() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -431,15 +424,14 @@ mod test {
 
         context.stop();
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
     fn gettimeofday_h1() {
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, recv_one_msg_actor);
+        let actor = TestActor::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -456,7 +448,7 @@ mod test {
 
         context.stop();
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 
     #[test]
@@ -465,8 +457,7 @@ mod test {
 
         init();
 
-        let server_path = PathBuf::from("titi");
-        test_prepare_connect(&server_path, test_dummy_actor);
+        let actor = TestActor::new("titi", TestActor::dummy_actor);
         let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
             .expect("init() failed");
 
@@ -491,6 +482,6 @@ mod test {
             }
         }
 
-        test_cleanup_connect(&server_path);
+        drop(actor);
     }
 }
