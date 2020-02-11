@@ -83,11 +83,15 @@ pub mod test_helpers {
     pub type TestResult<T> = std::result::Result<T, Error>;
 
     pub fn test_prepare_connect<F>(path: &PathBuf, server_fn: F)
-        where F: FnOnce(UnixListener) -> (),
-              F: Send + 'static {
+        where F: FnOnce(UnixListener) -> () {
+        use nix::unistd::{fork, ForkResult};
+
         std::fs::remove_file(path).ok();
         let server = UnixListener::bind(path).expect(&format!("Could not create server socket '{:?}'", path));
-        std::thread::spawn(move || server_fn(server));
+        if let ForkResult::Child = fork().expect("Forking server failed") {
+            server_fn(server);
+            std::process::exit(0);
+        }
     }
 
     pub fn test_cleanup_connect(path: &PathBuf) {
