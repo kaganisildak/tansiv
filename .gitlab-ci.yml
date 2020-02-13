@@ -25,7 +25,7 @@ tansiv:
     # Build qemu with our modified version of libslirp
     #
     - apt-get install -y python libglib2.0-dev libpixman-1-dev
-    - git clone --depth 1 -b v4.2.0 git://git.qemu.org/qemu.git
+    - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
     - cd qemu
     # replace the slirp submodule by ours
     - git submodule deinit slirp
