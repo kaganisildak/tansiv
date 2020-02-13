@@ -1,0 +1,35 @@
+---
+variables:
+  # fetch all submodules before the job
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+- build
+
+tansiv:
+  image: simgrid/stable:v3.24
+  stage: build
+  script:
+    #
+    # Some missing build tools
+    #
+    - apt-get update
+    - apt-get install -y git build-essential pkg-config libboost-dev cmake
+    #
+    # Build tansiv
+    #
+    - mkdir -p build
+    - mkdir -p /opt/tansiv
+    - cd build && cmake .. && make && make DESTDIR=/opt/tansiv install && cd ..
+    #
+    # Build qemu with our modified version of libslirp
+    #
+    - apt-get install -y python libglib2.0-dev libpixman-1-dev
+    - git clone --depth 1 -b v4.2.0 git://git.qemu.org/qemu.git
+    - cd qemu
+    # replace the slirp submodule by ours
+    - git submodule deinit slirp
+    - git rm slirp
+    - git submodule add $(pwd)/../src/slirp slirp
+    - mkdir -p build
+    - cd build && ../configure --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
