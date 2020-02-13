@@ -70,4 +70,4 @@ tansiv:
 dummy_ping:
   stage: test
   script:
-  - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/dummy_ping_deployment.xml
+  - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml

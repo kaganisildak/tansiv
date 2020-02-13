@@ -42,13 +42,13 @@ target_link_libraries(dummy_pong PUBLIC vsg)
 target_link_libraries(dummy_ping PUBLIC vsg)
 set_target_properties(dummy_ping PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
 set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
-configure_file(examples/dummy_ping/dummy_ping_deployment.xml examples/dummy_ping/dummy_ping_deployment.xml)
+configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment.xml)
 
 add_executable(sink examples/qemu_sink/sink.c)
 set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemu_sink)
 target_link_libraries(sink PUBLIC vsg)
 configure_file(examples/qemu_sink/boot_and_log.sh examples/qemu_sink/boot_and_log.sh)
-configure_file(examples/qemu_sink/qemu_sink_deployment.xml examples/qemu_sink/qemu_sink_deployment.xml)
+configure_file(examples/qemu_sink/deployment.xml examples/qemu_sink/deployment.xml)
 
 install(TARGETS tansiv DESTINATION bin)
 
