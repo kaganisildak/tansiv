@@ -3,11 +3,19 @@ variables:
   # fetch all submodules before the job
   GIT_SUBMODULE_STRATEGY: recursive
 
+image: simgrid/stable:v3.24
+
 stages:
 - build
+- test
 
+
+###############################################################################
+#
+# Build tansiv & qemu
+#
+###############################################################################
 tansiv:
-  image: simgrid/stable:v3.24
   stage: build
   script:
     #
@@ -21,9 +29,11 @@ tansiv:
     - mkdir -p build
     - mkdir -p /opt/tansiv
     - cd build && cmake .. && make && make DESTDIR=/opt/tansiv install && cd ..
-    #
+    # copying the compiled examples for subsequent jobs
+    - cp -r build/examples /opt
+    # copying the platform file for subsequent jobs
+    - cp -r platform /opt
     # Build qemu with our modified version of libslirp
-    #
     - apt-get install -y python libglib2.0-dev libpixman-1-dev
     - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
     - cd qemu
@@ -31,5 +41,26 @@ tansiv:
     - git submodule deinit slirp
     - git rm slirp
     - git submodule add $(pwd)/../src/slirp slirp
-    - mkdir -p build
-    - cd build && ../configure --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
+    - mkdir -p build /opt/qemu
+    - cd build && ../configure --prefix=/opt/qemu --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
+    - cd ..
+  artifacts:
+    paths:
+    - /opt
+    # expected /opt structure:
+    # /opt
+    #   examples/ -> compiled examples
+    #   platform/ -> some simgrid plaform files
+    #   tansiv/ -> result of tansiv make install (include + lib + bin)
+    #   qemu/ -> result of qemu make install (include + lib + bin)
+
+
+###############################################################################
+#
+# Dummy ping/pong example
+#
+###############################################################################
+dummy_ping:
+  stage: test
+  script:
+  - cd /opt && ls -lR && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/dummy_ping_deployment.xml
