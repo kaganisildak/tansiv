@@ -13,6 +13,8 @@ stages:
 ###############################################################################
 #
 # Build tansiv & qemu
+#   -- test locally:
+#      $) gitlab-runner exec docker tansiv --docker-volumes $(pwd)/opt:/opt
 #
 ###############################################################################
 tansiv:
@@ -27,7 +29,7 @@ tansiv:
     # Build tansiv
     #
     - mkdir -p build
-    - mkdir -p /opt/tansiv
+    - mkdir -p opt/tansiv
     - cd build && cmake .. && make && make DESTDIR=/opt/tansiv install && cd ..
     # copying the compiled examples for subsequent jobs
     - cp -r build/examples /opt
@@ -44,9 +46,12 @@ tansiv:
     - mkdir -p build /opt/qemu
     - cd build && ../configure --prefix=/opt/qemu --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
     - cd ..
+    # copying all the /opt dir to export it as an artifact for subsequent jobs
+    # (we can only export subdirectories of CI_BUILDS_DIR)
+    - cp -r /opt opt
   artifacts:
     paths:
-    - /opt
+    - opt
     # expected /opt structure:
     # /opt
     #   examples/ -> compiled examples
@@ -58,9 +63,11 @@ tansiv:
 ###############################################################################
 #
 # Dummy ping/pong example
+# inputs:
+#   opt/ -> artifact of the build phase
 #
 ###############################################################################
 dummy_ping:
   stage: test
   script:
-  - cd /opt && ls -lR && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/dummy_ping_deployment.xml
+  - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/dummy_ping_deployment.xml
