@@ -29,7 +29,7 @@ tansiv:
     # Build tansiv
     #
     - mkdir -p build
-    - mkdir -p opt/tansiv
+    - mkdir -p /opt/tansiv
     - cd build && cmake .. && make && make DESTDIR=/opt/tansiv install && cd ..
     # copying the compiled examples for subsequent jobs
     - cp -r build/examples /opt
