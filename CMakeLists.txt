@@ -37,10 +37,10 @@ target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg)
 target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 
 add_executable(dummy_ping examples/dummy_ping/DummyPing.cpp)
-add_executable(dummy_pong examples/dummy_ping/DummyPong.cpp)
-target_link_libraries(dummy_pong PUBLIC vsg)
 target_link_libraries(dummy_ping PUBLIC vsg)
 set_target_properties(dummy_ping PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
+add_executable(dummy_pong examples/dummy_ping/DummyPong.cpp)
+target_link_libraries(dummy_pong PUBLIC vsg)
 set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
 configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment.xml)
 

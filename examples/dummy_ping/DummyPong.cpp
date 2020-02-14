@@ -1,8 +1,10 @@
+#include <arpa/inet.h>
 #include <limits>
 #include <math.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unistd.h>
 
 extern "C" {
     #include "vsg.h"
@@ -43,7 +45,8 @@ int main(int argc, char* argv[])
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
         // printf("sending message to dummy_ping");
-        vsg_send(vm_socket, next_message_time, dest_name.c_str(), dest_name.length(), message.c_str(), message.length());
+        struct in_addr dest = {inet_addr(dest_name.c_str())};
+        vsg_send(vm_socket, next_message_time, dest, message.c_str(), message.length());
 
         nb_message_send++;
 
@@ -65,19 +68,13 @@ int main(int argc, char* argv[])
       vsg_packet packet = {0};
       vsg_recv_packet(vm_socket, &packet);
 
-      /* Second receive the payload.
-       *
-       * The initial implementation called two subsequent recv
-       * with the benefit of no data copy.
-       *
-       */
-      char src[dest_size+1];
-      char message[packet.size - dest_size + 1];
-      vsg_recv_payload(vm_socket, src, dest_size, message, packet.size - dest_size);
+      /* Second get the vsg payload = src + message. */
+      int message_size = packet.size - sizeof(struct in_addr);
+      char message[message_size];
+      struct in_addr src = {0};
+      vsg_recvfrom_payload(vm_socket, message, message_size, &src);
       dest_name = "";
-      dest_name.append(src);
-      printf("--Decoded src=%s\n", src);
-      printf("--Decoded message=%s\n", message);
+      dest_name.append(inet_ntoa(src));
 
       next_message_time = vsg_time_add(time, delay);
 
@@ -85,7 +82,6 @@ int main(int argc, char* argv[])
       printf("error unexpected message received %i", master_order);
     }
   }
-
   // printf("done, see you");
   vsg_close(vm_socket);
 

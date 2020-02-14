@@ -1,43 +1,17 @@
-#include "vsg.h"
 #include <math.h>
 #include <string>
-#include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/un.h>
 #include <unistd.h>
 #include <unordered_map>
 #include <vector>
 
+extern "C" {
+    #include "vsg.h"
+}
+
 int max_message       = 4;
 struct vsg_time delay = {0, 222000};
 std::vector<std::string> dest_name;
-
-// true if time1 <= time2
-bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
-{
-
-  if (time1.seconds < time2.seconds)
-    return true;
-
-  if ((time1.seconds == time2.seconds) && (time1.useconds <= time2.useconds))
-    return true;
-
-  return false;
-}
-
-struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2)
-{
-
-  struct vsg_time time;
-  time.seconds  = time1.seconds + time2.seconds;
-  time.useconds = time1.useconds + time2.useconds;
-  if (time.useconds >= 1e6) {
-    time.useconds = time.useconds - 1e6;
-    time.seconds++;
-  }
-
-  return time;
-}
 
 double vmToSimgridTime(vsg_time vm_time)
 {
@@ -51,16 +25,7 @@ int main(int argc, char* argv[])
     dest_name.push_back(std::string(argv[i]));
   }
 
-  int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
-
-  struct sockaddr_un address;
-  address.sun_family = AF_LOCAL;
-  strcpy(address.sun_path, CONNECTION_SOCKET_NAME);
-
-  if (connect(vm_socket, (sockaddr*)(&address), sizeof(address)) != 0) {
-    std::perror("unable to create VM socket");
-    exit(666);
-  }
+  int vm_socket = vsg_connect();
 
   int nb_message_send               = 0;
   struct vsg_time time              = {0, 0};
@@ -83,15 +48,14 @@ int main(int argc, char* argv[])
 
         int dest_id               = nb_message_send % dest_name.size();
         std::string dest          = dest_name[dest_id];
-        std::string message       = dest + "ping_" + std::to_string(nb_message_send);
+        std::string message       = "ping_" + std::to_string(nb_message_send);
         vsg_send_packet packet    = {next_message_time, message.length()};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
-        // printf("sending message %s to %s", message.c_str(), dest.c_str());
-        send(vm_socket, &send_packet_flag, sizeof(send_packet_flag), 0);
-        send(vm_socket, &packet, sizeof(packet), 0);
-        // send(vm_socket, dest.c_str(), dest.length(), 0);
-        send(vm_socket, message.c_str(), message.length(), 0);
+        // printf("sending message %s to %s\n", message.c_str(), dest.c_str());
+        in_addr_t dest_addr = inet_addr(dest.c_str());
+        struct in_addr _dest_addr = {dest_addr};
+        vsg_send(vm_socket, next_message_time, _dest_addr, message.c_str(), message.length());
 
         nb_message_send++;
         next_message_time = vsg_time_add(next_message_time, delay);
@@ -104,17 +68,18 @@ int main(int argc, char* argv[])
 
       time                 = deadline;
       uint32_t at_deadline = vsg_msg_to_actor_type::VSG_AT_DEADLINE;
-      send(vm_socket, &at_deadline, sizeof(uint32_t), 0);
+      vsg_send_at_deadline(vm_socket);
 
     } else if (master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET) {
-
+      /* First receive the size of the payload. */
       vsg_packet packet = {0};
       recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
-      char message[packet.size];
-      message[0] = '\0';
-      recv(vm_socket, message, sizeof(message), MSG_WAITALL);
-      // printf("dummy_ping received message : %s", message);
 
+      /* Second get the vsg payload = src + message. */
+      int message_size = packet.size - sizeof(struct in_addr);
+      char message[message_size];
+      struct in_addr src = {0};
+      vsg_recvfrom_payload(vm_socket, message, message_size, &src);
     } else {
       printf("error unexpected message received %i", master_order);
     }

@@ -1,9 +1,13 @@
 #include "VmsInterface.hpp"
 #include <xbt/log.hpp>
 #include <unistd.h>
-#include <vsg.h>
 #include <signal.h>
 #include <algorithm>
+#include <arpa/inet.h>
+
+extern "C" {
+  #include "vsg.h"
+}
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
 
@@ -183,9 +187,10 @@ std::vector<message> VmsInterface::goTo(double deadline)
         //   - and the data transfer, that correspond to the data actually send through the (simulated) network
         // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
         // to have the same size)
-        char dest[vm_name.length() + 1];
-        char data[packet.packet.size - vm_name.length()];
-        if (recv(vm_socket, dest, vm_name.length(), MSG_WAITALL) <= 0) {
+        int dest_size = sizeof(struct in_addr);
+        struct in_addr dest;
+        char data[packet.packet.size - dest_size];
+        if (recv(vm_socket, &dest, dest_size, MSG_WAITALL) <= 0) {
           XBT_ERROR("can not receive the detination of the message from VM %s. The socket may be closed",
                     vm_name.c_str());
           end_simulation();
@@ -194,9 +199,8 @@ std::vector<message> VmsInterface::goTo(double deadline)
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
           end_simulation();
         }
-        dest[vm_name.length()] = '\0';
 
-        XBT_VERB("got the message [%s] (size %lu) from VM [%s] to VM [%s]", data, sizeof(data), vm_name.c_str(), dest);
+        XBT_INFO("got the message [%s] (size %lu) from VM [%s] to VM [%s]", data, sizeof(data), vm_name.c_str(), inet_ntoa(dest));
 
         struct message m;
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
@@ -204,7 +208,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
         m.packet_size = sizeof(data);
         m.data.append(data);
         m.src = vm_name;
-        m.dest.append(dest);
+        m.dest.append(inet_ntoa(dest));
         m.sent_time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
 
@@ -258,12 +262,12 @@ void VmsInterface::deliverMessage(message m)
   if (vm_sockets.find(m.dest) != vm_sockets.end()) {
     int socket               = vm_sockets[m.dest];
     uint32_t deliver_flag    = vsg_msg_from_actor_type::VSG_DELIVER_PACKET;
-    std::string data         = m.src + m.data;
+    std::string data         = m.data;
     struct vsg_packet packet = {data.length()};
 
-    send(socket, &deliver_flag, sizeof(deliver_flag), 0);
-    send(socket, &packet, sizeof(packet), 0);
-    send(socket, data.c_str(), data.length(), 0);
+
+    struct in_addr src = {inet_addr(m.src.c_str())};
+    vsg_deliver(socket, src, data.c_str(), data.length());
 
     XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   } else {
@@ -273,3 +277,4 @@ void VmsInterface::deliverMessage(message m)
 }
 
 } // namespace vsg
+

@@ -1,6 +1,7 @@
 #ifndef __VSG_H__
 #define __VSG_H__
 
+#include <arpa/inet.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -80,16 +81,18 @@ int vsg_close(int);
 
 int vsg_shutdown(int);
 
-int vsg_send(int, struct vsg_time, const char*, int, const char*, int);
+int vsg_send(int, struct vsg_time, struct in_addr, const char*, int);
+
+int vsg_deliver(int, struct in_addr, const char*, int);
 
 int vsg_send_at_deadline(int);
 
-int vsg_recv_order(int, uint32_t *master_order);
+int vsg_recv_order(int, uint32_t*);
 
-int vsg_recv_deadline(int, struct vsg_time *deadline);
+int vsg_recv_deadline(int, struct vsg_time*);
 
-int vsg_recv_packet(int fd, struct vsg_packet* packet);
+int vsg_recv_packet(int fd, struct vsg_packet*);
 
-int vsg_recv_payload(int, char *, int, char *, int);
+int vsg_recvfrom_payload(int, char*, int, struct in_addr*);
 
 #endif /* __VSG_H__ */

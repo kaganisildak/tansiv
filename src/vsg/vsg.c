@@ -1,10 +1,13 @@
 #include "vsg.h"
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <limits.h>
+#include <math.h>
 
 struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2)
 {
@@ -31,7 +34,6 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
 
   return false;
 }
-
 
 int vsg_connect(void)
 {
@@ -61,16 +63,17 @@ int vsg_shutdown(int fd)
   shutdown(fd, SHUT_RDWR);
 }
 
-int vsg_send(int fd, struct vsg_time time, const char* dest, int dest_length, const char* message, int message_length)
+int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* message, int message_length)
 {
   /* Prepend the destination to the payload */
-  char vsg_payload[dest_length + message_length];
-  sprintf(vsg_payload, "%s%s", dest, message);
-  int vsg_payload_size = dest_length + message_length;
+  // Let's send the target dest using an ascii representation for now
+  // char dest_buf[4];
+  // pack_in_addr_t(dest_buf, dest);
+  int vsg_payload_size = sizeof(struct in_addr) + message_length;
   struct vsg_send_packet packet = {time, {vsg_payload_size}};
   enum vsg_msg_to_actor_type send_packet_flag = VSG_SEND_PACKET;
   int ret = 0;
-
+  //printf("VSG] sending a message of size %d to %s\n", vsg_payload_size, inet_ntoa(dest));
   /* send the send flag*/
   ret = send(fd, &send_packet_flag, sizeof(send_packet_flag), 0);
   if (ret < 0)
@@ -81,11 +84,41 @@ int vsg_send(int fd, struct vsg_time time, const char* dest, int dest_length, co
   if (ret < 0)
     return -1;
 
-  /*send vsg_payload*/
-  ret = send(fd, vsg_payload, vsg_payload_size, 0);
+  /*send the dest in 4 bytes.*/
+  ret = send(fd, &dest, sizeof(struct in_addr), 0);
+  if (ret < 0)
+    return -1;
+
+  /*send the message*/
+  ret = send(fd, message, message_length, 0);
   if (ret < 0)
     return -1;
   return 0;
+}
+
+int vsg_deliver(int fd, struct in_addr src, const char* message, int message_length)
+{
+    int vsg_payload_size = sizeof(struct in_addr) + message_length;
+    enum vsg_msg_from_actor_type deliver_flag = VSG_DELIVER_PACKET;
+    struct vsg_deliver_packet packet = {vsg_payload_size};
+    int ret = 0;
+    ret = send(fd, &deliver_flag, sizeof(deliver_flag), 0);
+    if (ret < 0)
+        return -1;
+
+    ret = send(fd, &packet, sizeof(packet), 0);
+    if (ret < 0)
+        return -1;
+
+    /*send the src in 4 bytes.*/
+    ret = send(fd, &src, sizeof(struct in_addr), 0);
+    if (ret < 0)
+      return -1;
+
+    ret = send(fd, message, message_length, 0);
+    if (ret < 0)
+        return -1;
+    return 0;
 }
 
 int vsg_send_at_deadline(int fd)
@@ -112,11 +145,10 @@ int vsg_recv_packet(int fd, struct vsg_packet *packet)
   return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
 }
 
-int vsg_recv_payload(int fd, char* dest, int dest_size, char* message, int message_size)
+int vsg_recvfrom_payload(int fd, char* message, int message_size, struct in_addr *src)
 {
-  // TODO(msimonin): handle errors
-  recv(fd, dest, dest_size, MSG_WAITALL);
-  dest[dest_size] = '\0';
+  //printf("recvfrom\n");
+  recv(fd, src, sizeof(struct in_addr), MSG_WAITALL);
+  //printf("-- src=%s", inet_ntoa(*src));
   recv(fd, message, message_size, MSG_WAITALL);
-  message[message_size] = '\0';
 }
