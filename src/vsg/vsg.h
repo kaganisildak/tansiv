@@ -80,7 +80,7 @@ int vsg_close(int);
 
 int vsg_shutdown(int);
 
-int vsg_send(int, struct vsg_time, const char*, int);
+int vsg_send(int, struct vsg_time, const char*, int, const char*, int);
 
 int vsg_send_at_deadline(int);
 

@@ -38,12 +38,12 @@ int main(int argc, char* argv[])
 
       while (vsg_time_leq(next_message_time, deadline)) {
 
-        std::string message       = dest_name + "pong_" + std::to_string(nb_message_send);
+        std::string message       = "pong_" + std::to_string(nb_message_send);
         vsg_send_packet packet    = {next_message_time, message.length()};
         uint32_t send_packet_flag = vsg_msg_to_actor_type::VSG_SEND_PACKET;
 
         // printf("sending message to dummy_ping");
-        vsg_send(vm_socket, next_message_time, message.c_str(), message.length());
+        vsg_send(vm_socket, next_message_time, dest_name.c_str(), dest_name.length(), message.c_str(), message.length());
 
         nb_message_send++;
 
