@@ -9,6 +9,7 @@
  *
  *
  */
+
 int main(int argc, char *argv[])
 {
   int vsg_socket = vsg_connect();
@@ -21,12 +22,11 @@ int main(int argc, char *argv[])
     int dest_size = 3;
     //printf("SINK] Waiting coordinator order\n");
     vsg_recv_order(vsg_socket, &order);
+    struct vsg_time deadline = {0, 1};
     switch(order)
     {
       case VSG_GO_TO_DEADLINE:
       {
-        // printf("SINK] Go to deadline\n");
-        struct vsg_time deadline = {0, 0};
         vsg_recv_deadline(vsg_socket, &deadline);
         /* Don't do anything here.
           -- this yields to the qemu process until it declares the same
@@ -36,14 +36,17 @@ int main(int argc, char *argv[])
       }
       case VSG_DELIVER_PACKET:
       {
-        printf("SINK] Packet delivered\n");
         /* First receive the size of the payload. */
         struct vsg_packet packet = {0};
         vsg_recv_packet(vsg_socket, &packet);
-        char src[dest_size+1];
-        char message[packet.size - dest_size + 1];
-        vsg_recv_payload(vsg_socket, src, dest_size, message, packet.size - dest_size);
-        printf("SINK] -- Decoded src=%s\n", src);
+
+        /* Second get the vsg payload = src + message. */
+        int message_size = packet.size - sizeof(struct in_addr);
+        char message[message_size];
+        struct in_addr src = {0};
+        vsg_recvfrom_payload(vsg_socket, message, message_size, &src);
+
+        printf("SINK] -- Decoded src=%s\n", inet_ntoa(src));
         printf("SINK] -- Decoded message=%s\n", message);
         break;
       }

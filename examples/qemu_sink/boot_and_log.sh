@@ -1,4 +1,11 @@
 set -x
+
+if [ -z  $QEMU ]
+then
+    echo "QEMU variable isn't set."
+    exit 1
+fi
+
 # A decent key to use
 cloud_init_key=$(cat ~/.ssh/id_rsa.pub)
 
@@ -23,7 +30,6 @@ fi
 # boot it with filter-dump object
 # export SLIRP_DEBUG="all"
 # export G_MESSAGES_DEBUG="Slirp"
-export QEMU=/home/msimonin/workspace/repos/qemu/build/x86_64-softmmu/qemu-system-x86_64
 $QEMU \
   -m 1g \
   -drive file=debian10-x64-min.qcow2 \

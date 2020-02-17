@@ -152,6 +152,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
   for (auto it : vm_sockets) {
+    //vsg_goto_deadline_send()
     send(it.second, &goto_flag, sizeof(uint32_t), 0);
     send(it.second, &vm_deadline, sizeof(vsg_time), 0);
   }

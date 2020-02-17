@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+      "future": "cpp",
+      "cstdlib": "c",
+      "string": "cpp",
+      "limits": "cpp",
+      "limits.h": "c",
+      "climits": "c",
+      "slirp.h": "c",
+      "log.h": "c"
+    },
+    "editor.tabSize": 2,
+    "editor.detectIndentation": false
+}

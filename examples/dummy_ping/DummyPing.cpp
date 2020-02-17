@@ -1,7 +1,8 @@
+#include <vector>
+#include <arpa/inet.h>
+#include <limits>
 #include <math.h>
 #include <string>
-#include <sys/types.h>
-#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 
@@ -12,11 +13,6 @@ extern "C" {
 int max_message       = 4;
 struct vsg_time delay = {0, 222000};
 std::vector<std::string> dest_name;
-
-double vmToSimgridTime(vsg_time vm_time)
-{
-  return vm_time.seconds + (vm_time.useconds * 1e-6);
-}
 
 int main(int argc, char* argv[])
 {
@@ -87,7 +83,7 @@ int main(int argc, char* argv[])
 
   // printf("done, see you");
   // Bail out -- the coordinator will notice on its own
-  close(vm_socket);
+  vsg_close(vm_socket);
 
   return 0;
 }

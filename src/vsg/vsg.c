@@ -1,4 +1,5 @@
 #include "vsg.h"
+#include "log.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,8 +38,7 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
 
 int vsg_connect(void)
 {
-  // TODO(msimonin): use a logger
-  printf("VSG] CONNECT_TO_SVG\n");
+  log_debug("Create an UNIX socket to %s", CONNECTION_SOCKET_NAME);
   int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 1);
 
   struct sockaddr_un address;
@@ -46,25 +46,32 @@ int vsg_connect(void)
   strcpy(address.sun_path, CONNECTION_SOCKET_NAME);
 
   if (connect(vm_socket, (struct sockaddr*)(&address), sizeof(address)) != 0) {
-    printf("VSG] ERROR CONNECTING TO %s\n", CONNECTION_SOCKET_NAME);
+    log_error("We've got a problem connecting to the UNIX socket %s", CONNECTION_SOCKET_NAME);
     return -1;
   }
-  printf("VSG] CONNECTION SUCCESSFUL\n");
+  log_debug("vsg connection established [fd=%d]", vm_socket);
   return vm_socket;
 }
 
 int vsg_close(int fd)
 {
+  log_debug("Closing the underlyling socket [fd=%d]", fd);
   close(fd);
 }
 
 int vsg_shutdown(int fd)
 {
+  log_debug("Shutting down the underlyling socket [fd=%d]", fd);
   shutdown(fd, SHUT_RDWR);
 }
 
 int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* message, int message_length)
 {
+  log_debug("VSG_SEND_PACKET send time[s=%ld, us=%ld] dest[%s] message_length[%d]",
+            time.seconds,
+            time.useconds,
+            inet_ntoa(dest),
+            message_length);
   /* Prepend the destination to the payload */
   // Let's send the target dest using an ascii representation for now
   // char dest_buf[4];
@@ -98,6 +105,7 @@ int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* mess
 
 int vsg_deliver(int fd, struct in_addr src, const char* message, int message_length)
 {
+    log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(src), message_length);
     int vsg_payload_size = sizeof(struct in_addr) + message_length;
     enum vsg_msg_from_actor_type deliver_flag = VSG_DELIVER_PACKET;
     struct vsg_deliver_packet packet = {vsg_payload_size};
@@ -123,17 +131,20 @@ int vsg_deliver(int fd, struct in_addr src, const char* message, int message_len
 
 int vsg_send_at_deadline(int fd)
 {
+  log_debug("VSG_AT_DEADLINE send");
   enum vsg_msg_to_actor_type at_deadline = VSG_AT_DEADLINE;
   return send(fd, &at_deadline, sizeof(at_deadline), 0);
 }
 
 int vsg_recv_order(int fd, uint32_t *order)
 {
+  log_debug("VSG waiting order");
   return recv(fd, order, sizeof(uint32_t), MSG_WAITALL);
 }
 
 int vsg_recv_deadline(int fd, struct vsg_time *deadline)
 {
+  log_debug("VSG_GOTO_DEADLINE recv");
   int ret = recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
   // TODO(msimonin): this can be verbose, I really need to add a logger
   // printf("VSG] -- deadline = %d.%d\n", deadline->seconds, deadline->useconds);
@@ -142,13 +153,15 @@ int vsg_recv_deadline(int fd, struct vsg_time *deadline)
 
 int vsg_recv_packet(int fd, struct vsg_packet *packet)
 {
+  log_debug("VSG_DELIVER_PACKET recv 1/2");
   return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
 }
 
-int vsg_recvfrom_payload(int fd, char* message, int message_size, struct in_addr *src)
+int vsg_recvfrom_payload(int fd, char* message, int message_length, struct in_addr *src)
 {
+  log_debug("VSG_DELIVER_PACKET recv 2/2 message_length[%d]", message_length);
   //printf("recvfrom\n");
   recv(fd, src, sizeof(struct in_addr), MSG_WAITALL);
   //printf("-- src=%s", inet_ntoa(*src));
-  recv(fd, message, message_size, MSG_WAITALL);
+  recv(fd, message, message_length, MSG_WAITALL);
 }

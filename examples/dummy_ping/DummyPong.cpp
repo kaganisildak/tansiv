@@ -4,13 +4,16 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <unistd.h>
 
 extern "C" {
     #include "vsg.h"
 }
 
 struct vsg_time delay = {0, 11200};
+/*
+ * NOTE(msimonin): we could use a in_addr now
+ * instead of converting back and forth from in_addr to char *
+ */
 std::string dest_name = "";
 int max_message       = 2;
 
