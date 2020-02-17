@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
     if (master_order == vsg_msg_from_actor_type::VSG_GO_TO_DEADLINE) {
 
       struct vsg_time deadline = {0, 0};
-      vsg_recv_deadline(vm_socket, &deadline);
+      vsg_at_deadline_recv(vm_socket, &deadline);
 
       while (vsg_time_leq(next_message_time, deadline)) {
 
@@ -47,7 +47,7 @@ int main(int argc, char* argv[])
 
         // printf("sending message to dummy_ping");
         struct in_addr dest = {inet_addr(dest_name.c_str())};
-        vsg_send(vm_socket, next_message_time, dest, message.c_str(), message.length());
+        vsg_send_send(vm_socket, next_message_time, dest, message.c_str(), message.length());
 
         nb_message_send++;
 
@@ -62,7 +62,7 @@ int main(int argc, char* argv[])
 
       time                 = deadline;
       uint32_t at_deadline = vsg_msg_to_actor_type::VSG_AT_DEADLINE;
-      vsg_send_at_deadline(vm_socket);
+      vsg_at_deadline_send(vm_socket);
 
     } else if (master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET) {
       /* First receive the size of the payload. */

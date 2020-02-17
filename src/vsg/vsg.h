@@ -83,15 +83,30 @@ int vsg_close(int);
 
 int vsg_shutdown(int);
 
-int vsg_send(int, struct vsg_time, struct in_addr, const char*, int);
-
-int vsg_deliver_send(int, struct in_addr, const char*, int);
-
-int vsg_send_at_deadline(int);
-
+/*
+ * Receive order from vsg
+ */
 int vsg_recv_order(int, uint32_t*);
 
-int vsg_recv_deadline(int, struct vsg_time*);
+/*
+ * VSG_AT_DEADLINE related functions
+ */
+
+int vsg_at_deadline_recv(int, struct vsg_time*);
+
+int vsg_at_deadline_send(int);
+
+/*
+ * VSG_SEND_PACKET related functions
+ */
+
+int vsg_send_send(int, struct vsg_time, struct in_addr, const char*, int);
+
+/*
+ * VSG_DELIVER_PACKET related functions
+ */
+
+int vsg_deliver_send(int, struct in_addr, const char*, int);
 
 int vsg_deliver_recv_1(int fd, struct vsg_packet*);
 

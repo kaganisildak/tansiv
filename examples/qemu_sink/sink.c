@@ -28,11 +28,11 @@ int main(int argc, char *argv[])
     {
       case VSG_GO_TO_DEADLINE:
       {
-        vsg_recv_deadline(vsg_socket, &deadline);
+        vsg_at_deadline_recv(vsg_socket, &deadline);
         /* Don't do anything here.
           -- this yields to the qemu process until it declares the same
         */
-        vsg_send_at_deadline(vsg_socket);
+        vsg_at_deadline_send(vsg_socket);
         break;
       }
       case VSG_DELIVER_PACKET:

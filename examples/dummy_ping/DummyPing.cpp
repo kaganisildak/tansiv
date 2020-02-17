@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
         in_addr_t dest_addr = inet_addr(dest.c_str());
         struct in_addr _dest_addr = {dest_addr};
         // -> vsg_send_packet_send
-        vsg_send(vm_socket, next_message_time, _dest_addr, message.c_str(), message.length());
+        vsg_send_send(vm_socket, next_message_time, _dest_addr, message.c_str(), message.length());
 
         nb_message_send++;
         next_message_time = vsg_time_add(next_message_time, delay);
@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
       time                 = deadline;
       uint32_t at_deadline = vsg_msg_to_actor_type::VSG_AT_DEADLINE;
       // -> vsg_at_deadline_send()
-      vsg_send_at_deadline(vm_socket);
+      vsg_at_deadline_send(vm_socket);
 
     } else if (master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET) {
       /* First receive the size of the payload. */

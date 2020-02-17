@@ -76,7 +76,39 @@ int vsg_shutdown(int fd)
   shutdown(fd, SHUT_RDWR);
 }
 
-int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* message, int message_length)
+
+int vsg_recv_order(int fd, uint32_t *order)
+{
+  log_debug("VSG waiting order");
+  return recv(fd, order, sizeof(uint32_t), MSG_WAITALL);
+}
+
+
+/*
+ * VSG_AT_DEADLINE related functions
+ */
+
+int vsg_at_deadline_send(int fd)
+{
+  log_debug("VSG_AT_DEADLINE send");
+  enum vsg_msg_to_actor_type at_deadline = VSG_AT_DEADLINE;
+  return send(fd, &at_deadline, sizeof(at_deadline), 0);
+}
+
+int vsg_at_deadline_recv(int fd, struct vsg_time *deadline)
+{
+  log_debug("VSG_GOTO_DEADLINE recv");
+  int ret = recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
+  // TODO(msimonin): this can be verbose, I really need to add a logger
+  // printf("VSG] -- deadline = %d.%d\n", deadline->seconds, deadline->useconds);
+  return ret;
+}
+
+/*
+ * VSG_SEND_PACKET related functions
+ */
+
+int vsg_send_send(int fd, struct vsg_time time, struct in_addr dest, const char* message, int message_length)
 {
   log_debug("VSG_SEND_PACKET send time[s=%ld, us=%ld] dest[%s] message_length[%d]",
             time.seconds,
@@ -114,6 +146,10 @@ int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* mess
   return 0;
 }
 
+/*
+ * VSG_DELIVER_PACKET related functions
+ */
+
 int vsg_deliver_send(int fd, struct in_addr src, const char* message, int message_length)
 {
   log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(src), message_length);
@@ -138,28 +174,6 @@ int vsg_deliver_send(int fd, struct in_addr src, const char* message, int messag
   if (ret < 0)
     return -1;
   return 0;
-}
-
-int vsg_send_at_deadline(int fd)
-{
-  log_debug("VSG_AT_DEADLINE send");
-  enum vsg_msg_to_actor_type at_deadline = VSG_AT_DEADLINE;
-  return send(fd, &at_deadline, sizeof(at_deadline), 0);
-}
-
-int vsg_recv_order(int fd, uint32_t *order)
-{
-  log_debug("VSG waiting order");
-  return recv(fd, order, sizeof(uint32_t), MSG_WAITALL);
-}
-
-int vsg_recv_deadline(int fd, struct vsg_time *deadline)
-{
-  log_debug("VSG_GOTO_DEADLINE recv");
-  int ret = recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
-  // TODO(msimonin): this can be verbose, I really need to add a logger
-  // printf("VSG] -- deadline = %d.%d\n", deadline->seconds, deadline->useconds);
-  return ret;
 }
 
 int vsg_deliver_recv_1(int fd, struct vsg_packet *packet)
