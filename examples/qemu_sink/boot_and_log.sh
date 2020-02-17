@@ -1,3 +1,19 @@
+#!/usr/bin/env bash
+
+# Quelques env var utiles
+#
+# export QEMU = <chemin vers qemu>
+#
+## active le debug slirp
+# export SLIRP_DEBUG="all"
+# export G_MESSAGES_DEBUG="Slirp"
+#
+## ajoute une redirection
+#
+# export HOSTFW=hostfwd=tcp::10022-:22
+#
+## active le debug VSG
+
 set -x
 
 if [ -z  $QEMU ]
@@ -27,12 +43,9 @@ if [ ! -f debian10-x64-min.qcow2 ]; then
     scp rennes:/grid5000/virt-images/debian10-x64-min.qcow2 .
 fi
 
-# boot it with filter-dump object
-# export SLIRP_DEBUG="all"
-# export G_MESSAGES_DEBUG="Slirp"
 $QEMU \
   -m 1g \
   -drive file=debian10-x64-min.qcow2 \
   -cdrom cloud-init-data.iso \
-  -netdev user,id=network0,hostfwd=tcp::10022-:22 \
+  -netdev user,id=network0,$HOSTFWD \
   -device e1000,netdev=network0
