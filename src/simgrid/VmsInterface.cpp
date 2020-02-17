@@ -24,10 +24,10 @@ vsg_time simgridToVmTime(double simgrid_time)
 
   // when only one VM remains, simgrid_time = DOUBLE_MAX.
   // we use the code below to avoid conversion issue of DOUBLE_MAX to uint64_t.
-  if(simgrid_time > std::numeric_limits<uint64_t>::max()){
+  if(simgrid_time > std::numeric_limits<uint64_t>::max()) {
     vm_time.seconds = std::numeric_limits<uint64_t>::max();
     vm_time.useconds = std::numeric_limits<uint64_t>::max();
-  }else{
+  } else {
     // the simgrid time correspond to a double in second, so the number of seconds is the integer part
     vm_time.seconds = (uint64_t)(std::floor(simgrid_time));
     // and the number of usecond is the decimal number scaled accordingly
@@ -44,7 +44,7 @@ double vmToSimgridTime(vsg_time vm_time)
 
 VmsInterface::VmsInterface(bool stop_at_any_stop)
 {
-
+  vsg_init();
   a_vm_stopped            = false;
   simulate_until_any_stop = stop_at_any_stop;
 
@@ -152,7 +152,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
   for (auto it : vm_sockets) {
-    //vsg_goto_deadline_send()
+    //vsg_goto_deadline_send(it.second, vm_deadline);
     send(it.second, &goto_flag, sizeof(uint32_t), 0);
     send(it.second, &vm_deadline, sizeof(vsg_time), 0);
   }
@@ -167,6 +167,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
 
     while (true) {
 
+      // ->vsg_order_recv
       if (recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL) <= 0) {
         XBT_INFO("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
                   vm_name.c_str());
@@ -268,7 +269,7 @@ void VmsInterface::deliverMessage(message m)
 
 
     struct in_addr src = {inet_addr(m.src.c_str())};
-    vsg_deliver(socket, src, data.c_str(), data.length());
+    vsg_deliver_send(socket, src, data.c_str(), data.length());
 
     XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   } else {

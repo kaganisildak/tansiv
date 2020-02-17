@@ -36,8 +36,19 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
   return false;
 }
 
+int vsg_init(void)
+{
+  char * log_level = getenv("VSG_LOG");
+  int level = LOG_INFO;
+  if (log_level != NULL)
+    level = atoi(log_level);
+  log_set_level(level);
+  log_info("Welcome to VSG");
+}
+
 int vsg_connect(void)
 {
+  vsg_init();
   log_debug("Create an UNIX socket to %s", CONNECTION_SOCKET_NAME);
   int vm_socket = socket(PF_LOCAL, SOCK_STREAM, 1);
 
@@ -103,30 +114,30 @@ int vsg_send(int fd, struct vsg_time time, struct in_addr dest, const char* mess
   return 0;
 }
 
-int vsg_deliver(int fd, struct in_addr src, const char* message, int message_length)
+int vsg_deliver_send(int fd, struct in_addr src, const char* message, int message_length)
 {
-    log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(src), message_length);
-    int vsg_payload_size = sizeof(struct in_addr) + message_length;
-    enum vsg_msg_from_actor_type deliver_flag = VSG_DELIVER_PACKET;
-    struct vsg_deliver_packet packet = {vsg_payload_size};
-    int ret = 0;
-    ret = send(fd, &deliver_flag, sizeof(deliver_flag), 0);
-    if (ret < 0)
-        return -1;
+  log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(src), message_length);
+  int vsg_payload_size = sizeof(struct in_addr) + message_length;
+  enum vsg_msg_from_actor_type deliver_flag = VSG_DELIVER_PACKET;
+  struct vsg_deliver_packet packet = {vsg_payload_size};
+  int ret = 0;
+  ret = send(fd, &deliver_flag, sizeof(deliver_flag), 0);
+  if (ret < 0)
+    return -1;
 
-    ret = send(fd, &packet, sizeof(packet), 0);
-    if (ret < 0)
-        return -1;
+  ret = send(fd, &packet, sizeof(packet), 0);
+  if (ret < 0)
+    return -1;
 
-    /*send the src in 4 bytes.*/
-    ret = send(fd, &src, sizeof(struct in_addr), 0);
-    if (ret < 0)
-      return -1;
+  /*send the src in 4 bytes.*/
+  ret = send(fd, &src, sizeof(struct in_addr), 0);
+  if (ret < 0)
+    return -1;
 
-    ret = send(fd, message, message_length, 0);
-    if (ret < 0)
-        return -1;
-    return 0;
+  ret = send(fd, message, message_length, 0);
+  if (ret < 0)
+    return -1;
+  return 0;
 }
 
 int vsg_send_at_deadline(int fd)
@@ -151,13 +162,13 @@ int vsg_recv_deadline(int fd, struct vsg_time *deadline)
   return ret;
 }
 
-int vsg_recv_packet(int fd, struct vsg_packet *packet)
+int vsg_deliver_recv_1(int fd, struct vsg_packet *packet)
 {
   log_debug("VSG_DELIVER_PACKET recv 1/2");
   return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
 }
 
-int vsg_recvfrom_payload(int fd, char* message, int message_length, struct in_addr *src)
+int vsg_deliver_recv_2(int fd, char* message, int message_length, struct in_addr *src)
 {
   log_debug("VSG_DELIVER_PACKET recv 2/2 message_length[%d]", message_length);
   //printf("recvfrom\n");

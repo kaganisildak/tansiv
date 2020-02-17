@@ -20,8 +20,6 @@ int max_message       = 2;
 
 int main(int argc, char* argv[])
 {
-  int dest_size = std::atoi(argv[1]);
-
   int vm_socket = vsg_connect();
 
   int nb_message_send               = 0;
@@ -69,13 +67,13 @@ int main(int argc, char* argv[])
     } else if (master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET) {
       /* First receive the size of the payload. */
       vsg_packet packet = {0};
-      vsg_recv_packet(vm_socket, &packet);
+      vsg_deliver_recv_1(vm_socket, &packet);
 
       /* Second get the vsg payload = src + message. */
       int message_size = packet.size - sizeof(struct in_addr);
       char message[message_size];
       struct in_addr src = {0};
-      vsg_recvfrom_payload(vm_socket, message, message_size, &src);
+      vsg_deliver_recv_2(vm_socket, message, message_size, &src);
       dest_name = "";
       dest_name.append(inet_ntoa(src));
 

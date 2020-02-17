@@ -1,4 +1,6 @@
 #include "vsg.h"
+#include "log.h"
+#include <stdlib.h>
 #include <stdio.h>
 
 /*
@@ -13,7 +15,6 @@
 int main(int argc, char *argv[])
 {
   int vsg_socket = vsg_connect();
-
   while (1)
   {
     uint32_t order;
@@ -38,13 +39,13 @@ int main(int argc, char *argv[])
       {
         /* First receive the size of the payload. */
         struct vsg_packet packet = {0};
-        vsg_recv_packet(vsg_socket, &packet);
+        vsg_deliver_recv_1(vsg_socket, &packet);
 
         /* Second get the vsg payload = src + message. */
         int message_size = packet.size - sizeof(struct in_addr);
         char message[message_size];
         struct in_addr src = {0};
-        vsg_recvfrom_payload(vsg_socket, message, message_size, &src);
+        vsg_deliver_recv_2(vsg_socket, message, message_size, &src);
 
         printf("SINK] -- Decoded src=%s\n", inet_ntoa(src));
         printf("SINK] -- Decoded message=%s\n", message);

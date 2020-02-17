@@ -30,6 +30,7 @@ int main(int argc, char* argv[])
   while (nb_message_send < max_message) {
 
     uint32_t master_order = 0;
+    //vsg_recv_order
     if (recv(vm_socket, &master_order, sizeof(uint32_t), MSG_WAITALL) <= 0) {
       shutdown(vm_socket, SHUT_RDWR);
       exit(666);
@@ -38,6 +39,7 @@ int main(int argc, char* argv[])
     if (master_order == vsg_msg_from_actor_type::VSG_GO_TO_DEADLINE) {
 
       struct vsg_time deadline;
+      // vsg_recv_deadline -> vsg_at_deadline_recv
       recv(vm_socket, &deadline, sizeof(vsg_time), MSG_WAITALL);
 
       while (vsg_time_leq(next_message_time, deadline)) {
@@ -51,6 +53,7 @@ int main(int argc, char* argv[])
         // printf("sending message %s to %s\n", message.c_str(), dest.c_str());
         in_addr_t dest_addr = inet_addr(dest.c_str());
         struct in_addr _dest_addr = {dest_addr};
+        // -> vsg_send_packet_send
         vsg_send(vm_socket, next_message_time, _dest_addr, message.c_str(), message.length());
 
         nb_message_send++;
@@ -64,18 +67,20 @@ int main(int argc, char* argv[])
 
       time                 = deadline;
       uint32_t at_deadline = vsg_msg_to_actor_type::VSG_AT_DEADLINE;
+      // -> vsg_at_deadline_send()
       vsg_send_at_deadline(vm_socket);
 
     } else if (master_order == vsg_msg_from_actor_type::VSG_DELIVER_PACKET) {
       /* First receive the size of the payload. */
       vsg_packet packet = {0};
-      recv(vm_socket, &packet, sizeof(vsg_packet), MSG_WAITALL);
-
+      // -> vsg_deliver_packet_recv
+      vsg_deliver_recv_1(vm_socket, &packet);
       /* Second get the vsg payload = src + message. */
       int message_size = packet.size - sizeof(struct in_addr);
       char message[message_size];
       struct in_addr src = {0};
-      vsg_recvfrom_payload(vm_socket, message, message_size, &src);
+      // -> vsg_deliver_packet_recvfrom
+      vsg_deliver_recv_2(vm_socket, message, message_size, &src);
     } else {
       printf("error unexpected message received %i", master_order);
     }
