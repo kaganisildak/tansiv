@@ -12,7 +12,7 @@ stages:
 
 ###############################################################################
 #
-# Build tansiv & qemu
+# Build tansiv and some cppunit stuffs
 #   -- test locally:
 #      $) gitlab-runner exec docker tansiv --docker-volumes $(pwd)/opt:/opt
 #
@@ -24,7 +24,7 @@ tansiv:
     # Some missing build tools
     #
     - apt-get update
-    - apt-get install -y git build-essential pkg-config libboost-dev cmake
+    - apt-get install -y git build-essential pkg-config libboost-dev cmake libcppunit-dev
     #
     # Build tansiv
     #
@@ -35,25 +35,10 @@ tansiv:
     # cpp unittests
     - ./ttansiv
     - cd ..
-
-qemu:
-  stage: qemu
-  script:
     # copying the compiled examples for subsequent jobs
     - cp -r build/examples /opt
     # copying the platform file for subsequent jobs
     - cp -r platform /opt
-    # Build qemu with our modified version of libslirp
-    - apt-get install -y python libglib2.0-dev libpixman-1-dev
-    - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
-    - cd qemu
-    # replace the slirp submodule by ours
-    - git submodule deinit slirp
-    - git rm slirp
-    - git submodule add $(pwd)/../src/slirp slirp
-    - mkdir -p build /opt/qemu
-    - cd build && ../configure --prefix=/opt/qemu --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
-    - cd ..
     # copying all the /opt dir to export it as an artifact for subsequent jobs
     # (we can only export subdirectories of CI_BUILDS_DIR)
     - cp -r /opt opt
@@ -66,6 +51,29 @@ qemu:
     #   platform/ -> some simgrid plaform files
     #   tansiv/ -> result of tansiv make install (include + lib + bin)
     #   qemu/ -> result of qemu make install (include + lib + bin)
+
+###############################################################################
+#
+# Qemu compilation
+# inputs:
+#   opt/ -> artifact of the build phase
+#
+###############################################################################
+qemu:
+  stage: qemu
+  script:
+    - cp -r opt /opt
+    # Build qemu with our modified version of libslirp
+    - apt-get install -y python libglib2.0-dev libpixman-1-dev
+    - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
+    - cd qemu
+    # replace the slirp submodule by ours
+    - git submodule deinit slirp
+    - git rm slirp
+    - git submodule add $(pwd)/../src/slirp slirp
+    - mkdir -p build /opt/qemu
+    - cd build && ../configure --prefix=/opt/qemu --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
+    - cd ..
 
 ###############################################################################
 #
