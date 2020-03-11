@@ -29,6 +29,7 @@ class TestTansiv : public CppUnit::TestFixture
 {
   CPPUNIT_TEST_SUITE(TestTansiv);
   CPPUNIT_TEST(testVsgSendAndReceive);
+  CPPUNIT_TEST(testVsgDeliverSendAndReceive);
   CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -37,6 +38,7 @@ public:
 
 protected:
   void testVsgSendAndReceive(void);
+  void testVsgDeliverSendAndReceive(void);
 
 private:
   int vm_socket;
@@ -50,7 +52,7 @@ void TestTansiv::testVsgSendAndReceive(void)
   /*
    * Sending part: vm -> coordinator
    */
-  std::string send_data = "1";
+  std::string send_data = "send_test";
   std::string dest = "1.2.3.4";
   struct in_addr send_dest = {inet_addr(dest.c_str())};
   struct vsg_time message_time = {42, 42};
@@ -95,6 +97,38 @@ void TestTansiv::testVsgSendAndReceive(void)
   recv_data[recv_size] = '\0';
   std::string actual_data = std::string(recv_data);
   CPPUNIT_ASSERT_EQUAL(send_data, actual_data);
+}
+
+void TestTansiv::testVsgDeliverSendAndReceive(void)
+{
+  /*
+   * Sending part: coordinator -> vm
+   */
+  std::string data = "deliver_test";
+  struct vsg_packet packet = {data.length()};
+
+  struct in_addr dest = {inet_addr("1.2.3.4")};
+  vsg_deliver_send(coord_socket, dest, data.c_str(), data.length());
+
+  /*
+   * Receiving part: vm -> coordinator
+   */
+  uint32_t order;
+  vsg_recv_order(vm_socket, &order);
+  CPPUNIT_ASSERT_EQUAL((uint32_t)vsg_msg_from_actor_type::VSG_DELIVER_PACKET, order);
+
+  packet = {0};
+  vsg_deliver_recv_1(vm_socket, &packet);
+
+  /* Second get the vsg payload = src + message. */
+  int message_size = packet.size - sizeof(struct in_addr);
+  char message[message_size + 1];
+  struct in_addr src = {0};
+  vsg_deliver_recv_2(vm_socket, message, message_size, &src);
+  // yeah string...
+  message[message_size] = '\0';
+  std::string actual_data = std::string(message);
+  CPPUNIT_ASSERT_EQUAL(data, actual_data);
 }
 
 void TestTansiv::setUp(void)
