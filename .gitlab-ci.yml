@@ -6,9 +6,9 @@ variables:
 image: simgrid/stable:v3.24
 
 stages:
-- build
-- test
-
+  - build
+  - qemu
+  - test
 
 ###############################################################################
 #
@@ -30,7 +30,15 @@ tansiv:
     #
     - mkdir -p build
     - mkdir -p /opt/tansiv
-    - cd build && cmake .. && make && make DESTDIR=/opt/tansiv install && cd ..
+    - cd build
+    - cmake .. && make && make DESTDIR=/opt/tansiv install
+    # cpp unittests
+    - ./ttansiv
+    - cd ..
+
+qemu:
+  stage: qemu
+  script:
     # copying the compiled examples for subsequent jobs
     - cp -r build/examples /opt
     # copying the platform file for subsequent jobs
@@ -51,14 +59,13 @@ tansiv:
     - cp -r /opt opt
   artifacts:
     paths:
-    - opt
+      - opt
     # expected /opt structure:
     # /opt
     #   examples/ -> compiled examples
     #   platform/ -> some simgrid plaform files
     #   tansiv/ -> result of tansiv make install (include + lib + bin)
     #   qemu/ -> result of qemu make install (include + lib + bin)
-
 
 ###############################################################################
 #
@@ -70,4 +77,4 @@ tansiv:
 dummy_ping:
   stage: test
   script:
-  - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml
+    - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml
