@@ -63,6 +63,8 @@ qemu:
   stage: qemu
   script:
     - cp -r opt /opt
+    - apt-get update
+    - apt-get install -y git build-essential pkg-config libboost-dev cmake libcppunit-dev
     # Build qemu with our modified version of libslirp
     - apt-get install -y python libglib2.0-dev libpixman-1-dev
     - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
