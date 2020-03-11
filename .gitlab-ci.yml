@@ -45,6 +45,7 @@ tansiv:
   artifacts:
     paths:
       - opt
+      - build/ttansiv.xml
     # expected /opt structure:
     # /opt
     #   examples/ -> compiled examples
