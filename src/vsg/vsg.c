@@ -13,9 +13,10 @@
 struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2)
 {
   struct vsg_time time;
-  time.seconds  = time1.seconds + time2.seconds;
+  time.seconds = time1.seconds + time2.seconds;
   time.useconds = time1.useconds + time2.useconds;
-  if (time.useconds >= 1e6) {
+  if (time.useconds >= 1e6)
+  {
     time.useconds = time.useconds - 1e6;
     time.seconds++;
   }
@@ -29,9 +30,10 @@ struct vsg_time vsg_time_sub(struct vsg_time time1, struct vsg_time time2)
   struct vsg_time time;
   time.seconds = time1.seconds - time2.seconds;
   time.useconds = time1.useconds - time2.useconds;
-  if (time.useconds < 0) {
+  if (time.useconds < 0)
+  {
     time.useconds = time.useconds + 1e6;
-    time.seconds --;
+    time.seconds--;
   }
   return time;
 }
@@ -50,7 +52,7 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
 
 int vsg_init(void)
 {
-  char * log_level = getenv("VSG_LOG");
+  char *log_level = getenv("VSG_LOG");
   int level = LOG_INFO;
   if (log_level != NULL)
     level = atoi(log_level);
@@ -68,7 +70,8 @@ int vsg_connect(void)
   address.sun_family = AF_LOCAL;
   strcpy(address.sun_path, CONNECTION_SOCKET_NAME);
 
-  if (connect(vm_socket, (struct sockaddr*)(&address), sizeof(address)) != 0) {
+  if (connect(vm_socket, (struct sockaddr *)(&address), sizeof(address)) != 0)
+  {
     log_error("We've got a problem connecting to the UNIX socket %s", CONNECTION_SOCKET_NAME);
     return -1;
   }
@@ -88,13 +91,11 @@ int vsg_shutdown(int fd)
   shutdown(fd, SHUT_RDWR);
 }
 
-
 int vsg_recv_order(int fd, uint32_t *order)
 {
   log_debug("VSG waiting order");
   return recv(fd, order, sizeof(uint32_t), MSG_WAITALL);
 }
-
 
 /*
  * VSG_AT_DEADLINE related functions
@@ -120,7 +121,7 @@ int vsg_at_deadline_recv(int fd, struct vsg_time *deadline)
  * VSG_SEND_PACKET related functions
  */
 
-int vsg_send_send(int fd, struct vsg_time time, struct in_addr dest, const char* message, int message_length)
+int vsg_send_send(int fd, struct vsg_time time, struct in_addr dest, const char *message, int message_length)
 {
   log_debug("VSG_SEND_PACKET send time[s=%ld, us=%ld] dest[%s] message_length[%d]",
             time.seconds,
@@ -162,7 +163,7 @@ int vsg_send_send(int fd, struct vsg_time time, struct in_addr dest, const char*
  * VSG_DELIVER_PACKET related functions
  */
 
-int vsg_deliver_send(int fd, struct in_addr src, const char* message, int message_length)
+int vsg_deliver_send(int fd, struct in_addr src, const char *message, int message_length)
 {
   log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(src), message_length);
   int vsg_payload_size = sizeof(struct in_addr) + message_length;
@@ -194,7 +195,7 @@ int vsg_deliver_recv_1(int fd, struct vsg_packet *packet)
   return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
 }
 
-int vsg_deliver_recv_2(int fd, char* message, int message_length, struct in_addr *src)
+int vsg_deliver_recv_2(int fd, char *message, int message_length, struct in_addr *src)
 {
   log_debug("VSG_DELIVER_PACKET recv 2/2 message_length[%d]", message_length);
   //printf("recvfrom\n");
