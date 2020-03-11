@@ -5,7 +5,7 @@
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
-vsg::VmsInterface* vms_interface;
+vsg::VmsInterface *vms_interface;
 
 std::vector<simgrid::s4u::CommPtr> pending_comms;
 
@@ -20,10 +20,13 @@ static double compute_min_latency()
 
   double min_latency = std::numeric_limits<double>::infinity();
 
-  for (simgrid::s4u::ActorPtr sender : receivers) {
-    for (simgrid::s4u::ActorPtr receiver : receivers) {
-      if (sender != receiver) {
-        std::vector<simgrid::s4u::Link*> links;
+  for (simgrid::s4u::ActorPtr sender : receivers)
+  {
+    for (simgrid::s4u::ActorPtr receiver : receivers)
+    {
+      if (sender != receiver)
+      {
+        std::vector<simgrid::s4u::Link *> links;
         double latency = 0;
         sender->get_host()->route_to(receiver->get_host(), links, &latency);
         if (latency < min_latency)
@@ -31,6 +34,11 @@ static double compute_min_latency()
       }
     }
   }
+  // NOTE(msimonin): simgrid seems to use RTT latencies
+  // but we want one-way latency
+  // if (min_latency != std::numeric_limits<double>::infinity() ) {
+  //   min_latency = min_latency / 2.;
+  // }
 
   xbt_assert(min_latency > 0, "error with the platform file : the minimum latency between hosts is %f  <= 0",
              min_latency);
@@ -41,11 +49,13 @@ static double compute_min_latency()
 
 static double get_next_event()
 {
-  double time            = simgrid::s4u::Engine::get_clock();
+  double time = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::infinity();
-  for (simgrid::kernel::resource::Model* model : all_existing_models) {
+  for (simgrid::kernel::resource::Model *model : all_existing_models)
+  {
     double model_event = time + model->next_occuring_event(time);
-    if (model_event < next_event_time && model_event > time) {
+    if (model_event < next_event_time && model_event > time)
+    {
       next_event_time = model_event;
     }
   }
@@ -58,7 +68,7 @@ static void sender(std::string mailbox_name, vsg::message m)
   XBT_INFO("sending [%s] (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.data.c_str(), m.packet_size,
            m.src.c_str(), m.dest.c_str(), mailbox_name.c_str());
 
-  int msg_size               = m.packet_size;
+  int msg_size = m.packet_size;
   simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(&m, msg_size);
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
@@ -88,7 +98,7 @@ static void receiver(std::vector<std::string> args)
   vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);
   receivers.push_back(simgrid::s4u::Actor::self());
 
-  simgrid::s4u::ActorPtr myself    = simgrid::s4u::Actor::self();
+  simgrid::s4u::ActorPtr myself = simgrid::s4u::Actor::self();
   simgrid::s4u::Mailbox *mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
 
   // this actor is a permanent receiver on its host mailbox.
@@ -96,8 +106,9 @@ static void receiver(std::vector<std::string> args)
   // For the simulation to end with the coordinator actor, we daemonize all the other actors.
   myself->daemonize();
 
-  while (true) {
-    vsg::message* m = static_cast<vsg::message*>(mailbox->get());
+  while (true)
+  {
+    vsg::message *m = static_cast<vsg::message *>(mailbox->get());
     XBT_INFO("delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(), m->dest.c_str());
   }
 }
@@ -109,73 +120,86 @@ static void vm_coordinator()
   simgrid::s4u::this_actor::yield();
   double min_latency = compute_min_latency();
 
-  while (vms_interface->vmActive()) {
+  while (vms_interface->vmActive())
+  {
 
     // first we check if a VM stops. If so, we recompute the minimum latency.
     bool deads = false;
-    for (auto host : vms_interface->get_dead_vm_hosts()) {
+    for (auto host : vms_interface->get_dead_vm_hosts())
+    {
 
-        auto erased_section_begin = std::remove_if(receivers.begin(), receivers.end(), [host](const simgrid::s4u::ActorPtr & o) {
-            if (o->get_host()->get_name() == host) {
-               return true;
-            }
-            return false;
-        });
+      auto erased_section_begin = std::remove_if(receivers.begin(), receivers.end(), [host](const simgrid::s4u::ActorPtr &o) {
+        if (o->get_host()->get_name() == host)
+        {
+          return true;
+        }
+        return false;
+      });
 
-        receivers.erase(erased_section_begin, receivers.end());
-        deads = true;
+      receivers.erase(erased_section_begin, receivers.end());
+      deads = true;
     }
-   if (deads)
-        min_latency = compute_min_latency();
+    if (deads)
+      min_latency = compute_min_latency();
 
     // then we go forward with the VM.
-    double time                = simgrid::s4u::Engine::get_clock();
+    double time = simgrid::s4u::Engine::get_clock();
     double next_reception_time = get_next_event();
-    double deadline            = std::min(time + min_latency, next_reception_time);
+    double deadline = std::min(time + min_latency, next_reception_time);
 
     XBT_DEBUG("simulating to time %f", deadline);
 
     std::vector<vsg::message> messages = vms_interface->goTo(deadline);
 
-    for (vsg::message m : messages) {
+    for (vsg::message m : messages)
+    {
 
       time = simgrid::s4u::Engine::get_clock();
       xbt_assert(m.sent_time >= time,
                  "violation of the causality constraint : trying to send a message at time %f whereas we are already "
                  "at time %f",
                  m.sent_time, time);
-      if (m.sent_time > time) {
-        XBT_DEBUG("going to time %f", m.sent_time);
+      if (m.sent_time > time)
+      {
+        XBT_DEBUG("going to time %f(according to the message received)", m.sent_time);
         simgrid::s4u::this_actor::sleep_until(m.sent_time);
         time = simgrid::s4u::Engine::get_clock();
+        XBT_DEBUG("NOW WE ARE at time %f", time);
       }
 
       std::string src_host = vms_interface->getHostOfVm(m.src);
       xbt_assert(src_host != "", "The VM %s tries to send a message but we do not know its PM", m.src.c_str());
 
       std::string dest_host = vms_interface->getHostOfVm(m.dest);
-      if (dest_host != "") {
+      if (dest_host != "")
+      {
         simgrid::s4u::ActorPtr actor =
             simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
         // For the simulation to end with the coordinator actor, we daemonize all the other actors.
         actor->daemonize();
-      } else {
+      }
+      else
+      {
         XBT_WARN("the VM %s tries to send a message to the unknown VM %s", m.src.c_str(), m.dest.c_str());
       }
     }
 
     // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
     // so we do not have to sleep until "infinity" because the simulation is done
-    if(deadline!=std::numeric_limits<double>::infinity())
-      simgrid::s4u::this_actor::sleep_until(deadline);
+    if (deadline != std::numeric_limits<double>::infinity())
+      XBT_DEBUG("going to deadline %f(according to the message received)", deadline);
+    simgrid::s4u::this_actor::sleep_until(deadline);
+    time = simgrid::s4u::Engine::get_clock();
+    XBT_DEBUG("NOW WE ARE at time %f", time);
 
     int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
 
     while (
         changed_pos >=
-        0) { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
+        0)
+    { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
       simgrid::s4u::CommPtr comm = pending_comms[changed_pos];
-      vsg::message m             = pending_messages[changed_pos];
+      vsg::message m = pending_messages[changed_pos];
 
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
@@ -191,7 +215,7 @@ static void vm_coordinator()
   XBT_INFO("end of simulation");
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
   xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
 

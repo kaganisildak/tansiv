@@ -23,6 +23,18 @@ struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2)
   return time;
 }
 
+struct vsg_time vsg_time_sub(struct vsg_time time1, struct vsg_time time2)
+{
+  // assume to be positive values
+  struct vsg_time time;
+  time.seconds = time1.seconds - time2.seconds;
+  time.useconds = time1.useconds - time2.useconds;
+  if (time.useconds < 0) {
+    time.useconds = time.useconds + 1e6;
+    time.seconds --;
+  }
+  return time;
+}
 // true if time1 <= time2
 bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
 {

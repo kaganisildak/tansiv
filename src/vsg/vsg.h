@@ -67,6 +67,7 @@ enum vsg_msg_to_actor_type { VSG_AT_DEADLINE, VSG_SEND_PACKET };
  */
 
 struct vsg_time vsg_time_add(struct vsg_time, struct vsg_time);
+struct vsg_time vsg_time_sub(struct vsg_time, struct vsg_time);
 
 bool vsg_time_leq(struct vsg_time, struct vsg_time);
 

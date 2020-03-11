@@ -24,6 +24,7 @@ int main(int argc, char *argv[])
     //printf("SINK] Waiting coordinator order\n");
     vsg_recv_order(vsg_socket, &order);
     struct vsg_time deadline = {0, 1};
+    struct vsg_time offset = {0, 1};
     switch(order)
     {
       case VSG_GO_TO_DEADLINE:
@@ -32,6 +33,15 @@ int main(int argc, char *argv[])
         /* Don't do anything here.
           -- this yields to the qemu process until it declares the same
         */
+        printf("SINK] -- deadline received=%ld.%06ld\n", deadline.seconds, deadline.useconds);
+        // send some messages
+        const char* message  = "fromsink";
+        struct vsg_time time = vsg_time_sub(deadline, offset);
+        struct in_addr dest  = {inet_addr("127.0.0.2")};
+
+        vsg_send_send(vsg_socket, time, dest, message, sizeof(message));
+
+        // --
         vsg_at_deadline_send(vsg_socket);
         break;
       }
