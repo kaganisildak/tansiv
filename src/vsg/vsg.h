@@ -119,14 +119,14 @@ int vsg_at_deadline_send(int);
  * VSG_SEND_PACKET related functions
  */
 
-int vsg_send_send(int, struct vsg_time, struct vsg_packet, const char *);
+int vsg_send_send(int, struct vsg_send_packet, const char *);
 
 /*
  * VSG_DELIVER_PACKET related functions
  */
 
 // TODO(msimonin): why don't we have time here ?
-int vsg_deliver_send(int, struct vsg_packet, const char *);
+int vsg_deliver_send(int, struct vsg_deliver_packet, const char *);
 
 int vsg_deliver_recv_1(int fd, struct vsg_deliver_packet *);
 

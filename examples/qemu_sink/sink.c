@@ -44,7 +44,10 @@ int main(int argc, char *argv[])
           .size = sizeof(message),
           .dest = dest,
           .src = src};
-      vsg_send_send(vsg_socket, time, packet, message);
+      struct vsg_send_packet send_packet = {
+          .send_time = time,
+          .packet = packet};
+      vsg_send_send(vsg_socket, send_packet, message);
 
       // --
       vsg_at_deadline_send(vsg_socket);

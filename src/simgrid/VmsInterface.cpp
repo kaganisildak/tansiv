@@ -279,14 +279,16 @@ void VmsInterface::deliverMessage(message m)
     int socket = vm_sockets[m.dest];
     uint32_t deliver_flag = vsg_msg_from_actor_type::VSG_DELIVER_PACKET;
     std::string data = m.data;
-    // TODO(msimonin): add port support
+    // TODO(msimonin): Store the whole packet structure...
     struct vsg_addr dest = {inet_addr(m.dest.c_str()), 0};
     struct vsg_addr src = {inet_addr(m.src.c_str()), 0};
     struct vsg_packet packet = {
         .size = data.length(),
         .dest = dest,
         .src = src};
-    vsg_deliver_send(socket, packet, data.c_str());
+    struct vsg_deliver_packet deliver_packet = {
+        packet = packet};
+    vsg_deliver_send(socket, deliver_packet, data.c_str());
 
     XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   }

@@ -66,7 +66,10 @@ int main(int argc, char *argv[])
             .dest = _dest,
             .src = _src};
         // -> vsg_send_packet_send
-        vsg_send_send(vm_socket, next_message_time, packet, message.c_str());
+        vsg_send_packet send_packet = {
+            .send_time = next_message_time,
+            .packet = packet};
+        vsg_send_send(vm_socket, send_packet, message.c_str());
 
         nb_message_send++;
         next_message_time = vsg_time_add(next_message_time, delay);
