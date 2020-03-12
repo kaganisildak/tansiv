@@ -27,9 +27,16 @@ struct vsg_time
   uint64_t useconds;
 };
 
+struct vsg_dest
+{
+  in_addr_t addr;
+  in_port_t port;
+};
+
 struct vsg_packet
 {
   uint32_t size;
+  struct vsg_dest dest;
 };
 
 /* Message bodies */
@@ -111,16 +118,16 @@ int vsg_at_deadline_send(int);
  * VSG_SEND_PACKET related functions
  */
 
-int vsg_send_send(int, struct vsg_time, struct in_addr, const char *, int);
+int vsg_send_send(int, struct vsg_time, struct vsg_dest, const char *, int);
 
 /*
  * VSG_DELIVER_PACKET related functions
  */
 
-int vsg_deliver_send(int, struct in_addr, const char *, int);
+int vsg_deliver_send(int, struct vsg_dest, const char *, int);
 
 int vsg_deliver_recv_1(int fd, struct vsg_packet *);
 
-int vsg_deliver_recv_2(int, char *, int, struct in_addr *);
+int vsg_deliver_recv_2(int, char *, int);
 
 #endif /* __VSG_H__ */
