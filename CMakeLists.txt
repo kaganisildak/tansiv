@@ -52,8 +52,8 @@ configure_file(examples/qemu_sink/boot_and_log.sh examples/qemu_sink/boot_and_lo
 configure_file(examples/qemu_sink/deployment.xml examples/qemu_sink/deployment.xml)
 
 
-add_executable(ttansiv src/tests/test.cpp)
-target_link_libraries(ttansiv PUBLIC vsg cppunit)
+add_executable(tests src/tests/test.cpp)
+target_link_libraries(tests PUBLIC vsg cppunit)
 
 install(TARGETS tansiv DESTINATION bin)
 

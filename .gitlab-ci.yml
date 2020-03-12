@@ -33,7 +33,7 @@ tansiv:
     - cd build
     - cmake .. && make && make DESTDIR=/opt/tansiv install
     # cpp unittests
-    - ./ttansiv
+    - ./tests
     - cd ..
     # copying the compiled examples for subsequent jobs
     - cp -r build/examples /opt
@@ -45,7 +45,7 @@ tansiv:
   artifacts:
     paths:
       - opt
-      - build/ttansiv.xml
+      - build/tests.xml
     # expected /opt structure:
     # /opt
     #   examples/ -> compiled examples
