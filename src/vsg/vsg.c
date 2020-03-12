@@ -121,16 +121,19 @@ int vsg_at_deadline_recv(int fd, struct vsg_time *deadline)
  * VSG_SEND_PACKET related functions
  */
 
-int vsg_send_send(int fd, struct vsg_time time, struct vsg_dest dest, const char *message, int message_length)
+int vsg_send_send(int fd, struct vsg_time time, struct vsg_packet packet, const char *message)
 {
-  struct in_addr dest_addr = {dest.addr};
-  log_debug("VSG_SEND_PACKET send time[s=%ld, us=%ld] dest[%s] message_length[%d]",
+  struct in_addr dest_addr = {packet.dest.addr};
+  struct in_addr src_addr = {packet.src.addr};
+  log_debug("VSG_SEND_PACKET send time[s=%ld, us=%ld] dest[%s:%d] src[%s:%d] message_length[%d]",
             time.seconds,
             time.useconds,
             inet_ntoa(dest_addr),
-            message_length);
+            packet.dest.port,
+            inet_ntoa(src_addr),
+            packet.src.port,
+            packet.size);
 
-  struct vsg_send_packet packet = {time, {message_length, dest}};
   enum vsg_msg_to_actor_type send_packet_flag = VSG_SEND_PACKET;
   int ret = 0;
 
@@ -140,12 +143,17 @@ int vsg_send_send(int fd, struct vsg_time time, struct vsg_dest dest, const char
     return -1;
 
   /*send packet info*/
-  ret = send(fd, &packet, sizeof(packet), 0);
+  struct vsg_send_packet send_packet = {
+      .send_time = time,
+      .packet = packet};
+  struct in_addr _src_addr = {send_packet.packet.src.addr};
+
+  ret = send(fd, &send_packet, sizeof(send_packet), 0);
   if (ret < 0)
     return -1;
 
   /*send the message*/
-  ret = send(fd, message, message_length, 0);
+  ret = send(fd, message, packet.size, 0);
   if (ret < 0)
     return -1;
   return 0;
@@ -155,31 +163,37 @@ int vsg_send_send(int fd, struct vsg_time time, struct vsg_dest dest, const char
  * VSG_DELIVER_PACKET related functions
  */
 
-int vsg_deliver_send(int fd, struct vsg_dest dest, const char *message, int message_length)
+int vsg_deliver_send(int fd, struct vsg_packet packet, const char *message)
 {
-  struct in_addr dest_addr = {dest.addr};
-  log_debug("VSG_DELIVER_PACKET send src[%s] message_length[%d]", inet_ntoa(dest_addr), message_length);
+  struct in_addr dest_addr = {packet.dest.addr};
+  struct in_addr src_addr = {packet.src.addr};
+  log_debug("VSG_DELIVER_PACKET send dest[%s:%d] src[%s:%d] message_length[%d]",
+            inet_ntoa(dest_addr),
+            packet.dest.port,
+            inet_ntoa(src_addr),
+            packet.src.port,
+            packet.size);
   enum vsg_msg_from_actor_type deliver_flag = VSG_DELIVER_PACKET;
-  struct vsg_deliver_packet packet = {message_length, dest};
   int ret = 0;
   ret = send(fd, &deliver_flag, sizeof(deliver_flag), 0);
   if (ret < 0)
     return -1;
 
-  ret = send(fd, &packet, sizeof(packet), 0);
+  struct vsg_deliver_packet deliver_packet = {packet};
+  ret = send(fd, &deliver_packet, sizeof(deliver_packet), 0);
   if (ret < 0)
     return -1;
 
-  ret = send(fd, message, message_length, 0);
+  ret = send(fd, message, packet.size, 0);
   if (ret < 0)
     return -1;
   return 0;
 }
 
-int vsg_deliver_recv_1(int fd, struct vsg_packet *packet)
+int vsg_deliver_recv_1(int fd, struct vsg_deliver_packet *deliver_packet)
 {
   log_debug("VSG_DELIVER_PACKET recv 1/2");
-  return recv(fd, packet, sizeof(struct vsg_packet), MSG_WAITALL);
+  return recv(fd, deliver_packet, sizeof(struct vsg_deliver_packet), MSG_WAITALL);
 }
 
 int vsg_deliver_recv_2(int fd, char *message, int message_length)

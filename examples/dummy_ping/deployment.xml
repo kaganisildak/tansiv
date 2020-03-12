@@ -5,6 +5,7 @@
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
     <argument value="127.0.0.1"/> <!-- first argument is the ID of the VM (e.g. the IP)-->
     <argument value="./examples/dummy_ping/dummy_ping"/> <!-- second argument is the executable to start the VM -->
+    <argument value="127.0.0.1"/> <!-- the app needs to know who she is -->
     <argument value="127.0.0.2"/> <!-- then we have all the arguments that will be used in the command to start the VM -->
     <argument value="127.0.0.3"/> <!-- in our dummy ping example, the two arguments correspond to the ID of the VM to ping-->
   </actor>
@@ -12,11 +13,13 @@
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="127.0.0.2"/>
     <argument value="./examples/dummy_ping/dummy_pong"/>
+    <argument value="127.0.0.2"/> <!-- the app needs to know who she is -->
   </actor>
 
   <actor host="nova-3.lyon.grid5000.fr" function="vsg_vm">
     <argument value="127.0.0.3"/>
     <argument value="./examples/dummy_ping/dummy_pong"/>
+    <argument value="127.0.0.3"/> <!-- the app needs to know who she is -->
   </actor>
 
 </platform>
