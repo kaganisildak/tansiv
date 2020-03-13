@@ -481,7 +481,7 @@ mod test {
     fn gettimeofday_no_context() {
         init();
 
-        let mut tv = TIMEVAL_POISON;;
+        let mut tv = TIMEVAL_POISON;
         let res: c_int = unsafe { vsg_gettimeofday(std::ptr::null(), &mut tv, std::ptr::null_mut()) };
         assert_eq!(libc::EINVAL, res);
         assert_eq!(TIMEVAL_POISON.tv_sec, tv.tv_sec);
