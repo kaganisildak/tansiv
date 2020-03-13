@@ -197,7 +197,7 @@ impl TimerContext {
     /// Returns the global simulation time
     pub fn simulation_now(&self) -> StdDuration {
         if !self.at_deadline.load(Ordering::Acquire) {
-            self.simulation_time.get(|offset| clock::gettime(Self::CLOCK).unwrap() + offset.to_std().unwrap())
+            self.simulation_time.get(|offset| (Duration::from_std(clock::gettime(Self::CLOCK).unwrap()).unwrap() + offset).to_std().unwrap())
         } else {
             panic!("simulation_now() called while handling deadline")
         }
