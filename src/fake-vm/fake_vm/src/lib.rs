@@ -190,11 +190,17 @@ impl Context {
                 send_time
             };
 
-            connector.send(MsgOut::SendPacket(send_time, &payload)).expect("send(SendPacket) failed");
+            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, &payload)) {
+                // error!("send(SendPacket) failed: {}", e);
+                return AfterDeadline::EndSimulation;
+            }
         }
 
         // Second, notify that we reached the deadline
-        connector.send(MsgOut::AtDeadline).expect("send(AtDeadline) failed");
+        if let Err(e) = connector.send(MsgOut::AtDeadline) {
+            // error!("send(AtDeadline) failed: {}", e);
+            return AfterDeadline::EndSimulation;
+        }
 
         // Third, receive messages from others, followed by next deadline
         let input_buffer_pool = &self.0.input_buffer_pool;
@@ -207,7 +213,10 @@ impl Context {
                 Ok(msg) => if let Some(after_deadline) = self.handle_actor_msg(msg) {
                     return after_deadline;
                 },
-                Err(e) => panic!("recv failed: {}", e),
+                Err(e) => {
+                    // error!("recv failed: {}", e);
+                    return AfterDeadline::EndSimulation;
+                }
             }
         };
     }
