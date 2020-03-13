@@ -27,9 +27,17 @@ struct vsg_time
   uint64_t useconds;
 };
 
+struct vsg_addr
+{
+  in_addr_t addr;
+  in_port_t port;
+};
+
 struct vsg_packet
 {
   uint32_t size;
+  struct vsg_addr dest;
+  struct vsg_addr src;
 };
 
 /* Message bodies */
@@ -81,6 +89,8 @@ struct vsg_time vsg_time_sub(struct vsg_time, struct vsg_time);
 
 bool vsg_time_leq(struct vsg_time, struct vsg_time);
 
+bool vsg_time_eq(struct vsg_time, struct vsg_time);
+
 /*
  *
  * Some functions to handle the vsg protocol
@@ -111,16 +121,17 @@ int vsg_at_deadline_send(int);
  * VSG_SEND_PACKET related functions
  */
 
-int vsg_send_send(int, struct vsg_time, struct in_addr, const char *, int);
+int vsg_send_send(int, struct vsg_send_packet, const char *);
 
 /*
  * VSG_DELIVER_PACKET related functions
  */
 
-int vsg_deliver_send(int, struct in_addr, const char *, int);
+// TODO(msimonin): why don't we have time here ?
+int vsg_deliver_send(int, struct vsg_deliver_packet, const char *);
 
-int vsg_deliver_recv_1(int fd, struct vsg_packet *);
+int vsg_deliver_recv_1(int fd, struct vsg_deliver_packet *);
 
-int vsg_deliver_recv_2(int, char *, int, struct in_addr *);
+int vsg_deliver_recv_2(int, char *, int);
 
 #endif /* __VSG_H__ */
