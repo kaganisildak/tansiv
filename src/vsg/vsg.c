@@ -78,6 +78,11 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2) {
   return false;
 }
 
+bool vsg_time_eq(struct vsg_time time1, struct vsg_time time2) {
+  return (time1.seconds * 1e6 + time1.useconds) ==
+         (time2.seconds * 1e6 + time2.useconds);
+}
+
 int vsg_init(void) {
   char *log_level = getenv("VSG_LOG");
   int level = LOG_INFO;

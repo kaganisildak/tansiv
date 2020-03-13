@@ -89,6 +89,8 @@ struct vsg_time vsg_time_sub(struct vsg_time, struct vsg_time);
 
 bool vsg_time_leq(struct vsg_time, struct vsg_time);
 
+bool vsg_time_eq(struct vsg_time, struct vsg_time);
+
 /*
  *
  * Some functions to handle the vsg protocol

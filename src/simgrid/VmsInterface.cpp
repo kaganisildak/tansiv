@@ -159,7 +159,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   vm_sockets_trash.clear();
 
   // first, we ask all the VMs to go to deadline
-  XBT_DEBUG("asking all the VMs to go to time %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
+  XBT_DEBUG("Sending: go to deadline %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
   uint32_t goto_flag = vsg_msg_from_actor_type::VSG_GO_TO_DEADLINE;
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
@@ -214,7 +214,8 @@ std::vector<message> VmsInterface::goTo(double deadline)
           end_simulation();
         }
         struct in_addr _dest = {packet.packet.dest.addr};
-        XBT_INFO("got the message [%s] (size %lu) from VM [%s] to VM [%s]", data, sizeof(data), vm_name.c_str(), inet_ntoa(_dest));
+        XBT_INFO("got the message [%s] (size %lu) from VM [%s] to VM [%s] with timestamp [%d.%d]",
+                 data, sizeof(data), vm_name.c_str(), inet_ntoa(_dest), packet.send_time.seconds, packet.send_time.useconds);
 
         struct message m;
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.

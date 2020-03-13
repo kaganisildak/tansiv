@@ -45,6 +45,30 @@ private:
   int coord_socket;
 };
 
+class TestUtils : public CppUnit::TestFixture
+{
+  CPPUNIT_TEST_SUITE(TestUtils);
+  CPPUNIT_TEST(testVsgTimeEq);
+  CPPUNIT_TEST_SUITE_END();
+
+protected:
+  void testVsgTimeEq(void);
+};
+
+void TestUtils::testVsgTimeEq(void)
+{
+  vsg_time time1 = {0, 0};
+  vsg_time time2 = {0, 0};
+  vsg_time time3 = {42, 42};
+  vsg_time time4 = {42, 42};
+  double g = 1e6 + 42;
+  vsg_time time5 = {41, g};
+  CPPUNIT_ASSERT(vsg_time_eq(time1, time2));
+  CPPUNIT_ASSERT(!vsg_time_eq(time1, time3));
+  CPPUNIT_ASSERT(vsg_time_eq(time3, time4));
+  CPPUNIT_ASSERT(vsg_time_eq(time3, time5));
+}
+
 //-----------------------------------------------------------------------------
 
 void TestTansiv::testVsgSendAndReceive(void)
@@ -162,6 +186,7 @@ void TestTansiv::tearDown(void)
 //-----------------------------------------------------------------------------
 
 CPPUNIT_TEST_SUITE_REGISTRATION(TestTansiv);
+CPPUNIT_TEST_SUITE_REGISTRATION(TestUtils);
 
 int main(int argc, char *argv[])
 {
