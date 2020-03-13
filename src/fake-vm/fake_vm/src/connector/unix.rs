@@ -161,7 +161,9 @@ pub mod test_helpers {
         }
 
         pub fn dummy_actor(server: UnixListener) {
-            Self::run(server, |_| Ok(()))
+            Self::run(server, |client| {
+                Self::check(from_io_result(client.shutdown(std::net::Shutdown::Write)), "Shutdown failed")
+            })
         }
 
         pub fn send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
