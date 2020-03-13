@@ -1,0 +1,91 @@
+---
+variables:
+  # fetch all submodules before the job
+  GIT_SUBMODULE_STRATEGY: recursive
+
+image: simgrid/stable:v3.24
+
+stages:
+  - build
+  - qemu
+  - test
+
+###############################################################################
+#
+# Build tansiv and some cppunit stuffs
+#   -- test locally:
+#      $) gitlab-runner exec docker tansiv --docker-volumes $(pwd)/opt:/opt
+#
+###############################################################################
+tansiv:
+  stage: build
+  script:
+    #
+    # Some missing build tools
+    #
+    - apt-get update
+    - apt-get install -y git build-essential pkg-config libboost-dev cmake libcppunit-dev
+    #
+    # Build tansiv
+    #
+    - mkdir -p build
+    - mkdir -p /opt/tansiv
+    - cd build
+    - cmake .. && make && make DESTDIR=/opt/tansiv install
+    # cpp unittests
+    - ./tests
+    - cd ..
+    # copying the compiled examples for subsequent jobs
+    - cp -r build/examples /opt
+    # copying the platform file for subsequent jobs
+    - cp -r platform /opt
+    # copying all the /opt dir to export it as an artifact for subsequent jobs
+    # (we can only export subdirectories of CI_BUILDS_DIR)
+    - cp -r /opt opt
+  artifacts:
+    paths:
+      - opt
+      - build/tests.xml
+    # expected /opt structure:
+    # /opt
+    #   examples/ -> compiled examples
+    #   platform/ -> some simgrid plaform files
+    #   tansiv/ -> result of tansiv make install (include + lib + bin)
+    #   qemu/ -> result of qemu make install (include + lib + bin)
+
+###############################################################################
+#
+# Qemu compilation
+# inputs:
+#   opt/ -> artifact of the build phase
+#
+###############################################################################
+qemu:
+  stage: qemu
+  script:
+    - cp -r opt /opt
+    - apt-get update
+    - apt-get install -y git build-essential pkg-config libboost-dev cmake libcppunit-dev
+    # Build qemu with our modified version of libslirp
+    - apt-get install -y python libglib2.0-dev libpixman-1-dev
+    - git clone --depth 1 -b v4.2.0 https://github.com/qemu/qemu
+    - cd qemu
+    # replace the slirp submodule by ours
+    - git submodule deinit slirp
+    - git rm slirp
+    - git submodule add $(pwd)/../src/slirp slirp
+    - mkdir -p build /opt/qemu
+    - cd build && ../configure --prefix=/opt/qemu --target-list=x86_64-softmmu && make -j$(nproc) && make install && cd ..
+    - cd ..
+
+###############################################################################
+#
+# Dummy ping/pong example
+# inputs:
+#   opt/ -> artifact of the build phase
+#
+###############################################################################
+dummy_ping:
+  stage: test
+  script:
+    - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml

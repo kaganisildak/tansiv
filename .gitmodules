@@ -1,0 +1,3 @@
+[submodule "src/slirp"]
+	path = src/slirp
+	url = https://gitlab.inria.fr/msimonin/libslirp.git
