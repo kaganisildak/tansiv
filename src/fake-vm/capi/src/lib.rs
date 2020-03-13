@@ -401,6 +401,11 @@ mod test {
         let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::E2BIG, res);
 
+        // Terminate gracefully
+        let buffer = b"Foo msg";
+        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(0, res);
+
         let res: c_int = unsafe { vsg_stop(context) };
         assert_eq!(0, res);
 
