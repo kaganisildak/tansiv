@@ -3,13 +3,14 @@
 <platform version="4.1">
 
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
-    <argument value="127.0.0.2"/>
+    <argument value="127.0.0.1"/>
     <argument value="./examples/qemu_sink/boot_and_log.sh"/>
   </actor>
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
-    <argument value="131.254.163.214"/>
+    <argument value="192.168.0.53"/>
     <argument value="./examples/qemu_sink/sink"/>
+    <argument value="192.168.0.53"/> <!-- myself -->
   </actor>
 
 </platform>

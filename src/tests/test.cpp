@@ -45,6 +45,52 @@ private:
   int coord_socket;
 };
 
+class TestUtils : public CppUnit::TestFixture
+{
+  CPPUNIT_TEST_SUITE(TestUtils);
+  CPPUNIT_TEST(testVsgTimeEq);
+  CPPUNIT_TEST(testVsgTimeCut);
+  CPPUNIT_TEST_SUITE_END();
+
+protected:
+  void testVsgTimeEq(void);
+  void testVsgTimeCut(void);
+};
+
+void TestUtils::testVsgTimeEq(void)
+{
+  vsg_time time1 = {0, 0};
+  vsg_time time2 = {0, 0};
+  vsg_time time3 = {42, 42};
+  vsg_time time4 = {42, 42};
+  double g = 1e6 + 42;
+  vsg_time time5 = {41, g};
+  CPPUNIT_ASSERT(vsg_time_eq(time1, time2));
+  CPPUNIT_ASSERT(!vsg_time_eq(time1, time3));
+  CPPUNIT_ASSERT(vsg_time_eq(time3, time4));
+  CPPUNIT_ASSERT(vsg_time_eq(time3, time5));
+}
+
+void TestUtils::testVsgTimeCut(void)
+{
+  vsg_time time1 = {0, 0};
+  vsg_time time2 = {0, 0};
+  vsg_time time3 = {42, 42};
+  vsg_time time4 = {42, 42};
+  double g = 1e6 + 42;
+  vsg_time time5 = {41, g};
+
+  vsg_time time1211 = vsg_time_cut(time1, time2, 1, 1);
+  CPPUNIT_ASSERT(vsg_time_eq(time1, time1211));
+
+  vsg_time time3411 = vsg_time_cut(time1, time3, 1, 1);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.seconds);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.useconds);
+
+  vsg_time time3431 = vsg_time_cut(time1, time3, 3, 1);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)10, time3431.seconds);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)500010, time3431.useconds);
+}
 //-----------------------------------------------------------------------------
 
 void TestTansiv::testVsgSendAndReceive(void)
@@ -53,10 +99,18 @@ void TestTansiv::testVsgSendAndReceive(void)
    * Sending part: vm -> coordinator
    */
   std::string send_data = "send_test";
-  std::string dest = "1.2.3.4";
-  struct in_addr send_dest = {inet_addr(dest.c_str())};
-  struct vsg_time message_time = {42, 42};
-  int ret_vsg = vsg_send_send(vm_socket, message_time, send_dest, send_data.c_str(), send_data.length());
+  vsg_addr dest = {inet_addr("2.2.3.4"), 1234};
+  vsg_addr src = {inet_addr("127.0.0.1"), 4321};
+  struct vsg_time message_time = {42, 44};
+  struct vsg_packet packet = {
+      .size = send_data.length(),
+      .dest = dest,
+      .src = src};
+  struct vsg_send_packet send_packet = {
+      .send_time = message_time,
+      .packet = packet};
+
+  int ret_vsg = vsg_send_send(vm_socket, send_packet, send_data.c_str());
 
   /*
    * Receiving part: coord -> vm
@@ -68,30 +122,27 @@ void TestTansiv::testVsgSendAndReceive(void)
   CPPUNIT_ASSERT_EQUAL((uint32_t)vsg_msg_to_actor_type::VSG_SEND_PACKET, order);
 
   // Then get the actual messages
-  struct vsg_send_packet packet = {0, 0};
-  // we first get the message size
-  recv(coord_socket, &packet, sizeof(packet), MSG_WAITALL);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)42, packet.send_time.seconds);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)42, packet.send_time.useconds);
+  struct vsg_send_packet recv_packet = {0};
+  // we first get the message information (time + dest + payload size)
+  recv(coord_socket, &recv_packet, sizeof(recv_packet), MSG_WAITALL);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)42, recv_packet.send_time.seconds);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)44, recv_packet.send_time.useconds);
+  CPPUNIT_ASSERT_EQUAL((uint32_t)(send_data.length()), recv_packet.packet.size);
+  CPPUNIT_ASSERT_EQUAL(dest.port, recv_packet.packet.dest.port);
+  CPPUNIT_ASSERT_EQUAL(dest.addr, recv_packet.packet.dest.addr);
+  CPPUNIT_ASSERT_EQUAL(src.port, recv_packet.packet.src.port);
+  CPPUNIT_ASSERT_EQUAL(src.addr, recv_packet.packet.src.addr);
 
-  // packet size includes the size of the dest
-  CPPUNIT_ASSERT_EQUAL((uint32_t)(send_data.length() + sizeof(in_addr)), packet.packet.size);
   // then we get the message itself and we split
   //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
   //   - and the data transfer, that correspond to the data actually send through the (simulated) network
   // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
   // to have the same size)
 
-  // receive the destination header
-  int dest_size = sizeof(in_addr);
-  struct in_addr recv_dest;
-  uint32_t recv_size = packet.packet.size - dest_size;
-  char recv_data[recv_size + 1];
-  recv(coord_socket, &recv_dest, dest_size, MSG_WAITALL);
-  std::string actual_dest = inet_ntoa(recv_dest);
-  CPPUNIT_ASSERT_EQUAL(dest, actual_dest);
-
   // recv the payload
+  uint32_t recv_size = recv_packet.packet.size;
+  // +1 because of, hum, string...
+  char recv_data[recv_size + 1];
   uint32_t s = recv(coord_socket, recv_data, recv_size, MSG_WAITALL);
   // yeah string...
   recv_data[recv_size] = '\0';
@@ -104,11 +155,16 @@ void TestTansiv::testVsgDeliverSendAndReceive(void)
   /*
    * Sending part: coordinator -> vm
    */
-  std::string data = "deliver_test";
-  struct vsg_packet packet = {data.length()};
-
-  struct in_addr dest = {inet_addr("1.2.3.4")};
-  vsg_deliver_send(coord_socket, dest, data.c_str(), data.length());
+  std::string deliver_data = "deliver_test";
+  vsg_addr dest = {inet_addr("2.2.3.4"), 1235};
+  vsg_addr src = {inet_addr("127.0.0.1"), 4321};
+  struct vsg_packet packet = {
+      .size = deliver_data.length(),
+      .dest = dest,
+      .src = src};
+  struct vsg_deliver_packet deliver_packet = {
+      packet = packet};
+  vsg_deliver_send(coord_socket, deliver_packet, deliver_data.c_str());
 
   /*
    * Receiving part: vm -> coordinator
@@ -117,18 +173,21 @@ void TestTansiv::testVsgDeliverSendAndReceive(void)
   vsg_recv_order(vm_socket, &order);
   CPPUNIT_ASSERT_EQUAL((uint32_t)vsg_msg_from_actor_type::VSG_DELIVER_PACKET, order);
 
-  packet = {0};
-  vsg_deliver_recv_1(vm_socket, &packet);
+  vsg_deliver_packet recv_packet = {0};
+  vsg_deliver_recv_1(vm_socket, &recv_packet);
+  CPPUNIT_ASSERT_EQUAL((uint32_t)(deliver_data.length()), recv_packet.packet.size);
+  CPPUNIT_ASSERT_EQUAL(dest.port, recv_packet.packet.dest.port);
+  CPPUNIT_ASSERT_EQUAL(dest.addr, recv_packet.packet.dest.addr);
+  CPPUNIT_ASSERT_EQUAL(src.port, recv_packet.packet.src.port);
+  CPPUNIT_ASSERT_EQUAL(src.addr, recv_packet.packet.src.addr);
 
-  /* Second get the vsg payload = src + message. */
-  int message_size = packet.size - sizeof(struct in_addr);
-  char message[message_size + 1];
-  struct in_addr src = {0};
-  vsg_deliver_recv_2(vm_socket, message, message_size, &src);
+  // +1, hum, because of string ?
+  char message[recv_packet.packet.size + 1];
+  vsg_deliver_recv_2(vm_socket, message, recv_packet.packet.size);
   // yeah string...
-  message[message_size] = '\0';
+  message[recv_packet.packet.size] = '\0';
   std::string actual_data = std::string(message);
-  CPPUNIT_ASSERT_EQUAL(data, actual_data);
+  CPPUNIT_ASSERT_EQUAL(deliver_data, actual_data);
 }
 
 void TestTansiv::setUp(void)
@@ -149,6 +208,7 @@ void TestTansiv::tearDown(void)
 //-----------------------------------------------------------------------------
 
 CPPUNIT_TEST_SUITE_REGISTRATION(TestTansiv);
+CPPUNIT_TEST_SUITE_REGISTRATION(TestUtils);
 
 int main(int argc, char *argv[])
 {
