@@ -1,0 +1,70 @@
+$ tansiv examples/constant_rate/nova_cluster.xml examples/constant_rate/deployment.xml
+> [0.000000] [vm_interface/INFO] socket created
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 0.000000] [vm_coordinator/INFO] running receiver
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 0.000000] [vm_interface/INFO] fork and exec of [./examples/constant_rate/constant_rate ./examples/constant_rate/constant_rate 127.0.0.1 127.0.0.2 1 10]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 0.000000] [vm_interface/INFO] connection for VM 127.0.0.1 established
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 0.000000] [vm_coordinator/INFO] running receiver
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 0.000000] [vm_interface/INFO] fork and exec of [./examples/constant_rate/constant_rate ./examples/constant_rate/constant_rate 127.0.0.2 127.0.0.1 1 10]
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 0.000000] [vm_interface/INFO] connection for VM 127.0.0.2 established
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 0.000000] [vm_coordinator/INFO] the minimum latency on the network is 0.020000 sec
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 0.980000] [vm_interface/INFO] got the message [fromsink_00001] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [1.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 0.980000] [vm_interface/INFO] got the message [fromsink_00001] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [1.0]
+> [nova-2.lyon.grid5000.fr:sender:(4) 1.000000] [vm_coordinator/INFO] sending [fromsink_00001] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(5) 1.000000] [vm_coordinator/INFO] sending [fromsink_00001] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 1.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00001] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 1.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00001] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 1.980200] [vm_interface/INFO] got the message [fromsink_00002] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [2.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 1.980200] [vm_interface/INFO] got the message [fromsink_00002] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [2.0]
+> [nova-2.lyon.grid5000.fr:sender:(6) 2.000000] [vm_coordinator/INFO] sending [fromsink_00002] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(7) 2.000000] [vm_coordinator/INFO] sending [fromsink_00002] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 2.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00002] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 2.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00002] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 2.980200] [vm_interface/INFO] got the message [fromsink_00003] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [3.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 2.980200] [vm_interface/INFO] got the message [fromsink_00003] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [3.0]
+> [nova-2.lyon.grid5000.fr:sender:(8) 3.000000] [vm_coordinator/INFO] sending [fromsink_00003] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(9) 3.000000] [vm_coordinator/INFO] sending [fromsink_00003] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 3.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00003] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 3.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00003] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 3.980200] [vm_interface/INFO] got the message [fromsink_00004] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [4.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 3.980200] [vm_interface/INFO] got the message [fromsink_00004] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [4.0]
+> [nova-2.lyon.grid5000.fr:sender:(10) 4.000000] [vm_coordinator/INFO] sending [fromsink_00004] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(11) 4.000000] [vm_coordinator/INFO] sending [fromsink_00004] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 4.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00004] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 4.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00004] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 4.980200] [vm_interface/INFO] got the message [fromsink_00005] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [5.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 4.980200] [vm_interface/INFO] got the message [fromsink_00005] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [5.0]
+> [nova-2.lyon.grid5000.fr:sender:(12) 5.000000] [vm_coordinator/INFO] sending [fromsink_00005] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(13) 5.000000] [vm_coordinator/INFO] sending [fromsink_00005] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 5.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00005] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 5.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00005] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 5.980200] [vm_interface/INFO] got the message [fromsink_00006] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [6.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 5.980200] [vm_interface/INFO] got the message [fromsink_00006] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [6.0]
+> [nova-2.lyon.grid5000.fr:sender:(14) 6.000000] [vm_coordinator/INFO] sending [fromsink_00006] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(15) 6.000000] [vm_coordinator/INFO] sending [fromsink_00006] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 6.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00006] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 6.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00006] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 6.980200] [vm_interface/INFO] got the message [fromsink_00007] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [7.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 6.980200] [vm_interface/INFO] got the message [fromsink_00007] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [7.0]
+> [nova-2.lyon.grid5000.fr:sender:(16) 7.000000] [vm_coordinator/INFO] sending [fromsink_00007] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(17) 7.000000] [vm_coordinator/INFO] sending [fromsink_00007] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 7.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00007] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 7.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00007] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 7.980200] [vm_interface/INFO] got the message [fromsink_00008] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [8.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 7.980200] [vm_interface/INFO] got the message [fromsink_00008] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [8.0]
+> [nova-2.lyon.grid5000.fr:sender:(18) 8.000000] [vm_coordinator/INFO] sending [fromsink_00008] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(19) 8.000000] [vm_coordinator/INFO] sending [fromsink_00008] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 8.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00008] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 8.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00008] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 8.980200] [vm_interface/INFO] got the message [fromsink_00009] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [9.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 8.980200] [vm_interface/INFO] got the message [fromsink_00009] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [9.0]
+> [nova-2.lyon.grid5000.fr:sender:(20) 9.000000] [vm_coordinator/INFO] sending [fromsink_00009] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(21) 9.000000] [vm_coordinator/INFO] sending [fromsink_00009] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-2.lyon.grid5000.fr:vsg_vm:(3) 9.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00009] from vm [127.0.0.1] to vm [127.0.0.2]
+> [nova-1.lyon.grid5000.fr:vsg_vm:(2) 9.260200] [vm_coordinator/INFO] [receiver] delivering data [fromsink_00009] from vm [127.0.0.2] to vm [127.0.0.1]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 9.980200] [vm_interface/INFO] got the message [fromsink_00010] (size 16) from VM [127.0.0.2](=127.0.0.2) to VM [127.0.0.1] with timestamp [10.0]
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 9.980200] [vm_interface/INFO] got the message [fromsink_00010] (size 16) from VM [127.0.0.1](=127.0.0.1) to VM [127.0.0.2] with timestamp [10.0]
+> [nova-2.lyon.grid5000.fr:sender:(22) 10.000000] [vm_coordinator/INFO] sending [fromsink_00010] (size 16) from vm [127.0.0.2], to vm [127.0.0.1] (on pm [nova-1.lyon.grid5000.fr])
+> [nova-1.lyon.grid5000.fr:sender:(23) 10.000000] [vm_coordinator/INFO] sending [fromsink_00010] (size 16) from vm [127.0.0.1], to vm [127.0.0.2] (on pm [nova-2.lyon.grid5000.fr])
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 10.000200] [vm_interface/INFO] can not receive the flags of VM 127.0.0.2. Forget about the socket that seem closed at the system level.
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 10.000200] [vm_interface/INFO] can not receive the flags of VM 127.0.0.1. Forget about the socket that seem closed at the system level.
+> [nova-0.lyon.grid5000.fr:vm_coordinator:(1) 10.020200] [vm_coordinator/INFO] end of simulation

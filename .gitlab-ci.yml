@@ -88,4 +88,18 @@ qemu:
 dummy_ping:
   stage: test
   script:
-    - cd opt && ./tansiv/usr/local/bin/tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml
+    - export PATH=$PATH:$(pwd)/opt/tansiv/usr/local/bin
+    - cd opt && tansiv platform/nova_cluster.xml examples/dummy_ping/deployment.xml
+###############################################################################
+#
+# constant_rate example (run under tesh)
+# inputs:
+#   opt/ -> artifact of the build phase
+#
+###############################################################################
+constant_rate:
+  stage: test
+  script:
+    - apt update && apt install -y python3
+    - export PATH=$PATH:$(pwd)/opt/tansiv/usr/local/bin
+    - cd opt && tesh examples/constant_rate/constant_rate.tesh

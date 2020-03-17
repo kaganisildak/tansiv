@@ -59,6 +59,7 @@ set_target_properties(constant_rate PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples
 target_link_libraries(constant_rate PUBLIC vsg)
 configure_file(examples/constant_rate/deployment.xml examples/constant_rate/deployment.xml)
 configure_file(examples/constant_rate/nova_cluster.xml examples/constant_rate/nova_cluster.xml)
+configure_file(examples/constant_rate/constant_rate.tesh examples/constant_rate/constant_rate.tesh)
 
 # Unit tests
 add_executable(tests src/tests/test.cpp)
