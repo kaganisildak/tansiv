@@ -5,17 +5,19 @@
 
 /*
  *
- * Mimic a sink
- * - first version is a sink for the vsg protocol not
- *   an UDP sink adapted for the vsg protocol
- *
+ * This process sends message at constant rate.
  *
  */
 int main(int argc, char *argv[]) {
+  // Who am i: used to set the src
   char *myself = argv[1];
+  // Who am i targetting
   char *target = argv[2];
+  // Which rate should I use when sending message
   float rate = atof(argv[3]);
+  // How many messages I should send before terminating.
   int total = atoi(argv[4]);
+
   double timestep = 1 / rate;
   int k = 1;
   int vsg_socket = vsg_connect();
@@ -35,13 +37,16 @@ int main(int argc, char *argv[]) {
       next_deadline = deadline;
       // send a message if we have to (we try to keep a constant rate)
       // so painful
+      // There is a corner case here if next_deadline = infinity (the other
+      // process already terminated), I'll send all my remaining messages at
+      // once
       double a = vsg_time_to_s(previous_deadline);
       double b = vsg_time_to_s(next_deadline);
       while (a < k * timestep && k * timestep <= b) {
         struct vsg_time send_time = vsg_time_from_s(k * timestep);
         char message[15];
         sprintf(message, "fromsink_%05d", k);
-        // TODO(msimonin): handle port correctly. e.g do an echo
+        // ports aren't used.
         struct vsg_addr dest = {inet_addr(target), 1234};
         struct vsg_addr src = {inet_addr(myself), 4321};
         struct vsg_packet packet = {

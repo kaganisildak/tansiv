@@ -28,3 +28,7 @@ propagation en fonction du fichier de plateform. Le déploiement
 - `qemu_sink`: illustre la modification de SLIRP (backend réseau de QEMU) pour faire
  transiter les messages sortants (UDP seulement pour l'instant) à travers
  vsg.
+
+- `constant_rate`: 2 processes s'envoie des messages à vitesse constantes
+(mesurée en nombre de messages par seconde). C'est pratique pour avoir un
+comportement déterministe dans les échanges des messages.
