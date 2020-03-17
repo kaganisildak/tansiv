@@ -83,13 +83,20 @@ enum vsg_msg_to_actor_type
  * DummyPing/Pong...)
  *
  */
-
+double vsg_time_to_s(struct vsg_time);
+struct vsg_time vsg_time_from_s(double);
 struct vsg_time vsg_time_add(struct vsg_time, struct vsg_time);
 struct vsg_time vsg_time_sub(struct vsg_time, struct vsg_time);
+struct vsg_time vsg_time_cut(struct vsg_time, struct vsg_time, float, float);
 
 bool vsg_time_leq(struct vsg_time, struct vsg_time);
 
 bool vsg_time_eq(struct vsg_time, struct vsg_time);
+
+/*
+ * Decoding function
+ */
+int vsg_decode_src_dest(struct vsg_packet, char *src_addr, char *dest_addr);
 
 /*
  *

@@ -104,7 +104,7 @@ static void receiver(std::vector<std::string> args)
   while (true)
   {
     vsg::message *m = static_cast<vsg::message *>(mailbox->get());
-    XBT_INFO("delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(), m->dest.c_str());
+    XBT_INFO("[receiver] delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(), m->dest.c_str());
   }
 }
 
@@ -150,15 +150,15 @@ static void vm_coordinator()
     {
 
       time = simgrid::s4u::Engine::get_clock();
-      xbt_assert(m.sent_time >= time,
-                 "violation of the causality constraint : trying to send a message at time %f whereas we are already "
-                 "at time %f",
-                 m.sent_time, time);
+      double send_timeeps = m.sent_time + std::numeric_limits<double>::epsilon();
+      xbt_assert(m.sent_time + send_timeeps >= time,
+                 "violation of the causality constraint : trying to send a message at time %f[%f] whereas we are already "
+                 "at time %f[%f]",
+                 m.sent_time, send_timeeps, time, time);
       if (m.sent_time > time)
       {
         XBT_DEBUG("going to time %f", m.sent_time);
         simgrid::s4u::this_actor::sleep_until(m.sent_time);
-        time = simgrid::s4u::Engine::get_clock();
       }
 
       std::string src_host = vms_interface->getHostOfVm(m.src);
@@ -181,7 +181,10 @@ static void vm_coordinator()
     // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
     // so we do not have to sleep until "infinity" because the simulation is done
     if (deadline != std::numeric_limits<double>::infinity())
+    {
+      double time = simgrid::s4u::Engine::get_clock();
       simgrid::s4u::this_actor::sleep_until(deadline);
+    }
 
     int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
 
@@ -195,11 +198,12 @@ static void vm_coordinator()
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_DEBUG("delivering data [%s] from vm [%s] to vm [%s]", m.data.c_str(), m.src.c_str(), m.dest.c_str());
+      XBT_DEBUG("[coordinator]: delivering data [%s] from vm [%s] to vm [%s]", m.data.c_str(), m.src.c_str(), m.dest.c_str());
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
     }
+    XBT_DEBUG("Timestep finished preparing the next iteration [current_time=%f] [next_event = %f]", simgrid::s4u::Engine::get_clock(), get_next_event());
   }
 
   vms_interface->end_simulation(true, false);

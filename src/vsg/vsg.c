@@ -12,35 +12,34 @@
 
 void log_deliver_packet(struct vsg_deliver_packet deliver_packet) {
   struct vsg_packet packet = deliver_packet.packet;
-  struct in_addr _dest_addr = {packet.dest.addr};
-  struct in_addr _src_addr = {packet.src.addr};
-  // NOTE(msimonin): je me suis fait mordre par inet_ntoa, je ne recommencerai
-  // pas.
   char src_addr[INET_ADDRSTRLEN];
   char dest_addr[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
-  inet_ntop(AF_INET, &(_dest_addr), dest_addr, INET_ADDRSTRLEN);
+  vsg_decode_src_dest(packet, src_addr, dest_addr);
   log_debug("VSG_DELIVER_PACKET dest[%s:%d] src[%s:%d] "
-            "message_length[%d]",
+            "message_length[%d]\n",
             dest_addr, packet.dest.port, src_addr, packet.src.port,
             packet.size);
 }
 
 void log_send_packet(struct vsg_send_packet send_packet) {
   struct vsg_packet packet = send_packet.packet;
-  struct in_addr _dest_addr = {packet.dest.addr};
-  struct in_addr _src_addr = {packet.src.addr};
-  // NOTE(msimonin): je me suis fait mordre par inet_ntoa, je ne recommencerai
-  // pas.
   char src_addr[INET_ADDRSTRLEN];
   char dest_addr[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
-  inet_ntop(AF_INET, &(_dest_addr), dest_addr, INET_ADDRSTRLEN);
+  vsg_decode_src_dest(packet, src_addr, dest_addr);
   struct vsg_time time = send_packet.send_time;
   log_debug("VSG_SEND_PACKET time[s=%ld, us=%ld] dest[%s:%d] src[%s:%d] "
-            "message_length[%d]",
+            "message_length[%d]\n",
             time.seconds, time.useconds, dest_addr, packet.dest.port, src_addr,
             packet.src.port, packet.size);
+}
+
+int vsg_decode_src_dest(struct vsg_packet packet, char *src_addr,
+                        char *dest_addr) {
+  struct in_addr _dest_addr = {packet.dest.addr};
+  struct in_addr _src_addr = {packet.src.addr};
+  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &(_dest_addr), dest_addr, INET_ADDRSTRLEN);
+  return 0;
 }
 
 struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2) {
@@ -78,6 +77,28 @@ bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2) {
   return false;
 }
 
+double vsg_time_to_s(struct vsg_time time1) {
+  return time1.seconds + time1.useconds * 1e-6;
+}
+
+struct vsg_time vsg_time_from_s(double seconds) {
+  struct vsg_time time;
+  time.seconds = (uint64_t)(floor(seconds));
+  time.useconds = (uint64_t)(floor((seconds - floor(seconds)) * 1e6));
+  return time;
+}
+
+struct vsg_time vsg_time_cut(struct vsg_time time1, struct vsg_time time2,
+                             float a, float b) {
+  struct vsg_time time;
+  double _time1 = vsg_time_to_s(time1);
+  double _time2 = vsg_time_to_s(time2);
+  double _time = (a * _time1 + b * _time2) / (a + b);
+  time.seconds = (uint64_t)(floor(_time));
+  time.useconds = (uint64_t)(floor((_time - floor(_time)) * 1e6));
+  return time;
+}
+
 bool vsg_time_eq(struct vsg_time time1, struct vsg_time time2) {
   return (time1.seconds * 1e6 + time1.useconds) ==
          (time2.seconds * 1e6 + time2.useconds);
@@ -89,7 +110,6 @@ int vsg_init(void) {
   if (log_level != NULL)
     level = atoi(log_level);
   log_set_level(level);
-  log_info("Welcome to VSG");
 }
 
 int vsg_connect(void) {

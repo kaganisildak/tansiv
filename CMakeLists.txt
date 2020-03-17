@@ -36,6 +36,7 @@ add_executable(tansiv src/simgrid/VmsInterface.cpp src/simgrid/VmsCoordinator.cp
 target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg)
 target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 
+# Historical examples
 add_executable(dummy_ping examples/dummy_ping/DummyPing.cpp)
 target_link_libraries(dummy_ping PUBLIC vsg)
 set_target_properties(dummy_ping PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
@@ -45,13 +46,21 @@ target_link_libraries(dummy_pong PUBLIC vsg)
 set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
 configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment.xml)
 
+# VM based example. This also required a qemu with a modified slirp backend.
 add_executable(sink examples/qemu_sink/sink.c)
 set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemu_sink)
 target_link_libraries(sink PUBLIC vsg)
 configure_file(examples/qemu_sink/boot_and_log.sh examples/qemu_sink/boot_and_log.sh)
 configure_file(examples/qemu_sink/deployment.xml examples/qemu_sink/deployment.xml)
 
+# A more testable example
+add_executable(constant_rate examples/constant_rate/sink.c)
+set_target_properties(constant_rate PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/constant_rate)
+target_link_libraries(constant_rate PUBLIC vsg)
+configure_file(examples/constant_rate/deployment.xml examples/constant_rate/deployment.xml)
+configure_file(examples/constant_rate/nova_cluster.xml examples/constant_rate/nova_cluster.xml)
 
+# Unit tests
 add_executable(tests src/tests/test.cpp)
 target_link_libraries(tests PUBLIC vsg cppunit)
 

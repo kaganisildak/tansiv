@@ -13,10 +13,13 @@
  */
 
 int main(int argc, char *argv[]) {
+  char *myself = argv[1];
   int vsg_socket = vsg_connect();
   struct vsg_time previous_deadline;
   struct vsg_time next_deadline;
+  uint64_t _id = 0;
   while (1) {
+    _id++;
     uint32_t order;
     // TODO(msimonin): we need to define the src header length in the protocol
     // at some point.
@@ -39,12 +42,19 @@ int main(int argc, char *argv[]) {
       // we send message only if there some time [previous_deadline,
       // next_deadline] isn't empty
       if (!vsg_time_eq(previous_deadline, next_deadline)) {
-        const char *message = "fromsink";
-        // TODO(msimonin): handle port correctly. e.g do an echo
-        struct vsg_addr dest = {inet_addr("127.0.0.2"), 1234};
-        struct vsg_addr src = {inet_addr("127.0.0.1"), 4321};
+        char message[15];
+        sprintf(message, "fromsink_%05d", _id);
+        // send this somewhere
+        // the addr_in is important since the coordinator will route according
+        // to this the port is random currently: we dispatch inside qemu
+        // according to the src port
+        struct vsg_addr dest = {inet_addr("127.0.0.1"), htons(4321)};
+        // addr and port where the server (sink) is listening
+        // there is actually no server running this but we mimic the
+        // corresponding behaviour
+        struct vsg_addr src = {inet_addr(myself), htons(1234)};
         struct vsg_packet packet = {
-            .size = sizeof(message), .dest = dest, .src = src};
+            .size = sizeof(message) + 1, .dest = dest, .src = src};
         struct vsg_send_packet send_packet = {.send_time = next_deadline,
                                               .packet = packet};
         vsg_send_send(vsg_socket, send_packet, message);

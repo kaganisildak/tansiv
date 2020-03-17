@@ -213,17 +213,21 @@ std::vector<message> VmsInterface::goTo(double deadline)
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
           end_simulation();
         }
-        struct in_addr _dest = {packet.packet.dest.addr};
-        XBT_INFO("got the message [%s] (size %lu) from VM [%s] to VM [%s] with timestamp [%d.%d]",
-                 data, sizeof(data), vm_name.c_str(), inet_ntoa(_dest), packet.send_time.seconds, packet.send_time.useconds);
+        char dest_addr[INET_ADDRSTRLEN];
+        char src_addr[INET_ADDRSTRLEN];
+        vsg_decode_src_dest(packet.packet, src_addr, dest_addr);
+        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=%s) to VM [%s] with timestamp [%d.%d]",
+                 data, sizeof(data), vm_name.c_str(), src_addr, dest_addr, packet.send_time.seconds, packet.send_time.useconds);
 
         struct message m;
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
         //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
+
         m.packet_size = sizeof(data);
         m.data.append(data);
-        m.src = vm_name;
-        m.dest.append(inet_ntoa(_dest));
+        m.packet = packet.packet;
+        m.src = src_addr;
+        m.dest = dest_addr;
         m.sent_time = vmToSimgridTime(packet.send_time);
         messages.push_back(m);
       }
@@ -274,29 +278,21 @@ const std::vector<std::string> VmsInterface::get_dead_vm_hosts()
 
 void VmsInterface::deliverMessage(message m)
 {
-
   if (vm_sockets.find(m.dest) != vm_sockets.end())
   {
     int socket = vm_sockets[m.dest];
     uint32_t deliver_flag = vsg_msg_from_actor_type::VSG_DELIVER_PACKET;
     std::string data = m.data;
-    // TODO(msimonin): Store the whole packet structure...
-    struct vsg_addr dest = {inet_addr(m.dest.c_str()), 0};
-    struct vsg_addr src = {inet_addr(m.src.c_str()), 0};
-    struct vsg_packet packet = {
-        .size = data.length(),
-        .dest = dest,
-        .src = src};
     struct vsg_deliver_packet deliver_packet = {
-        packet = packet};
+        .packet = m.packet};
     vsg_deliver_send(socket, deliver_packet, data.c_str());
 
-    XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
+    XBT_VERB("message from vm %s delivered to vm %s", m.src, m.dest);
   }
   else
   {
-    XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(),
-             m.dest.c_str());
+    XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src,
+             m.dest);
   }
 }
 

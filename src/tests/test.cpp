@@ -49,10 +49,12 @@ class TestUtils : public CppUnit::TestFixture
 {
   CPPUNIT_TEST_SUITE(TestUtils);
   CPPUNIT_TEST(testVsgTimeEq);
+  CPPUNIT_TEST(testVsgTimeCut);
   CPPUNIT_TEST_SUITE_END();
 
 protected:
   void testVsgTimeEq(void);
+  void testVsgTimeCut(void);
 };
 
 void TestUtils::testVsgTimeEq(void)
@@ -69,6 +71,26 @@ void TestUtils::testVsgTimeEq(void)
   CPPUNIT_ASSERT(vsg_time_eq(time3, time5));
 }
 
+void TestUtils::testVsgTimeCut(void)
+{
+  vsg_time time1 = {0, 0};
+  vsg_time time2 = {0, 0};
+  vsg_time time3 = {42, 42};
+  vsg_time time4 = {42, 42};
+  double g = 1e6 + 42;
+  vsg_time time5 = {41, g};
+
+  vsg_time time1211 = vsg_time_cut(time1, time2, 1, 1);
+  CPPUNIT_ASSERT(vsg_time_eq(time1, time1211));
+
+  vsg_time time3411 = vsg_time_cut(time1, time3, 1, 1);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.seconds);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.useconds);
+
+  vsg_time time3431 = vsg_time_cut(time1, time3, 3, 1);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)10, time3431.seconds);
+  CPPUNIT_ASSERT_EQUAL((uint64_t)500010, time3431.useconds);
+}
 //-----------------------------------------------------------------------------
 
 void TestTansiv::testVsgSendAndReceive(void)
