@@ -13,6 +13,8 @@ else
 endif
 OUT_DIR := $(TOP_DIR)/target/$(PROFILE)
 
+TEST_DIRS := $(TOP_DIR)/capi/tests
+
 DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include
 
@@ -21,8 +23,17 @@ build:
 	$(CARGO) build $(CARGO_FLAGS)
 
 .PHONY: test
-test:
+test: cargo-tests other-tests
+
+.PHONY: cargo-tests
+cargo-tests:
 	$(CARGO) test $(CARGO_FLAGS) -- --test-threads 1 $(TEST_FLAGS)
+
+.PHONY: other-tests $(TEST_DIRS)
+other-tests: $(TEST_DIRS)
+
+$(TEST_DIRS):
+	$(MAKE) -C $@ test OUT_DIR=$(OUT_DIR)
 
 .PHONY: install
 install: build
