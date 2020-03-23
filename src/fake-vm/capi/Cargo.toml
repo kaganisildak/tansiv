@@ -16,4 +16,4 @@ stderrlog = "0.4"
 
 [lib]
 name = "fake_vm"
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
