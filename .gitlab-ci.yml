@@ -1,20 +1,19 @@
 ---
 variables:
-  # fetch all submodules before the job
   GIT_SUBMODULE_STRATEGY: recursive
+  RUST_VERSION: 1.42.0
 
-image: simgrid/stable:v3.24
+# unstable, yeah !
+image: simgrid/unstable:latest
 
 stages:
   - build
-  - qemu
-  - test
 
 ###############################################################################
 #
 # Build tansiv and some cppunit stuffs
 #   -- test locally:
-#      $) gitlab-runner exec docker tansiv --docker-volumes $(pwd)/opt:/opt
+#      $) gitlab-runner exec docker tansiv
 #
 ###############################################################################
 tansiv:
@@ -24,14 +23,17 @@ tansiv:
     # Some missing build tools
     #
     - apt-get update
-    - apt-get install -y git build-essential pkg-config libboost-dev cmake libcppunit-dev
+    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
+    - sh rustup-init -y --profile minimal --default-toolchain $RUST_VERSION
+    - export PATH=$HOME/.cargo/bin:$PATH
     #
-    # Build tansiv
+    # Build tests
+    # TODO(msimonin): make all (but we'll need to adapt all vsg clients ...)
     #
     - mkdir -p build
-    - mkdir -p /opt/tansiv
     - cd build
-    - cmake .. && make && make DESTDIR=/opt/tansiv install
+    - cmake .. && make tests
     # cpp unittests
     - ./tests
     - cd ..

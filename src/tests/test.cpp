@@ -1,35 +1,74 @@
-#include <iostream>
+#include <cppunit/BriefTestProgressListener.h>
+#include <cppunit/CompilerOutputter.h>
 #include <cppunit/TestFixture.h>
-#include <cppunit/ui/text/TextTestRunner.h>
-#include <cppunit/extensions/HelperMacros.h>
-#include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/TestResult.h>
 #include <cppunit/TestResultCollector.h>
 #include <cppunit/TestRunner.h>
-#include <cppunit/BriefTestProgressListener.h>
-#include <cppunit/CompilerOutputter.h>
 #include <cppunit/XmlOutputter.h>
+#include <cppunit/extensions/HelperMacros.h>
+#include <cppunit/extensions/TestFactoryRegistry.h>
+#include <cppunit/ui/text/TextTestRunner.h>
+#include <errno.h>
+#include <iostream>
 
-extern "C"
-{
-#include "vsg.h"
+extern "C" {
+#include <fake_vm.h>
 }
 
-// socket pairs
-#include <sys/types.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#define SOCKET_ACTOR "titi"
+
+typedef void scenario(int);
+
+void *simple_actor(void *f) {
+  // I don't care about the status...
+  scenario *the_scenario = (scenario *)f;
+  remove(SOCKET_ACTOR);
+  printf("\n---\nCreating Simple Actor\n");
+  int connection_socket = socket(AF_LOCAL, SOCK_STREAM, 0);
+
+  struct sockaddr_un address;
+  address.sun_family = AF_LOCAL;
+  strcpy(address.sun_path, SOCKET_ACTOR);
+
+  if (bind(connection_socket, (sockaddr *)(&address), sizeof(address)) != 0) {
+    std::perror("unable to bind connection socket");
+  }
+
+  if (listen(connection_socket, 1) != 0) {
+    std::perror("unable to listen on connection socket");
+  }
+  struct sockaddr_un vm_address = {0};
+  unsigned int len = sizeof(vm_address);
+  printf("\tWaiting connections\n");
+  int client_socket =
+      accept(connection_socket, (sockaddr *)(&vm_address), &len);
+  if (client_socket < 0)
+    std::perror("unable to accept connection on socket");
+  printf("\tClient connection accepted\n");
+
+  // runit
+  (*the_scenario)(client_socket);
+
+  pthread_exit(NULL);
+}
+
+void init_actor(pthread_t *thread, scenario s) {
+  pthread_create(thread, NULL, simple_actor, (void *)s);
+}
 
 using namespace CppUnit;
 using namespace std;
 //-----------------------------------------------------------------------------
 
-class TestTansiv : public CppUnit::TestFixture
-{
+class TestTansiv : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(TestTansiv);
-  CPPUNIT_TEST(testVsgSendAndReceive);
-  CPPUNIT_TEST(testVsgDeliverSendAndReceive);
+  CPPUNIT_TEST(testVsgStart);
+  CPPUNIT_TEST(testVsgSend);
   CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -37,181 +76,114 @@ public:
   void tearDown(void);
 
 protected:
-  void testVsgSendAndReceive(void);
-  void testVsgDeliverSendAndReceive(void);
+  void testVsgStart(void);
+  void testVsgSend(void);
 
 private:
-  int vm_socket;
-  int coord_socket;
+  /*hold the context created bu vsg_init.*/
+  vsg_context *context;
 };
 
-class TestUtils : public CppUnit::TestFixture
-{
-  CPPUNIT_TEST_SUITE(TestUtils);
-  CPPUNIT_TEST(testVsgTimeEq);
-  CPPUNIT_TEST(testVsgTimeCut);
-  CPPUNIT_TEST_SUITE_END();
-
-protected:
-  void testVsgTimeEq(void);
-  void testVsgTimeCut(void);
+void recv_cb(const struct vsg_context *context, uint32_t msglen,
+             const uint8_t *msg) {
+  printf("callback called\n");
 };
 
-void TestUtils::testVsgTimeEq(void)
-{
-  vsg_time time1 = {0, 0};
-  vsg_time time2 = {0, 0};
-  vsg_time time3 = {42, 42};
-  vsg_time time4 = {42, 42};
-  double g = 1e6 + 42;
-  vsg_time time5 = {41, g};
-  CPPUNIT_ASSERT(vsg_time_eq(time1, time2));
-  CPPUNIT_ASSERT(!vsg_time_eq(time1, time3));
-  CPPUNIT_ASSERT(vsg_time_eq(time3, time4));
-  CPPUNIT_ASSERT(vsg_time_eq(time3, time5));
+void TestTansiv::setUp(void) {}
+
+void TestTansiv::tearDown(void) {
+  vsg_stop(context);
+  vsg_cleanup(context);
 }
 
-void TestUtils::testVsgTimeCut(void)
-{
-  vsg_time time1 = {0, 0};
-  vsg_time time2 = {0, 0};
-  vsg_time time3 = {42, 42};
-  vsg_time time4 = {42, 42};
-  double g = 1e6 + 42;
-  vsg_time time5 = {41, g};
-
-  vsg_time time1211 = vsg_time_cut(time1, time2, 1, 1);
-  CPPUNIT_ASSERT(vsg_time_eq(time1, time1211));
-
-  vsg_time time3411 = vsg_time_cut(time1, time3, 1, 1);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.seconds);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)21, time3411.useconds);
-
-  vsg_time time3431 = vsg_time_cut(time1, time3, 3, 1);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)10, time3431.seconds);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)500010, time3431.useconds);
-}
-//-----------------------------------------------------------------------------
-
-void TestTansiv::testVsgSendAndReceive(void)
-{
-  /*
-   * Sending part: vm -> coordinator
-   */
-  std::string send_data = "send_test";
-  vsg_addr dest = {inet_addr("2.2.3.4"), 1234};
-  vsg_addr src = {inet_addr("127.0.0.1"), 4321};
-  struct vsg_time message_time = {42, 44};
-  struct vsg_packet packet = {
-      .size = send_data.length(),
-      .dest = dest,
-      .src = src};
-  struct vsg_send_packet send_packet = {
-      .send_time = message_time,
-      .packet = packet};
-
-  int ret_vsg = vsg_send_send(vm_socket, send_packet, send_data.c_str());
-
-  /*
-   * Receiving part: coord -> vm
-   */
-
-  // First we get the order
-  uint32_t order;
-  vsg_recv_order(coord_socket, &order);
-  CPPUNIT_ASSERT_EQUAL((uint32_t)vsg_msg_to_actor_type::VSG_SEND_PACKET, order);
-
-  // Then get the actual messages
-  struct vsg_send_packet recv_packet = {0};
-  // we first get the message information (time + dest + payload size)
-  recv(coord_socket, &recv_packet, sizeof(recv_packet), MSG_WAITALL);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)42, recv_packet.send_time.seconds);
-  CPPUNIT_ASSERT_EQUAL((uint64_t)44, recv_packet.send_time.useconds);
-  CPPUNIT_ASSERT_EQUAL((uint32_t)(send_data.length()), recv_packet.packet.size);
-  CPPUNIT_ASSERT_EQUAL(dest.port, recv_packet.packet.dest.port);
-  CPPUNIT_ASSERT_EQUAL(dest.addr, recv_packet.packet.dest.addr);
-  CPPUNIT_ASSERT_EQUAL(src.port, recv_packet.packet.src.port);
-  CPPUNIT_ASSERT_EQUAL(src.addr, recv_packet.packet.src.addr);
-
-  // then we get the message itself and we split
-  //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
-  //   - and the data transfer, that correspond to the data actually send through the (simulated) network
-  // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
-  // to have the same size)
-
-  // recv the payload
-  uint32_t recv_size = recv_packet.packet.size;
-  // +1 because of, hum, string...
-  char recv_data[recv_size + 1];
-  uint32_t s = recv(coord_socket, recv_data, recv_size, MSG_WAITALL);
-  // yeah string...
-  recv_data[recv_size] = '\0';
-  std::string actual_data = std::string(recv_data);
-  CPPUNIT_ASSERT_EQUAL(send_data, actual_data);
+void init_sequence(int client_socket) {
+  vsg_msg_in_type msg = vsg_msg_in_type::GoToDeadline;
+  send(client_socket, &msg, sizeof(uint32_t), 0);
+  vsg_time t = {0, 200};
+  send(client_socket, &t, sizeof(vsg_time), 0);
+  msg = vsg_msg_in_type::EndSimulation;
+  send(client_socket, &msg, sizeof(uint32_t), 0);
 }
 
-void TestTansiv::testVsgDeliverSendAndReceive(void)
-{
-  /*
-   * Sending part: coordinator -> vm
-   */
-  std::string deliver_data = "deliver_test";
-  vsg_addr dest = {inet_addr("2.2.3.4"), 1235};
-  vsg_addr src = {inet_addr("127.0.0.1"), 4321};
-  struct vsg_packet packet = {
-      .size = deliver_data.length(),
-      .dest = dest,
-      .src = src};
-  struct vsg_deliver_packet deliver_packet = {
-      packet = packet};
-  vsg_deliver_send(coord_socket, deliver_packet, deliver_data.c_str());
+/*
+ * Simple scenario
+ *
+ * The actor sends the init_sequence:
+ *  - a GoToDeadline message
+ *  - an EndSimulation message
+ *
+ */
+void simple(int client_socket) {
+  printf("Entering simple scenario\n");
+  init_sequence(client_socket);
+  printf("Leaving simple scenario\n");
+};
 
-  /*
-   * Receiving part: vm -> coordinator
-   */
-  uint32_t order;
-  vsg_recv_order(vm_socket, &order);
-  CPPUNIT_ASSERT_EQUAL((uint32_t)vsg_msg_from_actor_type::VSG_DELIVER_PACKET, order);
+/*
+ * scenario: recv_one
+ *
+ * The actor sends
+ *  - the init sequence
+ *  - wait a message sent by the application
+ *
+ */
+void recv_one(int client_socket) {
+  printf("Entering recv_one scenario\n");
+  init_sequence(client_socket);
+  // first, check the type of message
+  vsg_msg_out_type msg_type;
+  recv(client_socket, &msg_type, sizeof(vsg_msg_out_type), MSG_WAITALL);
+  CPPUNIT_ASSERT_EQUAL(vsg_msg_out_type::SendPacket, msg_type);
+  // second, check the send time and size
+  vsg_send_packet send_packet;
+  recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
+  // TODO(msimonin): can we test something here ?
+  // CPPUNIT_ASSERT_EQUAL((uint64_t)0, time.seconds);
+  // CPPUNIT_ASSERT_LESSEQUAL((uint64_t)200, time.useconds);
 
-  vsg_deliver_packet recv_packet = {0};
-  vsg_deliver_recv_1(vm_socket, &recv_packet);
-  CPPUNIT_ASSERT_EQUAL((uint32_t)(deliver_data.length()), recv_packet.packet.size);
-  CPPUNIT_ASSERT_EQUAL(dest.port, recv_packet.packet.dest.port);
-  CPPUNIT_ASSERT_EQUAL(dest.addr, recv_packet.packet.dest.addr);
-  CPPUNIT_ASSERT_EQUAL(src.port, recv_packet.packet.src.port);
-  CPPUNIT_ASSERT_EQUAL(src.addr, recv_packet.packet.src.addr);
+  // finally get the payload
+  uint8_t buf[send_packet.packet.size];
+  recv(client_socket, buf, send_packet.packet.size, MSG_WAITALL);
+  std::string expected = "plop";
+  std::string actual = std::string((char *)buf);
+  CPPUNIT_ASSERT_EQUAL(expected, actual);
+  printf("Leaving recv_one scenario\n");
+};
 
-  // +1, hum, because of string ?
-  char message[recv_packet.packet.size + 1];
-  vsg_deliver_recv_2(vm_socket, message, recv_packet.packet.size);
-  // yeah string...
-  message[recv_packet.packet.size] = '\0';
-  std::string actual_data = std::string(message);
-  CPPUNIT_ASSERT_EQUAL(deliver_data, actual_data);
+void TestTansiv::testVsgStart(void) {
+  /*holt the actor thread where the scenario are run.*/
+  pthread_t actor_thread;
+  init_actor(&actor_thread, simple);
+
+  int argc = 4;
+  const char *const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  vsg_context *context = vsg_init(argc, argv, NULL, recv_cb);
+  printf("Starting the client\n");
+  CPPUNIT_ASSERT(context != NULL);
+  int ret = vsg_start(context);
+  CPPUNIT_ASSERT_EQUAL(0, ret);
+
+  pthread_join(actor_thread, NULL);
 }
 
-void TestTansiv::setUp(void)
-{
-  int sv[2];
-  socketpair(AF_UNIX, SOCK_STREAM, 1, sv);
-  vm_socket = sv[0];
-  CPPUNIT_ASSERT(vm_socket > 0);
-  coord_socket = sv[1];
-  CPPUNIT_ASSERT(coord_socket > 0);
-}
+void TestTansiv::testVsgSend(void) {
+  /*holt the actor thread where the scenario are run.*/
+  pthread_t actor_thread;
+  init_actor(&actor_thread, recv_one);
 
-void TestTansiv::tearDown(void)
-{
-  printf("tearDown\n");
-}
+  int argc = 4;
+  const char *const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  vsg_context *context = vsg_init(argc, argv, NULL, recv_cb);
+  int ret = vsg_start(context);
+  std::string msg = "plop";
+  vsg_send(context, msg.length() + 1, (uint8_t *)msg.c_str());
 
-//-----------------------------------------------------------------------------
+  pthread_join(actor_thread, NULL);
+}
 
 CPPUNIT_TEST_SUITE_REGISTRATION(TestTansiv);
-CPPUNIT_TEST_SUITE_REGISTRATION(TestUtils);
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
   // informs test-listener about testresults
   CPPUNIT_NS::TestResult testresult;
 
