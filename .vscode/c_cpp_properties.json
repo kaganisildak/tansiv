@@ -1,21 +1,22 @@
 {
-    "configurations": [
-        {
-            "name": "Linux",
-            "includePath": [
-                "/usr/include/glib-2.0",
-                "/usr/lib/x86_64-linux-gnu/glib-2.0/include/",
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/src/vsg/*",
-                "${workspaceFolder}/src/**",
-                "/opt/simgrid/**"
-            ],
-            "defines": [],
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c11",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "clang-x64"
-        }
-    ],
-    "version": 4
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": [
+        "/usr/include/glib-2.0",
+        "/usr/lib/x86_64-linux-gnu/glib-2.0/include/",
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/src/fake-vm/capi/src/*",
+        "${workspaceFolder}/src/vsg/*",
+        "${workspaceFolder}/src/**",
+        "/opt/simgrid/**"
+      ],
+      "defines": [],
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "clang-x64"
+    }
+  ],
+  "version": 4
 }
