@@ -47,11 +47,11 @@ set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/du
 configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment.xml)
 
 # VM based example. This also required a qemu with a modified slirp backend.
-add_executable(sink examples/qemu_sink/sink.c)
-set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemu_sink)
+add_executable(sink examples/qemus/sink.c)
+set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemus)
 target_link_libraries(sink PUBLIC vsg)
-configure_file(examples/qemu_sink/boot_and_log.sh examples/qemu_sink/boot_and_log.sh)
-configure_file(examples/qemu_sink/deployment.xml examples/qemu_sink/deployment.xml)
+configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh)
+configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml)
 
 # A more testable example
 add_executable(constant_rate examples/constant_rate/sink.c)

@@ -1,0 +1,23 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+
+  <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="192.168.0.53"/>  <!-- how simgrid knows me-->
+    <argument value="./examples/qemu_sink/boot_and_log.sh"/>
+    <argument value="192.168.0.53"/>  <!-- listen to this -->
+    <argument value="1234"/>          <!-- listen to this -->
+    <argument value="192.168.0.54"/>  <!-- connect to this -->
+    <argument value="1235"/>          <!-- connect to this -->
+  </actor>
+
+  <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="192.168.0.54"/>  <!-- how simgrid knows me-->
+    <argument value="./examples/qemu_sink/boot_and_log.sh"/>
+    <argument value="192.168.0.54"/>  <!-- listen to this -->
+    <argument value="1235"/>          <!-- listen to this -->
+    <argument value="192.168.0.53"/>  <!-- connect to this -->
+    <argument value="1234"/>          <!-- connect to this -->
+  </actor>
+
+</platform>
