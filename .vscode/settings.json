@@ -74,6 +74,6 @@
       "cfenv": "cpp",
       "typeindex": "cpp"
     },
-    "editor.tabSize": 2,
-    "editor.detectIndentation": false
+    "editor.formatOnSave": true,
+    "clang-format.assumeFilename": "${workspaceRoot}/.clang-format",
 }
