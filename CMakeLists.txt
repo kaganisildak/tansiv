@@ -39,7 +39,7 @@ configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment
 # VM based example. This also required a qemu with a modified slirp backend.
 add_executable(sink examples/qemus/sink.c)
 set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemus)
-target_link_libraries(sink PUBLIC vsg)
+target_link_libraries(sink PUBLIC ${LIBVSG_LIBS})
 configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh)
 configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml)
 
