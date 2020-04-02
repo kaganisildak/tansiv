@@ -30,10 +30,6 @@ struct OutputMsg {
     payload: Buffer,
 }
 
-impl OutputMsg {
-
-}
-
 #[derive(Debug)]
 pub struct OutputMsgSet {
     slots: Vec<UnsafeCell<Option<OutputMsg>>>,
