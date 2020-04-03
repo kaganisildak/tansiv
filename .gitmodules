@@ -1,3 +1,7 @@
 [submodule "src/slirp"]
 	path = src/slirp
 	url = https://gitlab.inria.fr/msimonin/libslirp.git
+[submodule "src/crossbeam"]
+	path = src/crossbeam
+	url = https://gitlab.inria.fr/lrilling/crossbeam.git
+	branch = dev/waitfree
