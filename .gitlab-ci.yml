@@ -69,6 +69,7 @@ fake-vm:
   - apt-get update
   - apt-get install -y build-essential
   - cd src/fake-vm
+  - make build
   - make test
 
 
