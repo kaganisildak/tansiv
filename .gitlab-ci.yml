@@ -62,7 +62,6 @@ tansiv:
 #
 ###############################################################################
 fake-vm:
-  allow_failure: true
   stage: build
   image: rust:1.42.0-slim-buster
   script:
