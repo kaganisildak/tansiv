@@ -23,7 +23,7 @@ build:
 	$(CARGO) build $(CARGO_FLAGS)
 
 .PHONY: test
-test: other-tests
+test: cargo-tests other-tests
 
 .PHONY: cargo-tests
 cargo-tests:
