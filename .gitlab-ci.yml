@@ -53,6 +53,25 @@ tansiv:
     #   tansiv/ -> result of tansiv make install (include + lib + bin)
     #   qemu/ -> result of qemu make install (include + lib + bin)
 
+
+###############################################################################
+#
+# Build fake-vm
+#   -- test locally:
+#      $) gitlab-runner exec docker fake-vm --docker-volumes $(pwd)/opt:/opt
+#
+###############################################################################
+fake-vm:
+  allow_failure: true
+  stage: build
+  image: rust:1.42.0-slim-buster
+  script:
+  - apt-get update
+  - apt-get install -y build-essential
+  - cd src/fake-vm
+  - make test
+
+
 ###############################################################################
 #
 # Qemu compilation
