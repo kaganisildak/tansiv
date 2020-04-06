@@ -42,6 +42,7 @@ struct vsg_packet {
 
 struct vsg_send_packet {
   struct vsg_time time;
+  in_addr_t src;
   in_addr_t dest;
   struct vsg_packet packet;
 };

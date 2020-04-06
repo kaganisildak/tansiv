@@ -26,10 +26,15 @@ extern "C" {
 
 /* The socket to use for all the tests. */
 #define SOCKET_ACTOR "titi"
+
 /* The message to send for send/deliver tests. */
 #define MESSAGE "plop"
+
+/* The source to use for send tests. */
+#define SRC "127.0.0.1"
+
 /* The destination to use for send tests. */
-#define DEST "127.0.0.1"
+#define DEST "8.8.8.8"
 
 using namespace CppUnit;
 using namespace std;
@@ -202,7 +207,10 @@ void recv_one(int client_socket)
   vsg_send_packet send_packet = {0};
   recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
 
-  // test the received address
+  // test the received addresses
+  in_addr_t src_expected = inet_addr(SRC);
+  CPPUNIT_ASSERT_EQUAL(src_expected, send_packet.src);
+
   in_addr_t dest_expected = inet_addr(DEST);
   CPPUNIT_ASSERT_EQUAL(dest_expected, send_packet.dest);
 
@@ -302,8 +310,9 @@ void TestTansiv::testVsgSend(void)
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
+  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
-  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  vsg_send(context, src, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -324,10 +333,11 @@ void TestTansiv::testVsgSendEnsureRaise(void)
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
+  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
   /* inject an error here msg != MESSAGE*/
   std::string msg = "plop1";
-  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  vsg_send(context, src, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -390,6 +400,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   int ret                  = vsg_start(context);
   in_port_t port           = 5000;
   std::string msg          = MESSAGE;
+  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
 
   int payload_length = msg.length() + sizeof(in_port_t) + 1; // because of str
@@ -398,7 +409,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
 
   // fire!
-  vsg_send(context, dest, payload_length, payload);
+  vsg_send(context, src, dest, payload_length, payload);
 
   // loop until our atomic is set
   // this shouldn't take long ...
