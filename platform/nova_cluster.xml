@@ -2,7 +2,7 @@
 <!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid/simgrid.dtd">
 <platform version="4.1">
 	<zone id="AS0" routing="Full">
-		<cluster id="nova" prefix="nova-" suffix=".lyon.grid5000.fr" radical="0-200" speed="16120000000.0f,0.0f,0.0f" core="16" bw="10Gbps" lat="1.0E-2s" router_id="router1">
+		<cluster id="nova" prefix="nova-" suffix=".lyon.grid5000.fr" radical="0-200" speed="16120000000.0f,0.0f,0.0f" core="16" bw="10Gbps" lat="1.0E-1s" router_id="router1">
 			<prop id="watt_per_state" value="75.83:81.97:174.04, 123.86:123.86:123.86, 66:66:66" />
     			<prop id="watt_off" value="8.81" />
 		</cluster>

@@ -41,7 +41,7 @@ struct vsg_packet {
 };
 
 struct vsg_send_packet {
-  struct vsg_time time;
+  struct vsg_time send_time;
   in_addr_t src;
   in_addr_t dest;
   struct vsg_packet packet;
@@ -51,23 +51,13 @@ struct vsg_deliver_packet {
   struct vsg_packet packet;
 };
 
-double vsg_time_to_s(struct vsg_time);
-struct vsg_time vsg_time_from_s(double);
-struct vsg_time vsg_time_add(struct vsg_time, struct vsg_time);
-struct vsg_time vsg_time_sub(struct vsg_time, struct vsg_time);
-struct vsg_time vsg_time_cut(struct vsg_time, struct vsg_time, float, float);
-
-bool vsg_time_leq(struct vsg_time, struct vsg_time);
-
-bool vsg_time_eq(struct vsg_time, struct vsg_time);
-
 void vsg_pg_port(in_port_t, uint8_t*, int, uint8_t*);
 void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
 
 /*
  * Decoding function
  */
-int vsg_decode_src_dest(struct vsg_packet, char* src_addr, char* dest_addr);
+int vsg_decode_src_dest(struct vsg_send_packet, char* src_addr, char* dest_addr);
 
 /*
  * Receive order from vsg

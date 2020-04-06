@@ -4,16 +4,13 @@
 #include <sys/un.h>
 #include <unordered_map>
 #include <vector>
-extern "C"
-{
+extern "C" {
 #include "vsg.h"
 }
 
-namespace vsg
-{
+namespace vsg {
 
-struct message
-{
+struct message {
   double sent_time;
   std::string src;      // decoded src
   std::string dest;     // decoded dest
@@ -22,8 +19,7 @@ struct message
   std::string data;     // raw data
 };
 
-class VmsInterface
-{
+class VmsInterface {
 
 public:
   VmsInterface(bool stop_condition = false);

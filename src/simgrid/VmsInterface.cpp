@@ -44,10 +44,10 @@ double vmToSimgridTime(vsg_time vm_time)
 
 VmsInterface::VmsInterface(bool stop_at_any_stop)
 {
-  vsg_init();
   a_vm_stopped            = false;
   simulate_until_any_stop = stop_at_any_stop;
 
+  remove(CONNECTION_SOCKET_NAME);
   connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
   XBT_INFO("socket created");
 
@@ -148,7 +148,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
 
   // first, we ask all the VMs to go to deadline
   XBT_DEBUG("Sending: go to deadline %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
-  uint32_t goto_flag          = vsg_msg_from_actor_type::VSG_GO_TO_DEADLINE;
+  uint32_t goto_flag          = vsg_msg_in_type::GoToDeadline;
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
   for (auto it : vm_sockets) {
@@ -175,30 +175,30 @@ std::vector<message> VmsInterface::goTo(double deadline)
       }
 
       // When the VM reaches the deadline, we're done with it, let's consider the next VM
-      if (vm_flag == vsg_msg_to_actor_type::VSG_AT_DEADLINE) {
+      if (vm_flag == vsg_msg_out_type::AtDeadline) {
         break;
-      } else if (vm_flag == vsg_msg_to_actor_type::VSG_SEND_PACKET) {
+      } else if (vm_flag == vsg_msg_out_type::SendPacket) {
 
         XBT_VERB("getting a message from VM %s", vm_name.c_str());
-        struct vsg_send_packet packet = {0};
+        struct vsg_send_packet send_packet = {0};
         // we first get the message size
-        recv(vm_socket, &packet, sizeof(packet), MSG_WAITALL);
+        recv(vm_socket, &send_packet, sizeof(send_packet), MSG_WAITALL);
         // then we get the message itself and we split
         //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
         //   - and the data transfer, that correspond to the data actually send through the (simulated) network
         // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
         // to have the same size)
-        char data[packet.packet.size];
+        char data[send_packet.packet.size];
         if (recv(vm_socket, data, sizeof(data), MSG_WAITALL) <= 0) {
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
           end_simulation();
         }
         char dest_addr[INET_ADDRSTRLEN];
         char src_addr[INET_ADDRSTRLEN];
-        vsg_decode_src_dest(packet.packet, src_addr, dest_addr);
-        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=%s) to VM [%s] with timestamp [%d.%d]", data,
-                 sizeof(data), vm_name.c_str(), src_addr, dest_addr, packet.send_time.seconds,
-                 packet.send_time.useconds);
+        vsg_decode_src_dest(send_packet, src_addr, dest_addr);
+        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=ip(%s)) to VM [%d](=ip(%s)) with timestamp [%d.%d]",
+                 data, sizeof(data), vm_name.c_str(), src_addr, send_packet.dest, dest_addr,
+                 send_packet.send_time.seconds, send_packet.send_time.useconds);
 
         struct message m;
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
@@ -206,10 +206,10 @@ std::vector<message> VmsInterface::goTo(double deadline)
 
         m.packet_size = sizeof(data);
         m.data.append(data);
-        m.packet    = packet.packet;
-        m.src       = std::string(src_addr);
-        m.dest      = std::string(dest_addr);
-        m.sent_time = vmToSimgridTime(packet.send_time);
+        m.packet    = send_packet.packet;
+        m.src       = std::to_string(send_packet.src);
+        m.dest      = std::to_string(send_packet.dest);
+        m.sent_time = vmToSimgridTime(send_packet.send_time);
         messages.push_back(m);
       } else {
         XBT_ERROR("unknown message received from VM %s : %lu", vm_name.c_str(), vm_flag);
@@ -257,10 +257,10 @@ void VmsInterface::deliverMessage(message m)
 {
   if (vm_sockets.find(m.dest) != vm_sockets.end()) {
     int socket                               = vm_sockets[m.dest];
-    uint32_t deliver_flag                    = vsg_msg_from_actor_type::VSG_DELIVER_PACKET;
+    uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
     std::string data                         = m.data;
     struct vsg_deliver_packet deliver_packet = {.packet = m.packet};
-    vsg_deliver_send(socket, deliver_packet, data.c_str());
+    vsg_deliver_send(socket, deliver_packet, (uint8_t*)data.c_str());
 
     XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
   } else {

@@ -30,33 +30,16 @@ target_link_libraries(vsg PUBLIC m)
 
 # Tansiv (coordinator of the simulation)
 add_executable(tansiv src/simgrid/VmsInterface.cpp src/simgrid/VmsCoordinator.cpp)
-target_link_libraries(tansiv ${SimGrid_LIBRARY} ${FAKEVM_LIBS})
+target_link_libraries(tansiv ${SimGrid_LIBRARY} ${FAKEVM_LIBS} vsg)
 target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 
-# Historical examples
-add_executable(dummy_ping examples/dummy_ping/DummyPing.cpp)
-target_link_libraries(dummy_ping PUBLIC ${FAKEVM_LIBS})
-set_target_properties(dummy_ping PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
-
-add_executable(dummy_pong examples/dummy_ping/DummyPong.cpp)
-target_link_libraries(dummy_pong PUBLIC ${FAKEVM_LIBS})
-set_target_properties(dummy_pong PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/dummy_ping)
-configure_file(examples/dummy_ping/deployment.xml examples/dummy_ping/deployment.xml)
-
-# VM based example. This also required a qemu with a modified slirp backend.
-add_executable(sink examples/qemus/sink.c)
-set_target_properties(sink PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/qemus)
-target_link_libraries(sink PUBLIC ${FAKEVM_LIBS})
-configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh)
-configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml)
-
-# A more testable example
-add_executable(constant_rate examples/constant_rate/sink.c)
-set_target_properties(constant_rate PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/constant_rate)
-target_link_libraries(constant_rate PUBLIC ${FAKEVM_LIBS})
-configure_file(examples/constant_rate/deployment.xml examples/constant_rate/deployment.xml)
-configure_file(examples/constant_rate/nova_cluster.xml examples/constant_rate/nova_cluster.xml)
-configure_file(examples/constant_rate/constant_rate.tesh examples/constant_rate/constant_rate.tesh)
+# Example with fake-vm and simgrid
+add_executable(send examples/send/send.cpp)
+set_target_properties(send PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/send)
+target_link_libraries(send PUBLIC ${FAKEVM_LIBS} vsg)
+configure_file(examples/send/deployment.xml examples/send/deployment.xml)
+configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
+add_dependencies(send fake-vm)
 
 # Unit tests
 add_executable(tests src/tests/tests.cpp)

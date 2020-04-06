@@ -10,71 +10,19 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-struct vsg_time vsg_time_add(struct vsg_time time1, struct vsg_time time2)
+/**
+ *
+ * Debug purpose only,
+ * This decode the src and dest field from in_addr to cghar*
+ *
+ */
+int vsg_decode_src_dest(struct vsg_send_packet packet, char* src_addr, char* dest_addr)
 {
-  struct vsg_time time;
-  time.seconds  = time1.seconds + time2.seconds;
-  time.useconds = time1.useconds + time2.useconds;
-  if (time.useconds >= 1e6) {
-    time.useconds = time.useconds - 1e6;
-    time.seconds++;
-  }
-
-  return time;
-}
-
-struct vsg_time vsg_time_sub(struct vsg_time time1, struct vsg_time time2)
-{
-  // assume to be positive values
-  struct vsg_time time;
-  time.seconds  = time1.seconds - time2.seconds;
-  time.useconds = time1.useconds - time2.useconds;
-  if (time.useconds < 0) {
-    time.useconds = time.useconds + 1e6;
-    time.seconds--;
-  }
-  return time;
-}
-// true if time1 <= time2
-bool vsg_time_leq(struct vsg_time time1, struct vsg_time time2)
-{
-
-  if (time1.seconds < time2.seconds)
-    return true;
-
-  if ((time1.seconds == time2.seconds) && (time1.useconds <= time2.useconds))
-    return true;
-
-  return false;
-}
-
-double vsg_time_to_s(struct vsg_time time1)
-{
-  return time1.seconds + time1.useconds * 1e-6;
-}
-
-struct vsg_time vsg_time_from_s(double seconds)
-{
-  struct vsg_time time;
-  time.seconds  = (uint64_t)(floor(seconds));
-  time.useconds = (uint64_t)(floor((seconds - floor(seconds)) * 1e6));
-  return time;
-}
-
-struct vsg_time vsg_time_cut(struct vsg_time time1, struct vsg_time time2, float a, float b)
-{
-  struct vsg_time time;
-  double _time1 = vsg_time_to_s(time1);
-  double _time2 = vsg_time_to_s(time2);
-  double _time  = (a * _time1 + b * _time2) / (a + b);
-  time.seconds  = (uint64_t)(floor(_time));
-  time.useconds = (uint64_t)(floor((_time - floor(_time)) * 1e6));
-  return time;
-}
-
-bool vsg_time_eq(struct vsg_time time1, struct vsg_time time2)
-{
-  return (time1.seconds * 1e6 + time1.useconds) == (time2.seconds * 1e6 + time2.useconds);
+  struct in_addr _dest_addr = {packet.dest};
+  struct in_addr _src_addr  = {packet.src};
+  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &(_dest_addr), dest_addr, INET_ADDRSTRLEN);
+  return 0;
 }
 
 /*
