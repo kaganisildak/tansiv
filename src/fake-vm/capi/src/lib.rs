@@ -1,4 +1,4 @@
-use fake_vm::{Context, Error, Result};
+use fake_vm::{Context, Destination, Error, Result};
 use libc;
 #[allow(unused_imports)]
 use log::{debug, error};
@@ -105,11 +105,11 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 }
 
 #[no_mangle]
-pub unsafe extern fn vsg_send(context: *const Context, msglen: u32, msg: *const u8) -> c_int {
+pub unsafe extern fn vsg_send(context: *const Context, dest: Destination, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
         let payload = std::slice::from_raw_parts(msg, msglen as usize);
 
-        match (*context).send(payload) {
+        match (*context).send(dest, payload) {
             Ok(_) => 0,
             Err(e) => match e {
                 Error::NoMemoryAvailable => libc::ENOMEM,
@@ -375,7 +375,7 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, 0, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -398,12 +398,12 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
-        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, (&buffer).as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, 0, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::E2BIG, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, 0, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -418,7 +418,7 @@ mod test {
         init();
 
         let buffer =  b"Foo msg";
-        let res: c_int = unsafe { vsg_send(std::ptr::null(), buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(std::ptr::null(), 0, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(libc::EINVAL, res);
     }
 
@@ -441,7 +441,7 @@ mod test {
         assert_ne!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
 
         let buffer = b"This is the end";
-        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, 0, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -467,7 +467,7 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"This is the end";
-        let res: c_int = unsafe { vsg_send(context, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, 0,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };

@@ -24,8 +24,12 @@ extern "C" {
 #include <vsg.h>
 }
 
+/* The socket to use for all the tests. */
 #define SOCKET_ACTOR "titi"
+/* The message to send for send/deliver tests. */
 #define MESSAGE "plop"
+/* The destination to use for send tests. */
+#define DEST "127.0.0.1"
 
 using namespace CppUnit;
 using namespace std;
@@ -184,12 +188,14 @@ void recv_one(int client_socket)
   vsg_msg_out_type msg_type;
   recv(client_socket, &msg_type, sizeof(vsg_msg_out_type), MSG_WAITALL);
   CPPUNIT_ASSERT_EQUAL(vsg_msg_out_type::SendPacket, msg_type);
+
   // second, check the send time and size
-  vsg_send_packet send_packet;
+  vsg_send_packet send_packet = {0};
   recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
-  // TODO(msimonin): can we test something here ?
-  // CPPUNIT_ASSERT_EQUAL((uint64_t)0, time.seconds);
-  // CPPUNIT_ASSERT_LESSEQUAL((uint64_t)200, time.useconds);
+
+  // test the received address
+  in_addr_t dest_expected = inet_addr(DEST);
+  CPPUNIT_ASSERT_EQUAL(dest_expected, send_packet.dest);
 
   // finally get the payload
   uint8_t buf[send_packet.packet.size];
@@ -254,7 +260,8 @@ void TestTansiv::testVsgSend(void)
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
-  vsg_send(context, msg.length() + 1, (uint8_t*)msg.c_str());
+  in_addr_t dest           = inet_addr(DEST);
+  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -275,9 +282,10 @@ void TestTansiv::testVsgSendEnsureRaise(void)
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
-  std::string msg          = "plop1";
+  in_addr_t dest           = inet_addr(DEST);
   /* inject an error here msg != MESSAGE*/
-  vsg_send(context, msg.length() + 1, (uint8_t*)msg.c_str());
+  std::string msg = "plop1";
+  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);

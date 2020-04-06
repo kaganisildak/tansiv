@@ -563,7 +563,7 @@ mod test {
     }
 
     fn make_ref_send_packet() -> MsgOut<'static> {
-        MsgOut::SendPacket(Duration::new(3, 200),
+        MsgOut::SendPacket(Duration::new(3, 200), 0,
                        b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")
     }
 
@@ -573,7 +573,7 @@ mod test {
 
         let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
         let msg = recv_send_packet(&mut client, &mut buffer);
-        if let MsgOut::SendPacket(ref_send_time, ref_payload) = make_ref_send_packet() {
+        if let MsgOut::SendPacket(ref_send_time, dest, ref_payload) = make_ref_send_packet() {
             let seconds = ref_send_time.as_secs();
             let useconds = ref_send_time.subsec_micros();
             assert_eq!(msg.send_time.seconds, seconds);

@@ -119,6 +119,7 @@ impl ToBytes for MsgInType {
 #[repr(C)]
 struct SendPacket {
     send_time: Time,
+    dest: u32,
     packet: Packet,
 }
 
@@ -261,7 +262,7 @@ impl<'a> MsgIn<'a> {
 
 pub enum MsgOut<'a> {
     AtDeadline,
-    SendPacket(Duration, &'a [u8]),
+    SendPacket(Duration, u32 , &'a [u8]),
 }
 
 impl<'a> MsgOut<'a> {
@@ -273,12 +274,12 @@ impl<'a> MsgOut<'a> {
     fn send<'b>(self, dst: &mut impl Write, scratch_buffer: &'b mut [u8], dst_endianness: Endianness) -> Result<()> {
         let msg_type = match self {
             MsgOut::AtDeadline => MsgOutType::AtDeadline,
-            MsgOut::SendPacket(_, _) => MsgOutType::SendPacket,
+            MsgOut::SendPacket(_, _, _) => MsgOutType::SendPacket,
         };
         msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
         match self {
             MsgOut::AtDeadline => Ok(()),
-            MsgOut::SendPacket(send_time, packet) => {
+            MsgOut::SendPacket(send_time, dest, packet) => {
                 assert!(packet.len() <= std::u32::MAX as usize);
 
                 let send_packet_header = SendPacket {
@@ -286,6 +287,7 @@ impl<'a> MsgOut<'a> {
                         seconds: send_time.as_secs(),
                         useconds: send_time.subsec_micros() as u64,
                     },
+                    dest: dest,
                     packet: Packet {
                         size: packet.len() as u32,
                     },
@@ -304,18 +306,19 @@ impl<'a> MsgOut<'a> {
             MsgOutType::AtDeadline => Ok(MsgOut::AtDeadline),
             MsgOutType::SendPacket => {
                 let header = SendPacket::from_stream(src, input_buffer, src_endianness)?;
-                if let (Ok(seconds), Ok(nseconds)) = (
+                if let (Ok(seconds), Ok(nseconds), Ok(dest)) = (
                     u64::try_from(header.send_time.seconds),
                     u32::try_from(header.send_time.useconds).map_err(|_| ()).and_then(|usecs|
                                                                                       if usecs < 1000000 {
                                                                                           Ok(usecs * 1000)
                                                                                       } else {
                                                                                           Err(())
-                                                                                      })
+                                                                                      }),
+                    u32::try_from(header.dest)
                 ) {
                     if let Some(buffer) = input_buffer.get_mut(..(header.packet.size as usize)) {
                         src.read_exact(buffer)?;
-                        Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), buffer))
+                        Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), dest, buffer))
                     } else {
                         Err(Error::new(ErrorKind::InvalidData, "Packet size too big"))
                     }

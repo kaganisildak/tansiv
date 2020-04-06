@@ -3,6 +3,7 @@ use std::cell::UnsafeCell;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use super::{Destination};
 
 #[derive(Debug)]
 pub enum Error {
@@ -27,6 +28,7 @@ impl std::error::Error for Error {}
 #[derive(Debug)]
 struct OutputMsg {
     send_time: Duration,
+    dest: Destination,
     payload: Buffer,
 }
 
@@ -43,9 +45,9 @@ pub struct OutputMsgDrain<'a> {
 }
 
 impl<'a> Iterator for OutputMsgDrain<'a> {
-    type Item = (Duration, Buffer);
+    type Item = (Duration, Destination, Buffer);
 
-    fn next<'b>(&'b mut self) -> Option<(Duration, Buffer)> {
+    fn next<'b>(&'b mut self) -> Option<(Duration, Destination, Buffer)> {
         let msg_set = self.msg_set;
         let num_slots = msg_set.slots.len();
         let next_index = self.index;
@@ -54,7 +56,7 @@ impl<'a> Iterator for OutputMsgDrain<'a> {
             if val.is_some() {
                 self.index = index + 1;
                 let val = val.unwrap();
-                return Some((val.send_time, val.payload));
+                return Some((val.send_time, val.dest, val.payload));
             }
         }
 
@@ -78,11 +80,12 @@ impl OutputMsgSet {
         }
     }
 
-    pub fn insert(&self, send_time: Duration, payload: Buffer) -> Result<()> {
+    pub fn insert(&self, send_time: Duration, dest: Destination, payload: Buffer) -> Result<()> {
         for (idx, slot) in self.slot_busy.iter().enumerate() {
             if !slot.swap(true, Ordering::AcqRel) {
                 let output_msg = OutputMsg {
                     send_time: send_time,
+                    dest: dest,
                     payload: payload,
                 };
                 unsafe {

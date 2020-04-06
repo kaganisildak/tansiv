@@ -45,6 +45,12 @@ fn from_io_result<T>(result: std::io::Result<T>) -> Result<T> {
 
 pub type RecvCallback = Box<Fn(&Context, &[u8]) -> () + Send + Sync>;
 
+// #[derive(Debug)]
+// pub struct Destination {
+//     addr: u32
+// }
+pub type Destination = u32;
+
 // InnerContext must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
 // interior mutability.
@@ -114,7 +120,7 @@ impl InnerContext {
         }
     }
 
-    fn send(&self, msg: &[u8]) -> Result<()> {
+    fn send(&self, dest: Destination, msg: &[u8]) -> Result<()> {
         let mut buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
         buffer.copy_from_slice(msg);
 
@@ -124,7 +130,7 @@ impl InnerContext {
         // This would violate the property that send times must be after the previous deadline
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
-        self.outgoing_messages.insert(send_time, buffer)?;
+        self.outgoing_messages.insert(send_time, dest, buffer)?;
         Ok(())
     }
 }
@@ -184,7 +190,7 @@ impl Context {
         let messages = self.0.outgoing_messages.drain();
         let previous_deadline = self.0.timer_context.simulation_previous_deadline();
         let current_deadline = self.0.timer_context.simulation_next_deadline();
-        for (send_time, payload) in messages {
+        for (send_time, dest, payload) in messages {
             let send_time = if send_time < previous_deadline {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
@@ -197,7 +203,7 @@ impl Context {
                 send_time
             };
 
-            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, &payload)) {
+            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, dest, &payload)) {
                 // error!("send(SendPacket) failed: {}", e);
                 return AfterDeadline::EndSimulation;
             }
@@ -243,8 +249,8 @@ impl Context {
         self.0.gettimeofday()
     }
 
-    pub fn send(&self, msg: &[u8]) -> Result<()> {
-        self.0.send(msg)
+    pub fn send(&self, dest: Destination, msg: &[u8]) -> Result<()> {
+        self.0.send(dest, msg)
     }
 
     pub fn poll(&self, buffer: &mut [u8]) -> Result<()> {
@@ -315,7 +321,7 @@ pub mod test_helpers {
                 let msg = TestActor::recv(client, &mut buffer)?;
                 match msg {
                     MsgOut::AtDeadline => (),
-                    MsgOut::SendPacket(_, _) => break,
+                    MsgOut::SendPacket(_, _,  _) => break,
                 }
             }
             TestActor::send(client, MsgIn::EndSimulation)
@@ -411,7 +417,7 @@ mod test {
         context.start()
             .expect("start failed");
 
-        context.send(b"Foo msg")
+        context.send(0, b"Foo msg")
             .expect("send failed");
 
         context.stop();
@@ -435,7 +441,7 @@ mod test {
         assert!(tv.tv_sec >= 0 && tv.tv_sec < 10);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        context.send(b"This is the end")
+        context.send(0, b"This is the end")
             .expect("send failed");
 
         context.stop();
@@ -459,7 +465,7 @@ mod test {
         assert!(tv.tv_sec >= 3600 && tv.tv_sec < 3610);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        context.send(b"This is the end")
+        context.send(0, b"This is the end")
             .expect("send failed");
 
         context.stop();
