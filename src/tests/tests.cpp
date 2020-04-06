@@ -39,6 +39,9 @@ typedef void scenario(int);
 /* For use in deliver_one test. */
 std::atomic<bool> message_delivered(false);
 
+/* For use in send_deliver_pg_port. */
+std::atomic<uint32_t> port_delivered(0);
+
 pid_t simple_actor(scenario f)
 {
   // I don't care about the status...
@@ -80,8 +83,10 @@ pid_t simple_actor(scenario f)
       CppUnit::SourceLine line = e.sourceLine();
       printf("Exception in child process:\n line:%d:  %s\n", line.lineNumber(), e.what());
       exit(142);
+    } catch (...) {
+      exit(1);
     }
-    // mimic a server
+    // mimic a server  vsg_stop(context);
     // our father will kill us anyway when test test is finished
     sleep(3600);
     exit(0);
@@ -114,6 +119,8 @@ class TestTansiv : public CppUnit::TestFixture {
   CPPUNIT_TEST(testVsgStart);
   CPPUNIT_TEST(testVsgSend);
   CPPUNIT_TEST(testVsgSendEnsureRaise);
+  CPPUNIT_TEST(testVsgPiggyBackPort);
+  CPPUNIT_TEST(testVsgSendPiggyBackPort);
   CPPUNIT_TEST(testVsgDeliver);
   CPPUNIT_TEST_SUITE_END();
 
@@ -125,6 +132,8 @@ protected:
   void testVsgStart(void);
   void testVsgSend(void);
   void testVsgSendEnsureRaise(void);
+  void testVsgPiggyBackPort(void);
+  void testVsgSendPiggyBackPort(void);
   void testVsgDeliver(void);
 
 private:
@@ -176,7 +185,7 @@ void simple(int client_socket)
  *
  * The actor sends
  *  - the init sequence
- *  - wait a message sent by the application
+ *  - wait a message sent by the application (with a port piggybacked)
  *
  */
 void recv_one(int client_socket)
@@ -200,6 +209,7 @@ void recv_one(int client_socket)
   // finally get the payload
   uint8_t buf[send_packet.packet.size];
   recv(client_socket, buf, send_packet.packet.size, MSG_WAITALL);
+
   std::string expected = MESSAGE;
   std::string actual   = std::string((char*)buf);
   CPPUNIT_ASSERT_EQUAL_MESSAGE("payload received by the actor differs from what has been sent by the application",
@@ -209,6 +219,38 @@ void recv_one(int client_socket)
   printf("Leaving recv_one scenario\n");
 };
 
+/*
+ * scenario: recv_one
+ *
+ * The actor sends
+ *  - the init sequence
+ *  - wait a message sent by the application
+ *
+ */
+void send_deliver_pg_port(int client_socket)
+{
+  printf("Entering send_deliver_pg_port scenario\n");
+  init_sequence(client_socket);
+
+  // receive send_packet
+  vsg_msg_out_type msg_type;
+  recv(client_socket, &msg_type, sizeof(vsg_msg_out_type), MSG_WAITALL);
+  vsg_send_packet send_packet = {0};
+  recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
+  // here the payload contains the port
+  // we just pass it back to the app with a deliver message
+  uint8_t buf[send_packet.packet.size];
+  recv(client_socket, buf, send_packet.packet.size, MSG_WAITALL);
+
+  // deliver sequence
+  uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
+  vsg_packet packet                        = {.size = sizeof(buf)};
+  struct vsg_deliver_packet deliver_packet = {.packet = packet};
+  vsg_deliver_send(client_socket, deliver_packet, buf);
+
+  end_sequence(client_socket);
+  printf("Leaving send_deliver_pg_port scenario\n");
+};
 /*
  * scenario: deliver_one
  *
@@ -226,7 +268,7 @@ void deliver_one(int client_socket)
   std::string data                         = MESSAGE;
   vsg_packet packet                        = {.size = data.length()};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  vsg_deliver_send(client_socket, deliver_packet, data.c_str());
+  vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
   printf("Leaving deliver_one scenario\n");
 
   end_sequence(client_socket);
@@ -296,6 +338,83 @@ void TestTansiv::testVsgSendEnsureRaise(void)
     thrown = true;
   }
   CPPUNIT_ASSERT_MESSAGE("The must throw an exception", thrown);
+}
+
+/*
+ * Vsg test piggybacking of ports
+ * -- this tests the way we put/extract the port from the payload
+ *
+ */
+void TestTansiv::testVsgPiggyBackPort(void)
+{
+  in_port_t port     = 5000;
+  std::string msg    = MESSAGE;
+  int payload_length = msg.length() + sizeof(in_port_t) + 1; // because of str
+  uint8_t payload[payload_length];
+  // piggyback
+  vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
+
+  // un-piggyback
+  in_port_t recv_port;
+  uint8_t* recv_payload;
+  vsg_upg_port(payload, payload_length, &recv_port, &recv_payload);
+  // test the receive port
+  CPPUNIT_ASSERT_EQUAL(port, recv_port);
+  // test the receive message
+  std::string actual_msg = std::string((char*)recv_payload);
+  CPPUNIT_ASSERT_EQUAL(msg, actual_msg);
+}
+
+void recv_cb_pg(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
+{
+  // un-piggyback
+  in_port_t recv_port;
+  uint8_t* recv_payload;
+  vsg_upg_port((void*)msg, msglen, &recv_port, &recv_payload);
+  port_delivered = recv_port;
+};
+
+/*
+ * Vsg send test piggy backing of ports
+ * -- this tests the way we send/receive the port from the payload
+ *
+ */
+void TestTansiv::testVsgSendPiggyBackPort(void)
+{
+
+  pid_t pid = simple_actor(send_deliver_pg_port);
+
+  int argc                 = 4;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_pg);
+  int ret                  = vsg_start(context);
+  in_port_t port           = 5000;
+  std::string msg          = MESSAGE;
+  in_addr_t dest           = inet_addr(DEST);
+
+  int payload_length = msg.length() + sizeof(in_port_t) + 1; // because of str
+  uint8_t payload[payload_length];
+  // piggyback
+  vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
+
+  // fire!
+  vsg_send(context, dest, payload_length, payload);
+
+  // loop until our atomic is set
+  // this shouldn't take long ...
+  for (int i = 0; i < 3; i++) {
+    if (port_delivered.load() > 0)
+      break;
+    sleep(1);
+  }
+
+  // test the receive port
+  CPPUNIT_ASSERT_EQUAL((uint32_t)port, port_delivered.load());
+
+  vsg_stop(context);
+  vsg_cleanup(context);
+
+  finalize(pid);
 }
 
 void recv_cb_atomic(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)

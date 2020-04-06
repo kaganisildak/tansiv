@@ -60,6 +60,9 @@ bool vsg_time_leq(struct vsg_time, struct vsg_time);
 
 bool vsg_time_eq(struct vsg_time, struct vsg_time);
 
+void vsg_pg_port(in_port_t, uint8_t*, int, uint8_t*);
+void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
+
 /*
  * Decoding function
  */
@@ -83,6 +86,6 @@ int vsg_at_deadline_send(int);
  */
 
 // TODO(msimonin): why don't we have time here ?
-int vsg_deliver_send(int, struct vsg_deliver_packet, const char*);
+int vsg_deliver_send(int, struct vsg_deliver_packet, const uint8_t*);
 
 #endif

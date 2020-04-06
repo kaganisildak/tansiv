@@ -78,6 +78,33 @@ bool vsg_time_eq(struct vsg_time time1, struct vsg_time time2)
 }
 
 /*
+ *
+ * Piggyback the port in the payload
+ *
+ */
+void vsg_pg_port(in_port_t port, uint8_t* message, int msg_len, uint8_t* payload)
+{
+  uint8_t _ports[2] = {(uint8_t)(port >> 8), (uint8_t)(port & 0xff)};
+  int offset        = 2 * sizeof(uint8_t);
+  memcpy(payload, _ports, offset);
+  memcpy(payload + offset, message, msg_len);
+}
+
+/*
+ *
+ * Un-Piggyback the port from the payload
+ *
+ */
+void vsg_upg_port(void* buf, int length, in_port_t* port, uint8_t** payload)
+{
+  uint8_t* _buf = (uint8_t*)buf;
+  uint16_t h    = ((uint16_t)*_buf) << 8;
+  uint16_t l    = (uint16_t) * (_buf + 1);
+  *port         = h + l;
+  *payload      = (_buf + 2);
+}
+
+/*
  * VSG_AT_DEADLINE related functions
  */
 
@@ -102,7 +129,7 @@ int vsg_at_deadline_recv(int fd, struct vsg_time* deadline)
  * VSG_DELIVER_PACKET related functions
  */
 
-int vsg_deliver_send(int fd, struct vsg_deliver_packet deliver_packet, const char* message)
+int vsg_deliver_send(int fd, struct vsg_deliver_packet deliver_packet, const uint8_t* message)
 {
   // log_deliver_packet(deliver_packet);
   struct vsg_packet packet          = deliver_packet.packet;
