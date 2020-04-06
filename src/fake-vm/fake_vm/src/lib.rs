@@ -1,4 +1,4 @@
-use buffer_pool::BufferPool;
+use buffer_pool::{Buffer, BufferPool};
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
 pub use error::Error;
@@ -9,6 +9,7 @@ use output_msg_set::OutputMsgSet;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
+use waitfree_array_queue::WaitfreeArrayQueue;
 
 pub const MAX_PACKET_SIZE: usize = 2048;
 
@@ -18,6 +19,7 @@ mod connector;
 pub mod error;
 mod output_msg_set;
 mod timer;
+mod waitfree_array_queue;
 
 impl From<buffer_pool::Error> for Error {
     fn from(error: buffer_pool::Error) -> Error {
@@ -57,6 +59,23 @@ fn vsg_address_from_str(ip: &str) -> std::result::Result<VsgAddress, std::net::A
     Ok(Into::<u32>::into(ipv4).to_be())
 }
 
+#[derive(Debug)]
+struct Packet {
+    src: VsgAddress,
+    dst: VsgAddress,
+    payload: Buffer,
+}
+
+impl Packet {
+    fn new(src: VsgAddress, dst: VsgAddress, payload: Buffer) -> Packet {
+        Packet {
+            src: src,
+            dst: dst,
+            payload: payload,
+        }
+    }
+}
+
 // InnerContext must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
 // interior mutability.
@@ -66,6 +85,11 @@ struct InnerContext {
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
+    // Concurrency: Messages are:
+    // - pushed to the queue by the deadline handler,
+    // - popped from the queue by application code.
+    // Concurrent read-write support is provided by interior mutability.
+    input_queue: WaitfreeArrayQueue<Packet>,
     // No concurrency, read-only: called only by the deadline handler
     recv_callback: RecvCallback,
     // Concurrency:
@@ -85,7 +109,7 @@ struct InnerContext {
 
 impl std::fmt::Debug for InnerContext {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "InnerContext {{ address: {:0x}, connector: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.address, self.connector, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
+        write!(f, "InnerContext {{ address: {:0x}, connector: {:?}, input_queue: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.address, self.connector, self.input_queue, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
     }
 }
 
@@ -93,6 +117,7 @@ impl InnerContext {
     fn new(config: &Config, recv_callback: RecvCallback) -> Result<InnerContext> {
         let address = config.address;
         let connector = ConnectorImpl::new(&config)?;
+        let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(&config)?;
         let output_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
@@ -100,6 +125,7 @@ impl InnerContext {
         Ok(InnerContext {
             address: address,
             connector: Mutex::new(connector),
+            input_queue: input_queue,
             recv_callback: recv_callback,
             timer_context: timer_context,
             output_buffer_pool: output_buffer_pool,
@@ -209,24 +235,43 @@ impl Context {
         }
 
         // Third, receive messages from others, followed by next deadline
-        loop {
+        let input_queue = &self.0.input_queue;
+        // let may_notify = input_queue.is_empty();
+
+        let after_deadline = loop {
             let msg = connector.recv();
             match msg {
                 Ok(msg) => if let Some(after_deadline) = self.handle_actor_msg(msg) {
-                    return after_deadline;
+                    break after_deadline;
                 },
                 Err(e) => {
                     // error!("recv failed: {}", e);
-                    return AfterDeadline::EndSimulation;
+                    break AfterDeadline::EndSimulation;
                 }
             }
         };
+
+        // if may_notify && !input_queue.is_empty() {
+        // (self.0.recv_callback)(self.0.recv_token);
+        // }
+        for packet in input_queue.iter() {
+            (self.0.recv_callback)(self, &packet.payload);
+        }
+
+        after_deadline
     }
 
     fn handle_actor_msg(&self, msg: MsgIn) -> Option<AfterDeadline> {
         match msg {
             MsgIn::DeliverPacket(packet) => {
-                (self.0.recv_callback)(self, &packet);
+                // FIXME: Use src address when available in the protocol
+                let src = self.0.address;
+                // Or use dst address when available in the protocol? Should be the same...
+                let dst = self.0.address;
+                let size = packet.len();
+                if self.0.input_queue.push(Packet::new(src, dst, packet)).is_err() {
+                    // info!("Dropping input packet from {} of {} bytes", src, size);
+                }
                 None
             },
             MsgIn::GoToDeadline(deadline) => Some(AfterDeadline::NextDeadline(deadline)),
