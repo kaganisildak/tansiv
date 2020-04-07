@@ -183,12 +183,17 @@ impl Context {
         // First, send all messages from this last time slice to others
         let messages = self.0.outgoing_messages.drain();
         let previous_deadline = self.0.timer_context.simulation_previous_deadline();
+        let current_deadline = self.0.timer_context.simulation_next_deadline();
         for (send_time, payload) in messages {
             let send_time = if send_time < previous_deadline {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
                 previous_deadline
             } else {
+                if send_time >= current_deadline {
+                    // The kernel was too slow to fire the timer...
+                    return AfterDeadline::EndSimulation;
+                }
                 send_time
             };
 
