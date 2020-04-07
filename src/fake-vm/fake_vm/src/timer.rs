@@ -152,7 +152,8 @@ impl TimerContext {
             let local_now = chrono::offset::Local::now().naive_local();
             self.application_time.adjust(|_| current_deadline - local_now);
 
-            // self.simulation_time.set(|_| Duration::zero());
+            // Time starts at 0 in global simulation time.
+            self.simulation_time.adjust(|_| -Duration::from_std(now).unwrap());
         }
 
         let mut next_deadline = self.next_deadline.lock().unwrap();
