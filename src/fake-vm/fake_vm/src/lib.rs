@@ -293,7 +293,7 @@ pub mod test_helpers {
 
     pub fn start_actor(server: UnixListener) -> () {
         TestActor::run(server, |client| {
-            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
+            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
             TestActor::send(client, MsgIn::EndSimulation)
         })
     }
@@ -306,7 +306,7 @@ pub mod test_helpers {
             let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
 
             loop {
-                TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100)))?;
+                TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
                 let msg = TestActor::recv(client, &mut buffer)?;
                 match msg {
                     MsgOut::AtDeadline => (),
