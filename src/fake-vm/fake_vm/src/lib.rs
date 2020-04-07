@@ -185,6 +185,8 @@ impl Context {
         let previous_deadline = self.0.timer_context.simulation_previous_deadline();
         for (send_time, payload) in messages {
             let send_time = if send_time < previous_deadline {
+                // This message was time-stamped before the previous deadline but inserted after.
+                // Fix the timestamp to stay between the deadlines.
                 previous_deadline
             } else {
                 send_time
