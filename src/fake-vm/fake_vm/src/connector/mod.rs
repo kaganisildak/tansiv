@@ -1,6 +1,6 @@
 use binser::{Endianness, FromBytes, FromStream, SizedAsBytes, ToBytes, ToStream, ValidAsBytes, Validate};
 use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
-use crate::buffer_pool::BufferPool;
+use crate::buffer_pool::{Buffer, BufferPool};
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
@@ -14,9 +14,9 @@ mod unix;
 pub(crate) type ConnectorImpl = UnixConnector;
 
 pub(crate) trait Connector where Self: Sized {
-    fn new(config: &super::Config) -> Result<(Self, BufferPool)>;
-    fn recv<'a, 'b>(&'a mut self, input_buffer: &'b mut [u8]) -> Result<MsgIn<'b>>;
-    fn send<'a, 'b>(&'a mut self, msg: MsgOut<'b>) -> Result<()>;
+    fn new(config: &super::Config) -> Result<Self>;
+    fn recv(&mut self) -> Result<MsgIn>;
+    fn send(&mut self, msg: MsgOut) -> Result<()>;
 }
 
 // FFI interface, also usable over the network with little-endian encoding
@@ -180,34 +180,38 @@ impl ToBytes for MsgOutType {
 
 // Crate-level interface
 
+fn allocate_buffer(buffer_pool: &BufferPool, size: usize) -> Result<Buffer> {
+    buffer_pool.allocate_buffer(size).map_err(|e| match e {
+        crate::buffer_pool::Error::SizeTooBig => Error::new(ErrorKind::InvalidData, "Packet size too big"),
+        e => Error::new(ErrorKind::Other, e),
+    })
+}
+
 #[derive(Debug)]
-pub enum MsgIn<'a> {
-    DeliverPacket(&'a [u8]),
+pub enum MsgIn {
+    DeliverPacket(Buffer),
     GoToDeadline(Duration),
     EndSimulation,
 }
 
-impl<'a> MsgIn<'a> {
+impl MsgIn {
     // No const max macro...
     fn max_header_size() -> usize {
         let max_msg_in_second_buf_size = usize::max(DeliverPacket::NUM_BYTES, GoToDeadline::NUM_BYTES /*, EndSimulation::NUM_BYTES */);
         usize::max(MsgInType::NUM_BYTES, max_msg_in_second_buf_size)
     }
 
-    fn recv(src: &mut impl Read, input_buffer: &'a mut [u8], src_endianness: Endianness) -> Result<MsgIn<'a>> {
-        let msg_type = MsgInType::from_stream(src, input_buffer, src_endianness)?;
+    fn recv<'a, 'b>(src: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgIn> {
+        let msg_type = MsgInType::from_stream(src, scratch_buffer, src_endianness)?;
         match msg_type {
             MsgInType::DeliverPacket => {
-                let msg = DeliverPacket::from_stream(src, input_buffer, src_endianness)?;
-                if let Some(buffer) = input_buffer.get_mut(..(msg.packet.size as usize)) {
-                    src.read_exact(buffer)?;
-                    Ok(MsgIn::DeliverPacket(buffer))
-                } else {
-                    Err(Error::new(ErrorKind::InvalidData, "Packet size too big"))
-                }
+                let msg = DeliverPacket::from_stream(src, scratch_buffer, src_endianness)?;
+                let mut buffer = allocate_buffer(buffer_pool, msg.packet.size as usize)?;
+                src.read_exact(&mut buffer)?;
+                Ok(MsgIn::DeliverPacket(buffer))
             },
             MsgInType::GoToDeadline => {
-                let deadline = GoToDeadline::from_stream(src, input_buffer, src_endianness)?.deadline;
+                let deadline = GoToDeadline::from_stream(src, scratch_buffer, src_endianness)?.deadline;
                 if let (Ok(seconds), Ok(nseconds)) = (
                     u64::try_from(deadline.seconds),
                     u32::try_from(deadline.useconds).map_err(|_| ()).and_then(|usecs|
@@ -245,7 +249,7 @@ impl<'a> MsgIn<'a> {
                 };
 
                 deliver_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
-                dst.write_all(packet)
+                dst.write_all(&packet)
             },
             MsgIn::GoToDeadline(deadline) => {
                 let go_to_deadline = GoToDeadline {
@@ -261,18 +265,18 @@ impl<'a> MsgIn<'a> {
     }
 }
 
-pub enum MsgOut<'a> {
+pub enum MsgOut {
     AtDeadline,
-    SendPacket(Duration, u32 , u32, &'a [u8]),
+    SendPacket(Duration, u32 , u32, Buffer),
 }
 
-impl<'a> MsgOut<'a> {
+impl MsgOut {
     // No const max macro...
     fn max_header_size() -> usize {
         usize::max(MsgOutType::NUM_BYTES, SendPacket::NUM_BYTES)
     }
 
-    fn send<'b>(self, dst: &mut impl Write, scratch_buffer: &'b mut [u8], dst_endianness: Endianness) -> Result<()> {
+    fn send(self, dst: &mut impl Write, scratch_buffer: &mut [u8], dst_endianness: Endianness) -> Result<()> {
         let msg_type = match self {
             MsgOut::AtDeadline => MsgOutType::AtDeadline,
             MsgOut::SendPacket(_, _, _, _) => MsgOutType::SendPacket,
@@ -296,18 +300,18 @@ impl<'a> MsgOut<'a> {
                 };
 
                 send_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
-                dst.write_all(packet)
+                dst.write_all(&packet)
             },
         }
     }
 
     #[cfg(any(test, feature = "test-helpers"))]
-    fn recv(reader: &mut impl Read, input_buffer: &'a mut [u8], src_endianness: Endianness) -> Result<MsgOut<'a>> {
-        let msg_type = MsgOutType::from_stream(reader, input_buffer, src_endianness)?;
+    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgOut> {
+        let msg_type = MsgOutType::from_stream(reader, scratch_buffer, src_endianness)?;
         match msg_type {
             MsgOutType::AtDeadline => Ok(MsgOut::AtDeadline),
             MsgOutType::SendPacket => {
-                let header = SendPacket::from_stream(reader, input_buffer, src_endianness)?;
+                let header = SendPacket::from_stream(reader, scratch_buffer, src_endianness)?;
                 if let (Ok(seconds), Ok(nseconds), Ok(src), Ok(dest)) = (
                     u64::try_from(header.send_time.seconds),
                     u32::try_from(header.send_time.useconds).map_err(|_| ()).and_then(|usecs|
@@ -319,12 +323,10 @@ impl<'a> MsgOut<'a> {
                     u32::try_from(header.src),
                     u32::try_from(header.dest)
                 ) {
-                    if let Some(buffer) = input_buffer.get_mut(..(header.packet.size as usize)) {
-                        reader.read_exact(buffer)?;
-                        Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), src, dest, buffer))
-                    } else {
-                        Err(Error::new(ErrorKind::InvalidData, "Packet size too big"))
-                    }
+                    let mut buffer = allocate_buffer(buffer_pool, header.packet.size as usize)?;
+                    reader.read_exact(&mut buffer)?;
+
+                    Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), src, dest, buffer))
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Time out of bounds"))
                 }

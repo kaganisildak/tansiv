@@ -62,11 +62,6 @@ struct InnerContext {
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
-    // Concurrency: Buffers are:
-    // - allocated and filled by the deadline handler,
-    // - kept around and freed by application code.
-    // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
-    input_buffer_pool: BufferPool,
     // No concurrency, read-only: called only by the deadline handler
     recv_callback: RecvCallback,
     // Concurrency:
@@ -76,6 +71,7 @@ struct InnerContext {
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
+    // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
     output_buffer_pool: BufferPool,
     outgoing_messages: OutputMsgSet,
     // Concurrency: none
@@ -85,13 +81,13 @@ struct InnerContext {
 
 impl std::fmt::Debug for InnerContext {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "InnerContext {{ connector: {:?}, input_buffer_pool: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.connector, self.input_buffer_pool, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
+        write!(f, "InnerContext {{ connector: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.connector, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
     }
 }
 
 impl InnerContext {
     fn new(config: &Config, recv_callback: RecvCallback) -> Result<InnerContext> {
-        let (connector, input_buffer_pool) = ConnectorImpl::new(&config)?;
+        let connector = ConnectorImpl::new(&config)?;
         let timer_context = TimerContext::new(&config)?;
         let output_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
@@ -99,7 +95,6 @@ impl InnerContext {
         Ok(InnerContext {
             // simulation_offset: config.time_offset,
             connector: Mutex::new(connector),
-            input_buffer_pool: input_buffer_pool,
             recv_callback: recv_callback,
             timer_context: timer_context,
             output_buffer_pool: output_buffer_pool,
@@ -158,13 +153,8 @@ impl Context {
         let mut res = Err(Error::AlreadyStarted);
 
         context.start_once.call_once(|| res = (|| {
-            use std::ops::DerefMut;
-
             let mut connector = context.connector.lock().unwrap();
-            let input_buffer_pool = &context.input_buffer_pool;
-            let mut allocated_input_buffer = input_buffer_pool.allocate_buffer(MAX_PACKET_SIZE)?;
-            let input_buffer = allocated_input_buffer.deref_mut();
-            let msg = connector.recv(input_buffer)?;
+            let msg = connector.recv()?;
             // The deadline handler can fire and try to lock connector at any time once self.0.start()
             // is called so we must unlock connector before.
             drop(connector);
@@ -182,8 +172,6 @@ impl Context {
     }
 
     fn at_deadline(&self) -> AfterDeadline {
-        use std::ops::DerefMut;
-
         let mut connector = self.0.connector.lock().unwrap();
 
         // First, send all messages from this last time slice to others
@@ -203,7 +191,7 @@ impl Context {
                 send_time
             };
 
-            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, src, dest, &payload)) {
+            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, src, dest, payload)) {
                 // error!("send(SendPacket) failed: {}", e);
                 return AfterDeadline::EndSimulation;
             }
@@ -216,12 +204,8 @@ impl Context {
         }
 
         // Third, receive messages from others, followed by next deadline
-        let input_buffer_pool = &self.0.input_buffer_pool;
-        let mut allocated_input_buffer = input_buffer_pool.allocate_buffer(MAX_PACKET_SIZE).unwrap();
-        let input_buffer = allocated_input_buffer.deref_mut();
-
         loop {
-            let msg = connector.recv(input_buffer);
+            let msg = connector.recv();
             match msg {
                 Ok(msg) => if let Some(after_deadline) = self.handle_actor_msg(msg) {
                     return after_deadline;
@@ -237,7 +221,7 @@ impl Context {
     fn handle_actor_msg(&self, msg: MsgIn) -> Option<AfterDeadline> {
         match msg {
             MsgIn::DeliverPacket(packet) => {
-                (self.0.recv_callback)(self, packet);
+                (self.0.recv_callback)(self, &packet);
                 None
             },
             MsgIn::GoToDeadline(deadline) => Some(AfterDeadline::NextDeadline(deadline)),
@@ -310,11 +294,9 @@ pub mod test_helpers {
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
     pub fn recv_one_msg_actor(actor: &mut TestActor) -> TestResult<()> {
-        let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
-
         loop {
             actor.send(MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
-            let msg = actor.recv(&mut buffer)?;
+            let msg = actor.recv()?;
             match msg {
                 MsgOut::AtDeadline => (),
                 MsgOut::SendPacket(_, _, _, _) => break,
@@ -476,8 +458,6 @@ mod test {
 
     #[test]
     fn message_loop() {
-        use std::ops::DerefMut;
-
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
@@ -485,12 +465,9 @@ mod test {
             .expect("init() failed");
 
         let mut connector = context.0.connector.lock().unwrap();
-        let input_buffer_pool = &context.0.input_buffer_pool;
-        let mut allocated_input_buffer = input_buffer_pool.allocate_buffer(super::MAX_PACKET_SIZE).unwrap();
-        let input_buffer = allocated_input_buffer.deref_mut();
 
         loop {
-            let msg = connector.recv(input_buffer);
+            let msg = connector.recv();
             match msg {
                 Ok(msg) => if let Some(after_deadline) = context.handle_actor_msg(msg) {
                     info!("after_deadline is: {:?}", after_deadline);

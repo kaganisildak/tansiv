@@ -5,42 +5,44 @@ use super::{Connector, Endianness, MsgIn, MsgOut};
 
 #[derive(Debug)]
 pub(crate) struct UnixConnector {
+    // No concurrency
     actor: UnixStream,
-    output_buffer: Vec<u8>,
-}
-
-impl UnixConnector {
-    fn inner_new(config: &crate::Config) -> Result<UnixConnector> {
-        let actor_stream = UnixStream::connect(&config.actor_socket)?;
-
-        let output_buffer_size = MsgOut::max_header_size();
-        let mut output_buffer = Vec::with_capacity(output_buffer_size);
-        output_buffer.resize(output_buffer_size, 0);
-
-        Ok(UnixConnector {
-            actor: actor_stream,
-            output_buffer: output_buffer,
-        })
-    }
+    // No concurrency
+    scratch_buffer: Vec<u8>,
+    // Concurrency: Buffers are:
+    // - allocated and filled by the deadline handler,
+    // - kept around and freed by application code.
+    // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
+    input_buffer_pool: BufferPool,
 }
 
 impl Connector for UnixConnector {
-    fn new(config: &crate::Config) -> Result<(UnixConnector, BufferPool)> {
-        let connector = UnixConnector::inner_new(config)?;
+    fn new(config: &crate::Config) -> Result<UnixConnector> {
+        let actor_stream = UnixStream::connect(&config.actor_socket)?;
 
-        let input_buffer_size = usize::max(MsgIn::max_header_size(), crate::MAX_PACKET_SIZE);
-        let input_buffer_pool = BufferPool::new(input_buffer_size, config.num_buffers.get());
+        let scratch_buffer_size = usize::max(MsgIn::max_header_size(), MsgOut::max_header_size());
+        let mut scratch_buffer = Vec::with_capacity(scratch_buffer_size);
+        scratch_buffer.resize(scratch_buffer_size, 0);
 
-        Ok((connector, input_buffer_pool))
+        let input_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
+
+        Ok(UnixConnector {
+            actor: actor_stream,
+            scratch_buffer: scratch_buffer,
+            input_buffer_pool: input_buffer_pool,
+        })
     }
 
-    fn recv<'a, 'b>(&'a mut self, input_buffer: &'b mut [u8]) -> Result<MsgIn<'b>> {
-        MsgIn::recv(&mut self.actor, input_buffer, Endianness::Native)
-    }
-
-    fn send<'a, 'b>(&'a mut self, msg: MsgOut<'b>) -> Result<()> {
+    fn recv(&mut self) -> Result<MsgIn> {
         let stream = &mut self.actor;
-        let buffer = self.output_buffer.as_mut_slice();
+        let buffer = self.scratch_buffer.as_mut_slice();
+        let buffer_pool = &self.input_buffer_pool;
+        MsgIn::recv(stream, buffer, buffer_pool, Endianness::Native)
+    }
+
+    fn send(&mut self, msg: MsgOut) -> Result<()> {
+        let stream = &mut self.actor;
+        let buffer = self.scratch_buffer.as_mut_slice();
         msg.send(stream, buffer, Endianness::Native)
     }
 }
@@ -48,6 +50,7 @@ impl Connector for UnixConnector {
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
     use binser::Endianness;
+    use crate::buffer_pool::BufferPool;
     use crate::connector::{MsgIn, MsgOut};
     use log::{error, info};
     use std::fmt;
@@ -138,18 +141,31 @@ pub mod test_helpers {
     // Actor-side API
     pub struct TestActor {
         client: UnixStream,
+        scratch_buffer: Vec<u8>,
+        input_buffer_pool: BufferPool,
     }
 
     impl TestActor {
+        fn new(client: UnixStream) -> TestActor {
+            let scratch_buffer_size = usize::max(MsgIn::max_header_size(), MsgOut::max_header_size());
+            let mut scratch_buffer = Vec::with_capacity(scratch_buffer_size);
+            scratch_buffer.resize(scratch_buffer_size, 0);
+
+            TestActor {
+                client: client,
+                scratch_buffer: scratch_buffer,
+                // TODO: Do not hardcode a limit of 100 buffers
+                input_buffer_pool: BufferPool::new(crate::MAX_PACKET_SIZE, 100),
+            }
+        }
+
         fn run<F>(server: UnixListener, actor_fn: F) -> ()
             where F: FnOnce(&mut TestActor) -> TestResult<()> {
             info!("Server listening at address {:?}", server);
 
             match server.accept() {
                 Ok((client, address)) => {
-                    let mut actor = TestActor {
-                        client: client,
-                    };
+                    let mut actor = TestActor::new(client);
 
                     info!("New client: {:?}", address);
                     match actor_fn(&mut actor) {
@@ -189,13 +205,17 @@ pub mod test_helpers {
             Ok(())
         }
 
-        pub fn send<'a>(&mut self, msg: MsgIn<'a>) -> TestResult<()> {
-            let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
-            Self::check_io(msg.send(&mut self.client, &mut buffer, Endianness::Native), "Send failed")
+        pub fn send(&mut self, msg: MsgIn) -> TestResult<()> {
+            let stream = &mut self.client;
+            let buffer = self.scratch_buffer.as_mut_slice();
+            Self::check_io(msg.send(stream, buffer, Endianness::Native), "Send failed")
         }
 
-        pub fn recv<'a>(&mut self, buffer: &'a mut [u8]) -> TestResult<MsgOut<'a>> {
-            Self::check_io(MsgOut::recv(&mut self.client, buffer, Endianness::Native), "Recv failed")
+        pub fn recv(&mut self) -> TestResult<MsgOut> {
+            let stream = &mut self.client;
+            let buffer = self.scratch_buffer.as_mut_slice();
+            let buffer_pool = &self.input_buffer_pool;
+            Self::check_io(MsgOut::recv(stream, buffer, buffer_pool, Endianness::Native), "Recv failed")
         }
     }
 
@@ -218,7 +238,7 @@ pub mod test_helpers {
 mod test {
     use binser::{ToBytes, ToStream, SizedAsBytes};
     use crate::{Config, connector::*};
-    use std::ops::DerefMut;
+    use std::ops::{Deref, DerefMut};
     use std::os::unix::net::UnixStream;
     use structopt::StructOpt;
     use super::test_helpers::*;
@@ -228,9 +248,9 @@ mod test {
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
 
-        let connector = UnixConnector::inner_new(&config);
+        let connector = UnixConnector::new(&config);
         assert!(connector.is_ok());
-        assert_eq!(connector.unwrap().output_buffer.len(), MsgOut::max_header_size());
+        assert_eq!(connector.unwrap().scratch_buffer.len(), usize::max(MsgIn::max_header_size(), MsgOut::max_header_size()));
 
         drop(actor);
     }
@@ -240,33 +260,36 @@ mod test {
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-amust not exist", "-t1970-01-02T00:00:00"]).unwrap();
 
-        assert!(UnixConnector::inner_new(&config).is_err());
+        assert!(UnixConnector::new(&config).is_err());
 
         drop(actor);
     }
 
     #[test]
     fn valid_input_buffer_size() {
+        use std::ops::DerefMut;
+
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
 
-        let (_, input_buffer_pool) = UnixConnector::new(&config).unwrap();
-        let input_buffer = input_buffer_pool.allocate_buffer(crate::MAX_PACKET_SIZE).unwrap();
-        assert_eq!(input_buffer.len(), usize::max(MsgIn::max_header_size(), crate::MAX_PACKET_SIZE));
+        let connector = UnixConnector::new(&config).unwrap();
+        // Check the length as a borrowed mutable slice because borrowing as an immutable slice
+        // initially returns an empty slice
+        let mut input_buffer = connector.input_buffer_pool.allocate_buffer(crate::MAX_PACKET_SIZE).unwrap();
+        assert_eq!(input_buffer.deref_mut().len(), crate::MAX_PACKET_SIZE);
 
         drop(actor);
     }
 
     fn run_client_and_actor<C, A>(client_fn: C, actor_fn: A)
-        where C: FnOnce(UnixConnector, &mut [u8]) -> (),
+        where C: FnOnce(UnixConnector) -> (),
               A: FnOnce(&mut TestActor) -> TestResult<()>,
               A: Send + 'static {
         let actor = TestActorDesc::new("titi", actor_fn);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
-        let (connector, input_buffer_pool) = UnixConnector::new(&config).unwrap();
-        let mut input_buffer = BufferPool::allocate_buffer(&input_buffer_pool, crate::MAX_PACKET_SIZE).unwrap();
+        let connector = UnixConnector::new(&config).unwrap();
 
-        client_fn(connector, &mut input_buffer);
+        client_fn(connector);
 
         drop(actor);
     }
@@ -279,8 +302,8 @@ mod test {
 
     #[test]
     fn recv_partial_msg_type() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
@@ -297,8 +320,8 @@ mod test {
 
     #[test]
     fn recv_invalid_msg_type() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
@@ -326,8 +349,8 @@ mod test {
 
     #[test]
     fn recv_partial_go_to_deadline() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
@@ -363,8 +386,8 @@ mod test {
 
     // #[test]
     // fn recv_go_to_deadline_oob_seconds() {
-        // run_client_and_actor(|mut connector, input_buffer| {
-            // let error = connector.recv(input_buffer).unwrap_err();
+        // run_client_and_actor(|mut connector| {
+            // let error = connector.recv().unwrap_err();
             // assert_eq!(error.kind(), ErrorKind::InvalidData);
         // },
         // recv_go_to_deadline_oob_seconds_actor)
@@ -382,8 +405,8 @@ mod test {
 
     #[test]
     fn recv_go_to_deadline_oob_useconds() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
@@ -407,8 +430,8 @@ mod test {
 
     #[test]
     fn recv_go_to_deadline() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             assert!(msg.is_ok());
             let msg = msg.unwrap();
             match msg {
@@ -447,8 +470,8 @@ mod test {
 
     #[test]
     fn recv_partial_deliver_packet_header() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
@@ -463,8 +486,8 @@ mod test {
 
     #[test]
     fn recv_partial_deliver_packet_payload() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
@@ -486,8 +509,8 @@ mod test {
 
     #[test]
     fn recv_deliver_packet_payload_too_big() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
@@ -513,13 +536,13 @@ mod test {
 
     #[test]
     fn recv_deliver_packet() {
-        run_client_and_actor(|mut connector, input_buffer| {
-            let msg = connector.recv(input_buffer);
+        run_client_and_actor(|mut connector| {
+            let msg = connector.recv();
             assert!(msg.is_ok());
             let msg = msg.unwrap();
             match msg {
                 MsgIn::DeliverPacket(payload) => {
-                    assert_eq!(payload, PACKET_PAYLOAD)
+                    assert_eq!(payload.deref(), PACKET_PAYLOAD)
                 },
                 _ => assert!(false),
             }
@@ -544,7 +567,7 @@ mod test {
 
     #[test]
     fn send_at_deadline() {
-        run_client_and_actor(|mut connector, _| {
+        run_client_and_actor(|mut connector| {
             connector.send(MsgOut::AtDeadline).expect("Failed to send at_deadline")
         },
         recv_at_deadline)
@@ -562,9 +585,12 @@ mod test {
         }, "Buffer too small to receive payload")
     }
 
-    fn make_ref_send_packet() -> MsgOut<'static> {
-        MsgOut::SendPacket(Duration::new(3, 200), 0, 1,
-                       b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")
+    fn make_ref_send_packet() -> MsgOut {
+        let msg = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF";
+        let mut buffer = BufferPool::new(msg.len(), 1).allocate_buffer(msg.len()).expect("allocate_buffer failed");
+        buffer.copy_from_slice(msg);
+
+        MsgOut::SendPacket(Duration::new(3, 200), 0, 1, buffer)
     }
 
     fn send_send_packet_actor(actor: &mut TestActor) -> TestResult<()> {
@@ -576,7 +602,7 @@ mod test {
             TestActor::check_eq(msg.send_time.seconds, seconds, "Received wrong value for Time::seconds")?;
             TestActor::check_eq(msg.send_time.useconds, useconds as u64, "Received wrong value for Time::useconds")?;
             let payload_len = msg.packet.size as usize;
-            TestActor::check_eq(&buffer[..payload_len], ref_payload, "Received wrong payload")
+            TestActor::check_eq(&buffer[..payload_len], ref_payload.deref(), "Received wrong payload")
         } else {
             unreachable!()
         }
@@ -584,7 +610,7 @@ mod test {
 
     #[test]
     fn send_send_packet() {
-        run_client_and_actor(|mut connector, _| {
+        run_client_and_actor(|mut connector| {
             connector.send(make_ref_send_packet()).expect("Failed to send send_packet")
         },
         send_send_packet_actor)
