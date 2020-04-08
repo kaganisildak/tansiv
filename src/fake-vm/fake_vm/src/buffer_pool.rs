@@ -111,8 +111,8 @@ struct InnerBuffer {
     size: usize,
 }
 
-// Does not implement Clone. It would be unsafe since cloning would mean allocated the buffer space
-// twice.
+// Does not implement Clone. It would be unsafe since cloning would mean allocating the buffer
+// space twice.
 #[derive(Debug)]
 pub struct Buffer {
     pool: BufferPool,
