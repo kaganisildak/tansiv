@@ -3,6 +3,14 @@ variables:
   GIT_SUBMODULE_STRATEGY: recursive
   RUST_VERSION: 1.42.0
 
+workflow:
+  rules:
+    - if: $CI_COMMIT_REF_NAME =~ /dbg\//
+      when: never
+    - if: $CI_COMMIT_REF_NAME =~ /dev\// && $CI_COMMIT_TITLE =~ /WIP/
+      when: never
+    - when: always
+
 # unstable, yeah !
 image: simgrid/unstable:latest
 
