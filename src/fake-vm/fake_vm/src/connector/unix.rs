@@ -88,8 +88,8 @@ pub mod test_helpers {
 
     // Application-side API
     impl TestActor {
-        pub fn new<P: AsRef<Path> + std::fmt::Debug, F>(path: P, server_fn: F) -> TestActor
-            where F: FnOnce(UnixListener) -> () {
+        pub fn new<P: AsRef<Path> + std::fmt::Debug, F>(path: P, actor_fn: F) -> TestActor
+            where F: FnOnce(&mut UnixStream) -> TestResult<()> {
             use nix::unistd::{fork, ForkResult};
 
             Self::remove_file_if_present(&path).expect(&format!("Server socket path '{:?}' is busy", &path));
@@ -97,7 +97,7 @@ pub mod test_helpers {
             let fork_res = fork().expect("Forking server failed");
             match fork_res {
                 ForkResult::Child => {
-                    server_fn(server);
+                    TestActor::run(server, actor_fn);
                     // The server socket is deleted when TestActorDescriptor is dropped
                     // std::fs::remove_file(&path).expect(&format!("Server socket '{:?}' could not be removed", &path));
                     std::process::exit(0)
@@ -136,7 +136,7 @@ pub mod test_helpers {
 
     // Actor-side API
     impl TestActor {
-        pub fn run<F>(server: UnixListener, actor_fn: F) -> ()
+        fn run<F>(server: UnixListener, actor_fn: F) -> ()
             where F: FnOnce(&mut UnixStream) -> TestResult<()> {
             info!("Server listening at address {:?}", server);
             match server.accept() {
@@ -175,8 +175,8 @@ pub mod test_helpers {
             }, context)
         }
 
-        pub fn dummy_actor(server: UnixListener) {
-            Self::run(server, |_| Ok(()))
+        pub fn dummy_actor(_client: &mut UnixStream) -> TestResult<()> {
+            Ok(())
         }
 
         pub fn send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
@@ -194,9 +194,9 @@ pub mod test_helpers {
 mod test {
     use binser::{ToBytes, ToStream, SizedAsBytes};
     use crate::{Config, connector::*};
-    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::UnixStream;
     use structopt::StructOpt;
-    use super::{test_helpers::*, *};
+    use super::test_helpers::*;
 
     #[test]
     fn valid_server_path() {
@@ -232,11 +232,11 @@ mod test {
         drop(actor);
     }
 
-    fn run_client_server<C, S>(client_fn: C, server_fn: S)
+    fn run_client_and_actor<C, A>(client_fn: C, actor_fn: A)
         where C: FnOnce(UnixConnector, &mut [u8]) -> (),
-              S: FnOnce(UnixListener) -> (),
-              S: Send + 'static {
-        let actor = TestActor::new("titi", server_fn);
+              A: FnOnce(&mut UnixStream) -> TestResult<()>,
+              A: Send + 'static {
+        let actor = TestActor::new("titi", actor_fn);
         let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
         let (connector, input_buffer_pool) = UnixConnector::new(&config).unwrap();
         let mut input_buffer = BufferPool::allocate_buffer(&input_buffer_pool, crate::MAX_PACKET_SIZE).unwrap();
@@ -252,22 +252,16 @@ mod test {
         TestActor::check_io(socket.write_all(&buffer[..(MsgInType::NUM_BYTES - 1)]), "Failed to send partial message type")
     }
 
-    fn recv_partial_msg_type_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_partial_msg_type(&mut client)
-        });
-    }
-
     #[test]
     fn recv_partial_msg_type() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
             }
         },
-        recv_partial_msg_type_srv)
+        send_partial_msg_type)
     }
 
     fn send_invalid_msg_type(socket: &mut UnixStream) -> TestResult<()> {
@@ -276,22 +270,16 @@ mod test {
         TestActor::check_io(invalid_type.to_stream(socket, &mut buffer, Endianness::Native), "Failed to send message type")
     }
 
-    fn recv_invalid_msg_type_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_invalid_msg_type(&mut client)
-        })
-    }
-
     #[test]
     fn recv_invalid_msg_type() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
             }
         },
-        recv_invalid_msg_type_srv)
+        send_invalid_msg_type)
     }
 
     static GO_TO_DEADLINE: GoToDeadline = GoToDeadline {
@@ -301,32 +289,26 @@ mod test {
         },
     };
 
-    fn send_partial_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) -> TestResult<()> {
+    fn send_partial_go_to_deadline(socket: &mut UnixStream) -> TestResult<()> {
         let mut buffer = vec!(0; MsgIn::max_header_size());
         let mut buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::GoToDeadline;
 
         TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
-        TestActor::check_io(msg.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize go_to_deadline")?;
+        TestActor::check_io(GO_TO_DEADLINE.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize GO_TO_DEADLINE")?;
         TestActor::check_io(socket.write_all(&buffer[..(GoToDeadline::NUM_BYTES - 1)]), "Failed to send partial go_to_deadline")
-    }
-
-    fn recv_partial_go_to_deadline_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_partial_go_to_deadline(&mut client, GO_TO_DEADLINE)
-        })
     }
 
     #[test]
     fn recv_partial_go_to_deadline() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
             }
         },
-        recv_partial_go_to_deadline_srv)
+        send_partial_go_to_deadline)
     }
 
     // If types used to represent seconds change, the test will just not compile.
@@ -344,49 +326,45 @@ mod test {
         let internal_should_use_u64 = MsgIn::GoToDeadline(Duration::new(0u64, 0u32));
     }
 
-    // fn recv_go_to_deadline_oob_seconds_srv(server: UnixListener) {
-        // TestActor::run(server, |mut client| {
-            // let msg = GoToDeadline {
-                // deadline: Time {
-                    // seconds: std::u64::MAX,
-                    // useconds: 0,
-                // },
-            // };
-            // send_go_to_deadline(&mut client, msg)
-        // })
+    // fn recv_go_to_deadline_oob_seconds_actor(client: &mut UnixStream) -> TestResult<()> {
+        // let msg = GoToDeadline {
+            // deadline: Time {
+                // seconds: std::u64::MAX,
+                // useconds: 0,
+            // },
+        // };
+        // send_go_to_deadline(&mut client, msg)
     // }
 
     // #[test]
     // fn recv_go_to_deadline_oob_seconds() {
-        // run_client_server(|mut connector, input_buffer| {
+        // run_client_and_actor(|mut connector, input_buffer| {
             // let error = connector.recv(input_buffer).unwrap_err();
             // assert_eq!(error.kind(), ErrorKind::InvalidData);
         // },
-        // recv_go_to_deadline_oob_seconds_srv)
+        // recv_go_to_deadline_oob_seconds_actor)
     // }
 
-    fn recv_go_to_deadline_oob_useconds_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            let msg = GoToDeadline {
-                deadline: Time {
-                    seconds: 0,
-                    useconds: std::u64::MAX,
-                },
-            };
-            send_go_to_deadline(&mut client, msg)
-        })
+    fn recv_go_to_deadline_oob_useconds_actor(client: &mut UnixStream) -> TestResult<()> {
+        let msg = GoToDeadline {
+            deadline: Time {
+                seconds: 0,
+                useconds: std::u64::MAX,
+            },
+        };
+        send_go_to_deadline(client, msg)
     }
 
     #[test]
     fn recv_go_to_deadline_oob_useconds() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
             }
         },
-        recv_go_to_deadline_oob_useconds_srv)
+        recv_go_to_deadline_oob_useconds_actor)
     }
 
     fn send_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) -> TestResult<()> {
@@ -398,15 +376,13 @@ mod test {
         TestActor::check_io(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deadline")
     }
 
-    fn recv_go_to_deadline_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_go_to_deadline(&mut client, GO_TO_DEADLINE)
-        })
+    fn recv_go_to_deadline_actor(client: &mut UnixStream) -> TestResult<()> {
+        send_go_to_deadline(client, GO_TO_DEADLINE)
     }
 
     #[test]
     fn recv_go_to_deadline() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             assert!(msg.is_ok());
             let msg = msg.unwrap();
@@ -420,7 +396,7 @@ mod test {
                 _ => assert!(false),
             }
         },
-        recv_go_to_deadline_srv)
+        recv_go_to_deadline_actor)
     }
 
     static DELIVER_PACKET: DeliverPacket = DeliverPacket {
@@ -440,65 +416,59 @@ mod test {
         TestActor::check_io(socket.write_all(&buffer[..(DeliverPacket::NUM_BYTES - 1)]), "Failed to send partial deliver_packet header")
     }
 
-    fn recv_partial_deliver_packet_header_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_partial_deliver_packet_header(&mut client, DELIVER_PACKET)
-        })
+    fn recv_partial_deliver_packet_header_actor(client: &mut UnixStream) -> TestResult<()> {
+        send_partial_deliver_packet_header(client, DELIVER_PACKET)
     }
 
     #[test]
     fn recv_partial_deliver_packet_header() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
             }
         },
-        recv_partial_deliver_packet_header_srv)
+        recv_partial_deliver_packet_header_actor)
     }
 
-    fn recv_partial_deliver_packet_payload_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD[1..])
-        })
+    fn recv_partial_deliver_packet_payload_actor(client: &mut UnixStream) -> TestResult<()> {
+        send_deliver_packet(client, DELIVER_PACKET, &PACKET_PAYLOAD[1..])
     }
 
     #[test]
     fn recv_partial_deliver_packet_payload() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
             }
         },
-        recv_partial_deliver_packet_payload_srv)
+        recv_partial_deliver_packet_payload_actor)
     }
 
-    fn recv_deliver_packet_payload_too_big_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            let msg = DeliverPacket {
-                packet: Packet {
-                    size: (crate::MAX_PACKET_SIZE + 1) as u32,
-                },
-            };
-            let mut big_payload = vec!(0; msg.packet.size as usize);
-            big_payload[msg.packet.size as usize - 1] = 1;
-            send_deliver_packet(&mut client, msg, &big_payload)
-        })
+    fn recv_deliver_packet_payload_too_big_actor(client: &mut UnixStream) -> TestResult<()> {
+        let msg = DeliverPacket {
+            packet: Packet {
+                size: (crate::MAX_PACKET_SIZE + 1) as u32,
+            },
+        };
+        let mut big_payload = vec!(0; msg.packet.size as usize);
+        big_payload[msg.packet.size as usize - 1] = 1;
+        send_deliver_packet(client, msg, &big_payload)
     }
 
     #[test]
     fn recv_deliver_packet_payload_too_big() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             match msg {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
             }
         },
-        recv_deliver_packet_payload_too_big_srv)
+        recv_deliver_packet_payload_too_big_actor)
     }
 
     fn send_deliver_packet(socket: &mut UnixStream, msg: DeliverPacket, payload: &[u8]) -> TestResult<()> {
@@ -511,16 +481,14 @@ mod test {
         TestActor::check_io(socket.write_all(payload), "Failed to send payload")
     }
 
-    fn recv_deliver_packet_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            assert_eq!(PACKET_PAYLOAD.len(), DELIVER_PACKET.packet.size as usize);
-            send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD)
-        })
+    fn recv_deliver_packet_actor(client: &mut UnixStream) -> TestResult<()> {
+        assert_eq!(PACKET_PAYLOAD.len(), DELIVER_PACKET.packet.size as usize);
+        send_deliver_packet(client, DELIVER_PACKET, &PACKET_PAYLOAD)
     }
 
     #[test]
     fn recv_deliver_packet() {
-        run_client_server(|mut connector, input_buffer| {
+        run_client_and_actor(|mut connector, input_buffer| {
             let msg = connector.recv(input_buffer);
             assert!(msg.is_ok());
             let msg = msg.unwrap();
@@ -531,7 +499,7 @@ mod test {
                 _ => assert!(false),
             }
         },
-        recv_deliver_packet_srv)
+        recv_deliver_packet_actor)
     }
 
     fn recv_msg_out_type(client: &mut UnixStream, expected_type: MsgOutType) -> TestResult<MsgOutType> {
@@ -549,22 +517,16 @@ mod test {
         recv_msg_out_type(client, MsgOutType::AtDeadline).and(Ok(()))
     }
 
-    fn send_at_deadline_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            recv_at_deadline(&mut client)
-        })
-    }
-
     #[test]
     fn send_at_deadline() {
-        run_client_server(|mut connector, _| {
+        run_client_and_actor(|mut connector, _| {
             connector.send(MsgOut::AtDeadline).expect("Failed to send at_deadline")
         },
-        send_at_deadline_srv)
+        recv_at_deadline)
     }
 
     fn recv_send_packet(client: &mut UnixStream, buffer: &mut [u8]) -> TestResult<SendPacket> {
-        let msg_type = recv_msg_out_type(client, MsgOutType::SendPacket)?;
+        let _ = recv_msg_out_type(client, MsgOutType::SendPacket)?;
 
         let msg = TestActor::check_io(SendPacket::from_stream(client, buffer, Endianness::Native), "Failed to receive send_packet header")?;
         TestActor::check_io(if let Some(buffer) = buffer.get_mut(..(msg.packet.size as usize)) {
@@ -580,28 +542,26 @@ mod test {
                        b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")
     }
 
-    fn send_send_packet_srv(server: UnixListener) {
-        TestActor::run(server, |mut client| {
-            let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
-            let msg = recv_send_packet(&mut client, &mut buffer)?;
-            if let MsgOut::SendPacket(ref_send_time, src, dest, ref_payload) = make_ref_send_packet() {
-                let seconds = ref_send_time.as_secs();
-                let useconds = ref_send_time.subsec_micros();
-                TestActor::check_eq(msg.send_time.seconds, seconds, "Received wrong value for Time::seconds")?;
-                TestActor::check_eq(msg.send_time.useconds, useconds as u64, "Received wrong value for Time::useconds")?;
-                let payload_len = msg.packet.size as usize;
-                TestActor::check_eq(&buffer[..payload_len], ref_payload, "Received wrong payload")
-            } else {
-                unreachable!()
-            }
-        })
+    fn send_send_packet_actor(client: &mut UnixStream) -> TestResult<()> {
+        let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
+        let msg = recv_send_packet(client, &mut buffer)?;
+        if let MsgOut::SendPacket(ref_send_time, src, dest, ref_payload) = make_ref_send_packet() {
+            let seconds = ref_send_time.as_secs();
+            let useconds = ref_send_time.subsec_micros();
+            TestActor::check_eq(msg.send_time.seconds, seconds, "Received wrong value for Time::seconds")?;
+            TestActor::check_eq(msg.send_time.useconds, useconds as u64, "Received wrong value for Time::useconds")?;
+            let payload_len = msg.packet.size as usize;
+            TestActor::check_eq(&buffer[..payload_len], ref_payload, "Received wrong payload")
+        } else {
+            unreachable!()
+        }
     }
 
     #[test]
     fn send_send_packet() {
-        run_client_server(|mut connector, _| {
+        run_client_and_actor(|mut connector, _| {
             connector.send(make_ref_send_packet()).expect("Failed to send send_packet")
         },
-        send_send_packet_srv)
+        send_send_packet_actor)
     }
 }

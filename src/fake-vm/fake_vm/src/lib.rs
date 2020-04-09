@@ -272,7 +272,7 @@ pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Box<Context>>
 #[cfg(any(test, feature = "test-helpers"))]
 #[macro_use]
 pub mod test_helpers {
-    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::UnixStream;
     use std::time::Duration;
     use super::connector::{MsgIn, MsgOut};
     #[cfg(feature = "test-helpers")]
@@ -302,30 +302,26 @@ pub mod test_helpers {
     pub fn dummy_recv_callback(_context: &super::Context, _packet: &[u8]) -> () {
     }
 
-    pub fn start_actor(server: UnixListener) -> () {
-        TestActor::run(server, |client| {
-            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
-            TestActor::send(client, MsgIn::EndSimulation)
-        })
+    pub fn start_actor(client: &mut UnixStream) -> TestResult<()> {
+        TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+        TestActor::send(client, MsgIn::EndSimulation)
     }
 
     // Actor that will let the VM run until the VM explicitly stops, by either sending a packet
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
-    pub fn recv_one_msg_actor(server: UnixListener) -> () {
-        TestActor::run(server, |client| {
-            let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
+    pub fn recv_one_msg_actor(client: &mut UnixStream) -> TestResult<()> {
+        let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
 
-            loop {
-                TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
-                let msg = TestActor::recv(client, &mut buffer)?;
-                match msg {
-                    MsgOut::AtDeadline => (),
-                    MsgOut::SendPacket(_, _, _, _) => break,
-                }
+        loop {
+            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+            let msg = TestActor::recv(client, &mut buffer)?;
+            match msg {
+                MsgOut::AtDeadline => (),
+                MsgOut::SendPacket(_, _, _, _) => break,
             }
-            TestActor::send(client, MsgIn::EndSimulation)
-        })
+        }
+        TestActor::send(client, MsgIn::EndSimulation)
     }
 
 
