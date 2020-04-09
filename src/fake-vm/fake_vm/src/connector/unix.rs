@@ -167,6 +167,14 @@ pub mod test_helpers {
             Self::check(crate::from_io_result(result), context)
         }
 
+        pub fn check_eq<T: PartialEq>(left: T, right: T, context: &'static str) -> TestResult<()> {
+            Self::check_io(if left == right {
+                Ok(())
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Values do not match"))
+            }, context)
+        }
+
         pub fn dummy_actor(server: UnixListener) {
             Self::run(server, |_| Ok(()))
         }
@@ -186,7 +194,6 @@ pub mod test_helpers {
 mod test {
     use binser::{ToBytes, ToStream, SizedAsBytes};
     use crate::{Config, connector::*};
-    use log::info;
     use std::os::unix::net::UnixListener;
     use structopt::StructOpt;
     use super::{test_helpers::*, *};
@@ -239,16 +246,16 @@ mod test {
         drop(actor);
     }
 
-    fn send_partial_msg_type(socket: &mut UnixStream) {
+    fn send_partial_msg_type(socket: &mut UnixStream) -> TestResult<()> {
         let mut buffer = [0; MsgInType::NUM_BYTES];
-        MsgInType::GoToDeadline.to_bytes(&mut buffer, Endianness::Native).expect("Failed to serialize message type");
-        socket.write_all(&buffer[..(MsgInType::NUM_BYTES - 1)]).expect("Failed to send partial message type");
+        TestActor::check_io(MsgInType::GoToDeadline.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize message type")?;
+        TestActor::check_io(socket.write_all(&buffer[..(MsgInType::NUM_BYTES - 1)]), "Failed to send partial message type")
     }
 
     fn recv_partial_msg_type_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_partial_msg_type(&mut client);
+        TestActor::run(server, |mut client| {
+            send_partial_msg_type(&mut client)
+        });
     }
 
     #[test]
@@ -263,16 +270,16 @@ mod test {
         recv_partial_msg_type_srv)
     }
 
-    fn send_invalid_msg_type(socket: &mut UnixStream) {
+    fn send_invalid_msg_type(socket: &mut UnixStream) -> TestResult<()> {
         let invalid_type = (MsgInType::GoToDeadline as u32 + 1) * (MsgInType::DeliverPacket as u32 + 1) + 1;
         let mut buffer = [0; u32::NUM_BYTES];
-        invalid_type.to_stream(socket, &mut buffer, Endianness::Native).expect("Failed to send message type");
+        TestActor::check_io(invalid_type.to_stream(socket, &mut buffer, Endianness::Native), "Failed to send message type")
     }
 
     fn recv_invalid_msg_type_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_invalid_msg_type(&mut client);
+        TestActor::run(server, |mut client| {
+            send_invalid_msg_type(&mut client)
+        })
     }
 
     #[test]
@@ -294,20 +301,20 @@ mod test {
         },
     };
 
-    fn send_partial_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) {
+    fn send_partial_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) -> TestResult<()> {
         let mut buffer = vec!(0; MsgIn::max_header_size());
         let mut buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::GoToDeadline;
 
-        msg_type.to_stream(socket, buffer, Endianness::Native).expect("Failed to send message type");
-        msg.to_bytes(&mut buffer, Endianness::Native).expect("Failed to serialize go_to_deadline");
-        socket.write_all(&buffer[..(GoToDeadline::NUM_BYTES - 1)]).expect("Failed to send partial go_to_deadline");
+        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check_io(msg.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize go_to_deadline")?;
+        TestActor::check_io(socket.write_all(&buffer[..(GoToDeadline::NUM_BYTES - 1)]), "Failed to send partial go_to_deadline")
     }
 
     fn recv_partial_go_to_deadline_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_partial_go_to_deadline(&mut client, GO_TO_DEADLINE);
+        TestActor::run(server, |mut client| {
+            send_partial_go_to_deadline(&mut client, GO_TO_DEADLINE)
+        })
     }
 
     #[test]
@@ -338,16 +345,15 @@ mod test {
     }
 
     // fn recv_go_to_deadline_oob_seconds_srv(server: UnixListener) {
-        // let (mut client, address) = server.accept().expect("Failed to accept connection");
-        // info!("New client: {:?}", address);
-
-        // let msg = GoToDeadline {
-            // deadline: Time {
-                // seconds: std::u64::MAX,
-                // useconds: 0,
-            // },
-        // };
-        // send_go_to_deadline(&mut client, msg);
+        // TestActor::run(server, |mut client| {
+            // let msg = GoToDeadline {
+                // deadline: Time {
+                    // seconds: std::u64::MAX,
+                    // useconds: 0,
+                // },
+            // };
+            // send_go_to_deadline(&mut client, msg)
+        // })
     // }
 
     // #[test]
@@ -360,16 +366,15 @@ mod test {
     // }
 
     fn recv_go_to_deadline_oob_useconds_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-
-        let msg = GoToDeadline {
-            deadline: Time {
-                seconds: 0,
-                useconds: std::u64::MAX,
-            },
-        };
-        send_go_to_deadline(&mut client, msg);
+        TestActor::run(server, |mut client| {
+            let msg = GoToDeadline {
+                deadline: Time {
+                    seconds: 0,
+                    useconds: std::u64::MAX,
+                },
+            };
+            send_go_to_deadline(&mut client, msg)
+        })
     }
 
     #[test]
@@ -384,19 +389,19 @@ mod test {
         recv_go_to_deadline_oob_useconds_srv)
     }
 
-    fn send_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) {
+    fn send_go_to_deadline(socket: &mut UnixStream, msg: GoToDeadline) -> TestResult<()> {
         let mut buffer = vec!(0; MsgIn::max_header_size());
         let buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::GoToDeadline;
 
-        msg_type.to_stream(socket, buffer, Endianness::Native).expect("Failed to send message type");
-        msg.to_stream(socket, buffer, Endianness::Native).expect("Failed to send deadline");
+        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check_io(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deadline")
     }
 
     fn recv_go_to_deadline_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_go_to_deadline(&mut client, GO_TO_DEADLINE);
+        TestActor::run(server, |mut client| {
+            send_go_to_deadline(&mut client, GO_TO_DEADLINE)
+        })
     }
 
     #[test]
@@ -425,20 +430,20 @@ mod test {
     };
     static PACKET_PAYLOAD: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF";
 
-    fn send_partial_deliver_packet_header(socket: &mut UnixStream, msg: DeliverPacket) {
+    fn send_partial_deliver_packet_header(socket: &mut UnixStream, msg: DeliverPacket) -> TestResult<()> {
         let mut buffer = vec!(0; MsgIn::max_header_size());
         let mut buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::DeliverPacket;
 
-        msg_type.to_stream(socket, buffer, Endianness::Native).expect("Failed to send message type");
-        msg.to_bytes(&mut buffer, Endianness::Native).expect("Failed to serialize deliver_packet header");
-        socket.write_all(&buffer[..(DeliverPacket::NUM_BYTES - 1)]).expect("Failed to send partial deliver_packet header");
+        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check_io(msg.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize deliver_packet header")?;
+        TestActor::check_io(socket.write_all(&buffer[..(DeliverPacket::NUM_BYTES - 1)]), "Failed to send partial deliver_packet header")
     }
 
     fn recv_partial_deliver_packet_header_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_partial_deliver_packet_header(&mut client, DELIVER_PACKET);
+        TestActor::run(server, |mut client| {
+            send_partial_deliver_packet_header(&mut client, DELIVER_PACKET)
+        })
     }
 
     #[test]
@@ -454,9 +459,9 @@ mod test {
     }
 
     fn recv_partial_deliver_packet_payload_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD[1..]);
+        TestActor::run(server, |mut client| {
+            send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD[1..])
+        })
     }
 
     #[test]
@@ -472,17 +477,16 @@ mod test {
     }
 
     fn recv_deliver_packet_payload_too_big_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-
-        let msg = DeliverPacket {
-            packet: Packet {
-                size: (crate::MAX_PACKET_SIZE + 1) as u32,
-            },
-        };
-        let mut big_payload = vec!(0; msg.packet.size as usize);
-        big_payload[msg.packet.size as usize - 1] = 1;
-        send_deliver_packet(&mut client, msg, &big_payload);
+        TestActor::run(server, |mut client| {
+            let msg = DeliverPacket {
+                packet: Packet {
+                    size: (crate::MAX_PACKET_SIZE + 1) as u32,
+                },
+            };
+            let mut big_payload = vec!(0; msg.packet.size as usize);
+            big_payload[msg.packet.size as usize - 1] = 1;
+            send_deliver_packet(&mut client, msg, &big_payload)
+        })
     }
 
     #[test]
@@ -497,21 +501,21 @@ mod test {
         recv_deliver_packet_payload_too_big_srv)
     }
 
-    fn send_deliver_packet(socket: &mut UnixStream, msg: DeliverPacket, payload: &[u8]) {
+    fn send_deliver_packet(socket: &mut UnixStream, msg: DeliverPacket, payload: &[u8]) -> TestResult<()> {
         let mut buffer = vec!(0; MsgIn::max_header_size());
         let buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::DeliverPacket;
 
-        msg_type.to_stream(socket, buffer, Endianness::Native).expect("Failed to send message type");
-        msg.to_stream(socket, buffer, Endianness::Native).expect("Failed to send deliver_packet header");
-        socket.write_all(payload).expect("Failed to send payload");
+        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check_io(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deliver_packet header")?;
+        TestActor::check_io(socket.write_all(payload), "Failed to send payload")
     }
 
     fn recv_deliver_packet_srv(server: UnixListener) {
-        assert_eq!(PACKET_PAYLOAD.len(), DELIVER_PACKET.packet.size as usize);
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-        send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD);
+        TestActor::run(server, |mut client| {
+            assert_eq!(PACKET_PAYLOAD.len(), DELIVER_PACKET.packet.size as usize);
+            send_deliver_packet(&mut client, DELIVER_PACKET, &PACKET_PAYLOAD)
+        })
     }
 
     #[test]
@@ -530,18 +534,25 @@ mod test {
         recv_deliver_packet_srv)
     }
 
-    fn recv_at_deadline(client: &mut UnixStream) {
-        let mut buffer = vec!(0; MsgOut::max_header_size());
+    fn recv_msg_out_type(client: &mut UnixStream, expected_type: MsgOutType) -> TestResult<MsgOutType> {
+        let mut buffer = vec!(0; MsgOutType::NUM_BYTES);
         let buffer = buffer.as_mut_slice();
-        let msg_type = MsgOutType::from_stream(client, buffer, Endianness::Native).expect("Failed to receive message type");
-        assert_eq!(MsgOutType::AtDeadline, msg_type);
+        let msg_type = TestActor::check_io(MsgOutType::from_stream(client, buffer, Endianness::Native), "Failed to receive message type")?;
+        TestActor::check_io(if expected_type == msg_type {
+            Ok(msg_type)
+        } else {
+            Err(std::io::Error::new(ErrorKind::InvalidData, "Wrong message type"))
+        }, "Received wrong message type")
+    }
+
+    fn recv_at_deadline(client: &mut UnixStream) -> TestResult<()> {
+        recv_msg_out_type(client, MsgOutType::AtDeadline).and(Ok(()))
     }
 
     fn send_at_deadline_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-
-        recv_at_deadline(&mut client);
+        TestActor::run(server, |mut client| {
+            recv_at_deadline(&mut client)
+        })
     }
 
     #[test]
@@ -552,18 +563,16 @@ mod test {
         send_at_deadline_srv)
     }
 
-    fn recv_send_packet(client: &mut UnixStream, buffer: &mut [u8]) -> SendPacket {
-        let msg_type = MsgOutType::from_stream(client, buffer, Endianness::Native).expect("Failed to receive message type");
-        assert_eq!(MsgOutType::SendPacket, msg_type);
+    fn recv_send_packet(client: &mut UnixStream, buffer: &mut [u8]) -> TestResult<SendPacket> {
+        let msg_type = recv_msg_out_type(client, MsgOutType::SendPacket)?;
 
-        let msg = SendPacket::from_stream(client, buffer, Endianness::Native).expect("Failed to receive send_packet header");
-        if let Some(buffer) = buffer.get_mut(..(msg.packet.size as usize)) {
-            client.read_exact(buffer).expect("Failed to receive payload");
+        let msg = TestActor::check_io(SendPacket::from_stream(client, buffer, Endianness::Native), "Failed to receive send_packet header")?;
+        TestActor::check_io(if let Some(buffer) = buffer.get_mut(..(msg.packet.size as usize)) {
+            TestActor::check_io(client.read_exact(buffer), "Failed to receive payload")?;
+            Ok(msg)
         } else {
-            panic!("buffer too small to receive payload");
-        }
-
-        msg
+            Err(std::io::Error::new(ErrorKind::UnexpectedEof, "Buffer too small"))
+        }, "Buffer too small to receive payload")
     }
 
     fn make_ref_send_packet() -> MsgOut<'static> {
@@ -572,21 +581,20 @@ mod test {
     }
 
     fn send_send_packet_srv(server: UnixListener) {
-        let (mut client, address) = server.accept().expect("Failed to accept connection");
-        info!("New client: {:?}", address);
-
-        let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
-        let msg = recv_send_packet(&mut client, &mut buffer);
-        if let MsgOut::SendPacket(ref_send_time, src, dest, ref_payload) = make_ref_send_packet() {
-            let seconds = ref_send_time.as_secs();
-            let useconds = ref_send_time.subsec_micros();
-            assert_eq!(msg.send_time.seconds, seconds);
-            assert_eq!(msg.send_time.useconds, useconds as u64);
-            let payload_len = msg.packet.size as usize;
-            assert_eq!(&buffer[..payload_len], ref_payload);
-        } else {
-            assert!(false);
-        }
+        TestActor::run(server, |mut client| {
+            let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
+            let msg = recv_send_packet(&mut client, &mut buffer)?;
+            if let MsgOut::SendPacket(ref_send_time, src, dest, ref_payload) = make_ref_send_packet() {
+                let seconds = ref_send_time.as_secs();
+                let useconds = ref_send_time.subsec_micros();
+                TestActor::check_eq(msg.send_time.seconds, seconds, "Received wrong value for Time::seconds")?;
+                TestActor::check_eq(msg.send_time.useconds, useconds as u64, "Received wrong value for Time::useconds")?;
+                let payload_len = msg.packet.size as usize;
+                TestActor::check_eq(&buffer[..payload_len], ref_payload, "Received wrong payload")
+            } else {
+                unreachable!()
+            }
+        })
     }
 
     #[test]
