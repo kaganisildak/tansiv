@@ -147,7 +147,11 @@ pub mod test_helpers {
                         Err(e) => error!("Actor failed: {:?}", e),
                         _ => {
                             // Just drain until the VM ends, do not make it fail when sending messages
-                            for _ in client.bytes() {
+                            if client.shutdown(std::net::Shutdown::Write).is_err() {
+                                error!("Shutdown failed")
+                            } else {
+                                for _ in client.bytes() {
+                                }
                             }
                         },
                     }
@@ -161,9 +165,7 @@ pub mod test_helpers {
         }
 
         pub fn dummy_actor(server: UnixListener) {
-            Self::run(server, |client| {
-                Self::check(from_io_result(client.shutdown(std::net::Shutdown::Write)), "Shutdown failed")
-            })
+            Self::run(server, |_| Ok(()))
         }
 
         pub fn send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
