@@ -545,7 +545,7 @@ mod test {
     fn send_send_packet_actor(client: &mut UnixStream) -> TestResult<()> {
         let mut buffer = vec!(0; usize::max(MsgOut::max_header_size(), crate::MAX_PACKET_SIZE));
         let msg = recv_send_packet(client, &mut buffer)?;
-        if let MsgOut::SendPacket(ref_send_time, src, dest, ref_payload) = make_ref_send_packet() {
+        if let MsgOut::SendPacket(ref_send_time, _, _, ref_payload) = make_ref_send_packet() {
             let seconds = ref_send_time.as_secs();
             let useconds = ref_send_time.subsec_micros();
             TestActor::check_eq(msg.send_time.seconds, seconds, "Received wrong value for Time::seconds")?;
