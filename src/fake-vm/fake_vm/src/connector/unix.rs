@@ -183,7 +183,6 @@ mod test {
     use crate::{Config, connector::*};
     use log::info;
     use std::os::unix::net::UnixListener;
-    use std::path::PathBuf;
     use structopt::StructOpt;
     use super::{test_helpers::*, *};
 
