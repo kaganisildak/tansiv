@@ -272,7 +272,6 @@ pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Box<Context>>
 #[cfg(any(test, feature = "test-helpers"))]
 #[macro_use]
 pub mod test_helpers {
-    use std::os::unix::net::UnixStream;
     use std::time::Duration;
     use super::connector::{MsgIn, MsgOut};
     #[cfg(feature = "test-helpers")]
@@ -302,26 +301,26 @@ pub mod test_helpers {
     pub fn dummy_recv_callback(_context: &super::Context, _packet: &[u8]) -> () {
     }
 
-    pub fn start_actor(client: &mut UnixStream) -> TestResult<()> {
-        TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
-        TestActor::send(client, MsgIn::EndSimulation)
+    pub fn start_actor(actor: &mut TestActor) -> TestResult<()> {
+        actor.send(MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+        actor.send(MsgIn::EndSimulation)
     }
 
     // Actor that will let the VM run until the VM explicitly stops, by either sending a packet
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
-    pub fn recv_one_msg_actor(client: &mut UnixStream) -> TestResult<()> {
+    pub fn recv_one_msg_actor(actor: &mut TestActor) -> TestResult<()> {
         let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
 
         loop {
-            TestActor::send(client, MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
-            let msg = TestActor::recv(client, &mut buffer)?;
+            actor.send(MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+            let msg = actor.recv(&mut buffer)?;
             match msg {
                 MsgOut::AtDeadline => (),
                 MsgOut::SendPacket(_, _, _, _) => break,
             }
         }
-        TestActor::send(client, MsgIn::EndSimulation)
+        actor.send(MsgIn::EndSimulation)
     }
 
 
@@ -345,7 +344,7 @@ mod test {
     fn init_valid() {
         init();
 
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -358,7 +357,7 @@ mod test {
     fn init_invalid() {
         init();
 
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         super::init(invalid_args!(), Box::new(dummy_recv_callback))
             .expect_err("init returned a context");
 
@@ -369,7 +368,7 @@ mod test {
     fn start_stop() {
         init();
 
-        let actor = TestActor::new("titi", start_actor);
+        let actor = TestActorDesc::new("titi", start_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -385,7 +384,7 @@ mod test {
     fn start_already() {
         init();
 
-        let actor = TestActor::new("titi", start_actor);
+        let actor = TestActorDesc::new("titi", start_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -406,7 +405,7 @@ mod test {
     fn send() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -427,7 +426,7 @@ mod test {
     fn gettimeofday() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -453,7 +452,7 @@ mod test {
     fn gettimeofday_h1() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
@@ -481,7 +480,7 @@ mod test {
 
         init();
 
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
             .expect("init() failed");
 

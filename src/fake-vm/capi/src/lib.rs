@@ -266,7 +266,7 @@ mod test {
         init();
 
         let mut next_arg: c_int = 0;
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(!context.is_null());
@@ -280,7 +280,7 @@ mod test {
     fn init_valid_no_next_arg() {
         init();
 
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -294,7 +294,7 @@ mod test {
         init();
 
         let mut next_arg: c_int = 0;
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(context.is_null());
@@ -307,7 +307,7 @@ mod test {
     fn init_invalid_no_next_arg() {
         init();
 
-        let actor = TestActor::new("titi", TestActor::dummy_actor);
+        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(context.is_null());
@@ -331,7 +331,7 @@ mod test {
     fn start_stop() {
         init();
 
-        let actor = TestActor::new("titi", start_actor);
+        let actor = TestActorDesc::new("titi", start_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -366,7 +366,7 @@ mod test {
     fn send() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -391,7 +391,7 @@ mod test {
     fn send_too_big() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -432,7 +432,7 @@ mod test {
     fn gettimeofday() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
@@ -463,7 +463,7 @@ mod test {
     fn gettimeofday_no_tv() {
         init();
 
-        let actor = TestActor::new("titi", recv_one_msg_actor);
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
         assert!(!context.is_null());
