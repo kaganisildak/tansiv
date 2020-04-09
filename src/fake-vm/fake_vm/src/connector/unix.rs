@@ -48,7 +48,6 @@ impl Connector for UnixConnector {
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
     use binser::Endianness;
-    use crate::from_io_result;
     use crate::connector::{MsgIn, MsgOut};
     use log::{error, info};
     use std::fmt;
@@ -164,17 +163,21 @@ pub mod test_helpers {
             result.map_err(|e| Error::new(e, context))
         }
 
+        pub fn check_io<T>(result: std::io::Result<T>, context: &'static str) -> TestResult<T> {
+            Self::check(crate::from_io_result(result), context)
+        }
+
         pub fn dummy_actor(server: UnixListener) {
             Self::run(server, |_| Ok(()))
         }
 
         pub fn send<'a>(client: &mut UnixStream, msg: MsgIn<'a>) -> TestResult<()> {
             let mut buffer = [0u8; crate::MAX_PACKET_SIZE];
-            Self::check(from_io_result(msg.send(client, &mut buffer, Endianness::Native)), "Send failed")
+            Self::check_io(msg.send(client, &mut buffer, Endianness::Native), "Send failed")
         }
 
         pub fn recv<'a>(client: &mut UnixStream, buffer: &'a mut [u8]) -> TestResult<MsgOut<'a>> {
-            Self::check(from_io_result(MsgOut::recv(client, buffer, Endianness::Native)), "Recv failed")
+            Self::check_io(MsgOut::recv(client, buffer, Endianness::Native), "Recv failed")
         }
     }
 }
