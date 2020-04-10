@@ -55,10 +55,6 @@ pub type VsgAddress = u32;
 // enable this, all fields are either read-only or implement thread and signal handler-safe
 // interior mutability.
 struct InnerContext {
-    // // Time offset added to the global simulation time to get the local simulated time
-    // // It is the initial time in the VM, since time in SimGrid starts at 0.
-    // // No concurrency, read-only.
-    // simulation_offset: NaiveDateTime,
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
@@ -93,7 +89,6 @@ impl InnerContext {
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
 
         Ok(InnerContext {
-            // simulation_offset: config.time_offset,
             connector: Mutex::new(connector),
             recv_callback: recv_callback,
             timer_context: timer_context,
