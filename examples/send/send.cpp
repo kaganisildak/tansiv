@@ -10,6 +10,9 @@ extern "C" {
 
 using namespace std;
 
+// Addresses used in this program
+#define ADDR_FMT "10.0.%d.1"
+
 std::atomic<bool> callback_called(false);
 
 void die(const char* msg, int error)
@@ -20,6 +23,14 @@ void die(const char* msg, int error)
   exit(1);
 }
 
+// addr must point at at least INET_ADDRSTRLEN chars.
+void make_addr(char* addr, int id)
+{
+  if (snprintf(addr, INET_ADDRSTRLEN, ADDR_FMT, id) >= INET_ADDRSTRLEN) {
+    die("Invalid address template or id", 0);
+  }
+}
+
 void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
 {
   callback_called = true;
@@ -28,10 +39,16 @@ void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* 
 int main(int argc, char* argv[])
 {
   // initialization phase
-  uint32_t dest                = std::atoi(argv[1]);
-  uint32_t src                 = 1 - dest;
-  int vsg_argc                 = 4;
-  const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-t", "1970-01-01T00:00:00"};
+  int dest_id                  = std::atoi(argv[1]);
+  int src_id                   = 1 - dest_id;
+  char dest_str[INET_ADDRSTRLEN];
+  make_addr(dest_str, dest_id);
+  char src_str[INET_ADDRSTRLEN];
+  make_addr(src_str, src_id);
+  uint32_t dest                = inet_addr(dest_str);
+  uint32_t src                 = inet_addr(src_str);
+  int vsg_argc                 = 6;
+  const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-n", src_str, "-t", "1970-01-01T00:00:00"};
   vsg_context* context         = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb);
 
   if (!context) {

@@ -51,10 +51,18 @@ pub type RecvCallback = Box<Fn(&Context, &[u8]) -> () + Send + Sync>;
 // }
 pub type VsgAddress = u32;
 
+fn vsg_address_from_str(ip: &str) -> std::result::Result<VsgAddress, std::net::AddrParseError> {
+    use std::str::FromStr;
+    let ipv4 = std::net::Ipv4Addr::from_str(ip)?;
+    Ok(Into::<u32>::into(ipv4).to_be())
+}
+
 // InnerContext must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
 // interior mutability.
 struct InnerContext {
+    // Read-only
+    address: VsgAddress,
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
@@ -77,18 +85,20 @@ struct InnerContext {
 
 impl std::fmt::Debug for InnerContext {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "InnerContext {{ connector: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.connector, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
+        write!(f, "InnerContext {{ address: {:0x}, connector: {:?}, timer_context: {:?}, output_buffer_pool: {:?}, outgoing_messages: {:?}, start_once: {:?} }}", self.address, self.connector, self.timer_context, self.output_buffer_pool, self.outgoing_messages, self.start_once)
     }
 }
 
 impl InnerContext {
     fn new(config: &Config, recv_callback: RecvCallback) -> Result<InnerContext> {
+        let address = config.address;
         let connector = ConnectorImpl::new(&config)?;
         let timer_context = TimerContext::new(&config)?;
         let output_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
 
         Ok(InnerContext {
+            address: address,
             connector: Mutex::new(connector),
             recv_callback: recv_callback,
             timer_context: timer_context,
@@ -259,21 +269,21 @@ pub mod test_helpers {
     #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n10.0.0.1", "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n10.0.0.1", "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n10.0.0.1", "-t1970-01-01T00:00:00"]
         }
     }
 

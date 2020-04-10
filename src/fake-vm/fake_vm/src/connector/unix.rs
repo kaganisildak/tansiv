@@ -246,7 +246,7 @@ mod test {
     #[test]
     fn valid_server_path() {
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::new(&config);
         assert!(connector.is_ok());
@@ -258,7 +258,7 @@ mod test {
     #[test]
     fn invalid_server_path() {
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-amust not exist", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-amust not exist", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
 
         assert!(UnixConnector::new(&config).is_err());
 
@@ -270,7 +270,7 @@ mod test {
         use std::ops::DerefMut;
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::new(&config).unwrap();
         // Check the length as a borrowed mutable slice because borrowing as an immutable slice
@@ -286,7 +286,7 @@ mod test {
               A: FnOnce(&mut TestActor) -> TestResult<()>,
               A: Send + 'static {
         let actor = TestActorDesc::new("titi", actor_fn);
-        let config = Config::from_iter_safe(&["-atiti", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
         let connector = UnixConnector::new(&config).unwrap();
 
         client_fn(connector);

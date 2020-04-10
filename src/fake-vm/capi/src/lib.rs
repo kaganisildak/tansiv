@@ -173,12 +173,12 @@ mod test {
 
     macro_rules! valid_args {
         () => {
-            os_args!("-atiti", "-t1970-01-01T00:00:00")
+            os_args!("-atiti", "-n10.0.0.1", "-t1970-01-01T00:00:00")
         }
     }
     macro_rules! invalid_args {
         () => {
-            os_args!("-btiti", "-t1970-01-01T00:00:00")
+            os_args!("-btiti", "-n10.0.0.1", "-t1970-01-01T00:00:00")
         }
     }
 
@@ -210,7 +210,7 @@ mod test {
     #[test]
     // parse_os_args() correctly iterates over all args and returns the right next args index
     fn parse_os_args1() {
-        let args = os_args!("-atiti", "-t1970-01-02T00:00:00");
+        let args = os_args!("-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00");
         let num_required_args = args.argc();
         let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
@@ -222,7 +222,7 @@ mod test {
     // parse_os_args() correctly iterates over all args and returns the right next args index
     // no special handling of split options
     fn parse_os_args2() {
-        let args = os_args!("-a", "titi", "-t", "1970-01-02T00:00:00");
+        let args = os_args!("-a", "titi", "-n", "10.0.0.1", "-t", "1970-01-02T00:00:00");
         let num_required_args = args.argc();
         let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
@@ -233,7 +233,7 @@ mod test {
     #[test]
     // Next args start right after "--"
     fn parse_os_args3() {
-        let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--");
+        let args = os_args!("-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00", "--");
         let num_required_args = args.argc() - 1;
         let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
@@ -244,7 +244,7 @@ mod test {
     #[test]
     // Next args start right after "--"
     fn parse_os_args4() {
-        let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--", "other arg");
+        let args = os_args!("-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00", "--", "other arg");
         let num_required_args = args.argc() - 2;
         let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
@@ -255,7 +255,7 @@ mod test {
     #[test]
     // Next args start right after the first occurence of "--"
     fn parse_os_args5() {
-        let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--", "--");
+        let args = os_args!("-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00", "--", "--");
         let num_required_args = args.argc() - 2;
         let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());

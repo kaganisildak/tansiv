@@ -286,8 +286,8 @@ void TestTansiv::testVsgStart(void)
 {
   pid_t pid = simple_actor(simple);
 
-  int argc                 = 4;
-  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  int argc                 = 6;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
 
   CPPUNIT_ASSERT(context != NULL);
@@ -305,8 +305,8 @@ void TestTansiv::testVsgSend(void)
 {
   pid_t pid = simple_actor(recv_one);
 
-  int argc                 = 4;
-  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  int argc                 = 6;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
@@ -329,8 +329,8 @@ void TestTansiv::testVsgSendEnsureRaise(void)
 {
   pid_t pid = simple_actor(recv_one);
 
-  int argc                 = 4;
-  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  int argc                 = 6;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
   int ret                  = vsg_start(context);
   in_addr_t src            = inet_addr(SRC);
@@ -394,8 +394,8 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
 
   pid_t pid = simple_actor(send_deliver_pg_port);
 
-  int argc                 = 4;
-  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  int argc                 = 6;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_pg);
   int ret                  = vsg_start(context);
   in_port_t port           = 5000;
@@ -438,8 +438,8 @@ void TestTansiv::testVsgDeliver(void)
 
   pid_t pid = simple_actor(deliver_one);
 
-  int argc                 = 4;
-  const char* const argv[] = {"-a", SOCKET_ACTOR, "-t", "1970-01-01T00:00:00"};
+  int argc                 = 6;
+  const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_atomic);
   int ret                  = vsg_start(context);
 
