@@ -211,10 +211,11 @@ mod test {
     // parse_os_args() correctly iterates over all args and returns the right next args index
     fn parse_os_args1() {
         let args = os_args!("-atiti", "-t1970-01-02T00:00:00");
-        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, 2)) };
+        let num_required_args = args.argc();
+        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
         let (_, next) = res.unwrap();
-        assert_eq!(2, next);
+        assert_eq!(num_required_args, next);
     }
 
     #[test]
@@ -222,40 +223,44 @@ mod test {
     // no special handling of split options
     fn parse_os_args2() {
         let args = os_args!("-a", "titi", "-t", "1970-01-02T00:00:00");
-        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, 4)) };
+        let num_required_args = args.argc();
+        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
         let (_, next) = res.unwrap();
-        assert_eq!(4, next);
+        assert_eq!(num_required_args, next);
     }
 
     #[test]
     // Next args start right after "--"
     fn parse_os_args3() {
         let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--");
-        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, 2)) };
+        let num_required_args = args.argc() - 1;
+        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
         let (_, next) = res.unwrap();
-        assert_eq!(3, next);
+        assert_eq!(num_required_args + 1, next);
     }
 
     #[test]
     // Next args start right after "--"
     fn parse_os_args4() {
         let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--", "other arg");
-        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, 2)) };
+        let num_required_args = args.argc() - 2;
+        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
         let (_, next) = res.unwrap();
-        assert_eq!(3, next);
+        assert_eq!(num_required_args + 1, next);
     }
 
     #[test]
     // Next args start right after the first occurence of "--"
     fn parse_os_args5() {
         let args = os_args!("-atiti", "-t1970-01-02T00:00:00", "--", "--");
-        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, 2)) };
+        let num_required_args = args.argc() - 2;
+        let res = unsafe { parse_os_args(args.argc(), args.argv(), |a| parse_args_compare(args.raw(), a, num_required_args)) };
         assert!(res.is_ok());
         let (_, next) = res.unwrap();
-        assert_eq!(3, next);
+        assert_eq!(num_required_args + 1, next);
     }
 
     extern "C" fn dummy_recv_callback(_context: *const Context, _packet_len: u32, _packet: *const u8) -> () {
@@ -270,7 +275,7 @@ mod test {
         let args = valid_args!();
         let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
         assert!(!context.is_null());
-        assert_eq!(2, next_arg);
+        assert_eq!(args.argc(), next_arg);
 
         unsafe { vsg_cleanup(context) };
         drop(actor);
