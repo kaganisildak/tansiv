@@ -185,16 +185,12 @@ pub mod test_helpers {
             }
         }
 
-        pub fn check<T>(result: crate::Result<T>, context: &'static str) -> TestResult<T> {
-            result.map_err(|e| Error::new(e, context))
-        }
-
-        pub fn check_io<T>(result: std::io::Result<T>, context: &'static str) -> TestResult<T> {
-            Self::check(crate::from_io_result(result), context)
+        pub fn check<T, E: Into<crate::error::Error>>(result: std::result::Result<T, E>, context: &'static str) -> TestResult<T> {
+            result.map_err(|e| Error::new(Into::<crate::error::Error>::into(e), context))
         }
 
         pub fn check_eq<T: PartialEq>(left: T, right: T, context: &'static str) -> TestResult<()> {
-            Self::check_io(if left == right {
+            Self::check(if left == right {
                 Ok(())
             } else {
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Values do not match"))
@@ -208,14 +204,14 @@ pub mod test_helpers {
         pub fn send(&mut self, msg: MsgIn) -> TestResult<()> {
             let stream = &mut self.client;
             let buffer = self.scratch_buffer.as_mut_slice();
-            Self::check_io(msg.send(stream, buffer, Endianness::Native), "Send failed")
+            Self::check(msg.send(stream, buffer, Endianness::Native), "Send failed")
         }
 
         pub fn recv(&mut self) -> TestResult<MsgOut> {
             let stream = &mut self.client;
             let buffer = self.scratch_buffer.as_mut_slice();
             let buffer_pool = &self.input_buffer_pool;
-            Self::check_io(MsgOut::recv(stream, buffer, buffer_pool, Endianness::Native), "Recv failed")
+            Self::check(MsgOut::recv(stream, buffer, buffer_pool, Endianness::Native), "Recv failed")
         }
     }
 
@@ -296,8 +292,8 @@ mod test {
 
     fn send_partial_msg_type(actor: &mut TestActor) -> TestResult<()> {
         let mut buffer = [0; MsgInType::NUM_BYTES];
-        TestActor::check_io(MsgInType::GoToDeadline.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize message type")?;
-        TestActor::check_io(actor.write_all(&buffer[..(MsgInType::NUM_BYTES - 1)]), "Failed to send partial message type")
+        TestActor::check(MsgInType::GoToDeadline.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize message type")?;
+        TestActor::check(actor.write_all(&buffer[..(MsgInType::NUM_BYTES - 1)]), "Failed to send partial message type")
     }
 
     #[test]
@@ -315,7 +311,7 @@ mod test {
     fn send_invalid_msg_type(actor: &mut TestActor) -> TestResult<()> {
         let invalid_type = (MsgInType::GoToDeadline as u32 + 1) * (MsgInType::DeliverPacket as u32 + 1) + 1;
         let mut buffer = [0; u32::NUM_BYTES];
-        TestActor::check_io(invalid_type.to_stream(actor.deref_mut(), &mut buffer, Endianness::Native), "Failed to send message type")
+        TestActor::check(invalid_type.to_stream(actor.deref_mut(), &mut buffer, Endianness::Native), "Failed to send message type")
     }
 
     #[test]
@@ -342,9 +338,9 @@ mod test {
         let mut buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::GoToDeadline;
 
-        TestActor::check_io(msg_type.to_stream(actor.deref_mut(), buffer, Endianness::Native), "Failed to send message type")?;
-        TestActor::check_io(GO_TO_DEADLINE.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize GO_TO_DEADLINE")?;
-        TestActor::check_io(actor.write_all(&buffer[..(GoToDeadline::NUM_BYTES - 1)]), "Failed to send partial go_to_deadline")
+        TestActor::check(msg_type.to_stream(actor.deref_mut(), buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check(GO_TO_DEADLINE.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize GO_TO_DEADLINE")?;
+        TestActor::check(actor.write_all(&buffer[..(GoToDeadline::NUM_BYTES - 1)]), "Failed to send partial go_to_deadline")
     }
 
     #[test]
@@ -420,8 +416,8 @@ mod test {
         let buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::GoToDeadline;
 
-        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
-        TestActor::check_io(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deadline")
+        TestActor::check(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deadline")
     }
 
     fn recv_go_to_deadline_actor(actor: &mut TestActor) -> TestResult<()> {
@@ -459,9 +455,9 @@ mod test {
         let mut buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::DeliverPacket;
 
-        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
-        TestActor::check_io(msg.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize deliver_packet header")?;
-        TestActor::check_io(socket.write_all(&buffer[..(DeliverPacket::NUM_BYTES - 1)]), "Failed to send partial deliver_packet header")
+        TestActor::check(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check(msg.to_bytes(&mut buffer, Endianness::Native), "Failed to serialize deliver_packet header")?;
+        TestActor::check(socket.write_all(&buffer[..(DeliverPacket::NUM_BYTES - 1)]), "Failed to send partial deliver_packet header")
     }
 
     fn recv_partial_deliver_packet_header_actor(actor: &mut TestActor) -> TestResult<()> {
@@ -524,9 +520,9 @@ mod test {
         let buffer = buffer.as_mut_slice();
         let msg_type = MsgInType::DeliverPacket;
 
-        TestActor::check_io(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
-        TestActor::check_io(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deliver_packet header")?;
-        TestActor::check_io(socket.write_all(payload), "Failed to send payload")
+        TestActor::check(msg_type.to_stream(socket, buffer, Endianness::Native), "Failed to send message type")?;
+        TestActor::check(msg.to_stream(socket, buffer, Endianness::Native), "Failed to send deliver_packet header")?;
+        TestActor::check(socket.write_all(payload), "Failed to send payload")
     }
 
     fn recv_deliver_packet_actor(actor: &mut TestActor) -> TestResult<()> {
@@ -553,8 +549,8 @@ mod test {
     fn recv_msg_out_type(client: &mut UnixStream, expected_type: MsgOutType) -> TestResult<MsgOutType> {
         let mut buffer = vec!(0; MsgOutType::NUM_BYTES);
         let buffer = buffer.as_mut_slice();
-        let msg_type = TestActor::check_io(MsgOutType::from_stream(client, buffer, Endianness::Native), "Failed to receive message type")?;
-        TestActor::check_io(if expected_type == msg_type {
+        let msg_type = TestActor::check(MsgOutType::from_stream(client, buffer, Endianness::Native), "Failed to receive message type")?;
+        TestActor::check(if expected_type == msg_type {
             Ok(msg_type)
         } else {
             Err(std::io::Error::new(ErrorKind::InvalidData, "Wrong message type"))
@@ -576,9 +572,9 @@ mod test {
     fn recv_send_packet(client: &mut UnixStream, buffer: &mut [u8]) -> TestResult<SendPacket> {
         let _ = recv_msg_out_type(client, MsgOutType::SendPacket)?;
 
-        let msg = TestActor::check_io(SendPacket::from_stream(client, buffer, Endianness::Native), "Failed to receive send_packet header")?;
-        TestActor::check_io(if let Some(buffer) = buffer.get_mut(..(msg.packet.size as usize)) {
-            TestActor::check_io(client.read_exact(buffer), "Failed to receive payload")?;
+        let msg = TestActor::check(SendPacket::from_stream(client, buffer, Endianness::Native), "Failed to receive send_packet header")?;
+        TestActor::check(if let Some(buffer) = buffer.get_mut(..(msg.packet.size as usize)) {
+            TestActor::check(client.read_exact(buffer), "Failed to receive payload")?;
             Ok(msg)
         } else {
             Err(std::io::Error::new(ErrorKind::UnexpectedEof, "Buffer too small"))

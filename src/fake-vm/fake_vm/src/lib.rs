@@ -40,11 +40,6 @@ impl From<output_msg_set::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-// Cannot write a generic From<std::io::Result<T>> for Result<T>
-fn from_io_result<T>(result: std::io::Result<T>) -> Result<T> {
-    result.map_err(Into::into)
-}
-
 pub type RecvCallback = Box<Fn(&Context, &[u8]) -> () + Send + Sync>;
 
 // #[derive(Debug)]
@@ -135,7 +130,7 @@ impl InnerContext {
     }
 
     fn start(&self, deadline: Duration) -> Result<()> {
-        from_io_result(self.timer_context.start(deadline))
+        Ok(self.timer_context.start(deadline)?)
     }
 
     fn gettimeofday(&self) -> libc::timeval {
