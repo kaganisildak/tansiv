@@ -72,7 +72,7 @@ pub unsafe extern fn vsg_start(context: *const Context) -> c_int {
                 Error::AlreadyStarted => libc::EALREADY,
                 Error::NoMemoryAvailable => libc::ENOMEM,
                 Error::ProtocolViolation => libc::EPROTO,
-                Error::SizeTooBig => libc::E2BIG,
+                Error::SizeTooBig => libc::EMSGSIZE,
                 _ => // Unknown error, fallback to EIO
                     libc::EIO,
             },
@@ -123,7 +123,7 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
             Ok(_) => 0,
             Err(e) => match e {
                 Error::NoMemoryAvailable => libc::ENOMEM,
-                Error::SizeTooBig => libc::E2BIG,
+                Error::SizeTooBig => libc::EMSGSIZE,
                 _ => // Unknown error, fallback to EIO
                     libc::EIO,
             },
@@ -471,7 +471,7 @@ mod test {
         let src = 0;
         let dest = 0;
         let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, (&buffer).as_ptr()) };
-        assert_eq!(libc::E2BIG, res);
+        assert_eq!(libc::EMSGSIZE, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
