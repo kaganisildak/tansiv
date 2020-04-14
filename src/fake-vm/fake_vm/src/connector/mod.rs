@@ -1,6 +1,7 @@
 use binser::{Endianness, FromBytes, FromStream, SizedAsBytes, ToBytes, ToStream, ValidAsBytes, Validate};
 use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
 use crate::buffer_pool::{Buffer, BufferPool};
+use static_assertions::const_assert;
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
@@ -240,6 +241,7 @@ impl MsgIn {
         msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
         match self {
             MsgIn::DeliverPacket(packet) => {
+                const_assert!(crate::MAX_PACKET_SIZE <= std::u32::MAX as usize);
                 assert!(packet.len() <= std::u32::MAX as usize);
 
                 let deliver_packet_header = DeliverPacket {
@@ -285,6 +287,7 @@ impl MsgOut {
         match self {
             MsgOut::AtDeadline => Ok(()),
             MsgOut::SendPacket(send_time, src, dest, packet) => {
+                const_assert!(crate::MAX_PACKET_SIZE <= std::u32::MAX as usize);
                 assert!(packet.len() <= std::u32::MAX as usize);
 
                 let send_packet_header = SendPacket {
