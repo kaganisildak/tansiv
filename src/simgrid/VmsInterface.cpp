@@ -196,7 +196,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
         char dest_addr[INET_ADDRSTRLEN];
         char src_addr[INET_ADDRSTRLEN];
         vsg_decode_src_dest(send_packet, src_addr, dest_addr);
-        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=ip(%s)) to VM [%d](=ip(%s)) with timestamp [%d.%d]",
+        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=ip(%s)) to VM [%d](=ip(%s)) with timestamp [%d.%06d]",
                  data, sizeof(data), vm_name.c_str(), src_addr, send_packet.dest, dest_addr,
                  send_packet.send_time.seconds, send_packet.send_time.useconds);
 
