@@ -207,8 +207,8 @@ std::vector<message> VmsInterface::goTo(double deadline)
         m.packet_size = sizeof(data);
         m.data.append(data);
         m.packet    = send_packet.packet;
-        m.src       = std::to_string(send_packet.src);
-        m.dest      = std::to_string(send_packet.dest);
+        m.src       = std::string(src_addr);
+        m.dest      = std::string(dest_addr);
         m.sent_time = vmToSimgridTime(send_packet.send_time);
         messages.push_back(m);
       } else {
