@@ -107,7 +107,17 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 #[no_mangle]
 pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
-        let payload = std::slice::from_raw_parts(msg, msglen as usize);
+        // We can tolerate msg.is_null() if msglen == 0 but std::slice::from_raw_parts() requires
+        // non null pointers.
+        let ptr = if msglen == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            if msg.is_null() {
+                return libc::EINVAL;
+            };
+            msg
+        };
+        let payload = std::slice::from_raw_parts(ptr, msglen as usize);
 
         match (*context).send(src, dest, payload) {
             Ok(_) => 0,
@@ -382,6 +392,59 @@ mod test {
         let buffer = b"Foo msg";
         let src = 0;
         let dest = 0;
+        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn send_null_empty() {
+        init();
+
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let src = 0;
+        let dest = 0;
+        let res: c_int = unsafe { vsg_send(context, src, dest, 0, std::ptr::null()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn send_null_not_empty() {
+        init();
+
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let src = 0;
+        let dest = 0;
+        let res: c_int = unsafe { vsg_send(context, src, dest, 1, std::ptr::null()) };
+        assert_eq!(libc::EINVAL, res);
+
+        // Terminate gracefully
+        let buffer = b"Foo msg";
         let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
