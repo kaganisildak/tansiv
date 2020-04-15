@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
+extern crate fake_vm;
+
 use fake_vm::{Context, VsgAddress, Error, Result};
 use libc;
 #[allow(unused_imports)]
@@ -183,12 +187,12 @@ mod test {
 
     macro_rules! valid_args {
         () => {
-            os_args!("-atiti", "-n10.0.0.1", "-t1970-01-01T00:00:00")
+            os_args!("-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
         }
     }
     macro_rules! invalid_args {
         () => {
-            os_args!("-btiti", "-n10.0.0.1", "-t1970-01-01T00:00:00")
+            os_args!("-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
         }
     }
 
@@ -390,8 +394,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"Foo msg";
-        let src = 0;
-        let dest = 0;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
@@ -414,8 +418,8 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = 0;
-        let dest = 0;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest, 0, std::ptr::null()) };
         assert_eq!(0, res);
 
@@ -438,8 +442,8 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = 0;
-        let dest = 0;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest, 1, std::ptr::null()) };
         assert_eq!(libc::EINVAL, res);
 
@@ -468,8 +472,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
-        let src = 0;
-        let dest = 0;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::EMSGSIZE, res);
 
@@ -490,8 +494,8 @@ mod test {
         init();
 
         let buffer =  b"Foo msg";
-        let src = 0;
-        let dest = 1;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(std::ptr::null(), src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(libc::EINVAL, res);
     }
@@ -515,8 +519,8 @@ mod test {
         assert_ne!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
 
         let buffer = b"This is the end";
-        let src = 0;
-        let dest = 1;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
@@ -543,8 +547,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"This is the end";
-        let src = 0;
-        let dest = 0;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, src, dest,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 

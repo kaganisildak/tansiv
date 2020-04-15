@@ -307,23 +307,46 @@ pub mod test_helpers {
     pub use super::connector::test_helpers::*;
 
     #[macro_export]
+    macro_rules! local_vsg_address_str {
+        () => {
+            "10.0.0.1"
+        }
+    }
+
+    #[macro_export]
+    macro_rules! local_vsg_address {
+        () => {{
+            use std::str::FromStr;
+
+            u32::from(std::net::Ipv4Addr::from_str(local_vsg_address_str!()).unwrap()).to_be()
+        }}
+    }
+
+    #[macro_export]
+    macro_rules! remote_vsg_address {
+        () => {
+            u32::from(std::net::Ipv4Addr::new(10, 0, 1, 1)).to_be()
+        }
+    }
+
+    #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-n10.0.0.1", "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-n10.0.0.1", "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-n10.0.0.1", "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
         }
     }
 
@@ -439,8 +462,8 @@ mod test {
         context.start()
             .expect("start failed");
 
-        let src = 0;
-        let dest = 1;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         context.send(src, dest, b"Foo msg")
             .expect("send failed");
 
@@ -465,8 +488,8 @@ mod test {
         assert!(tv.tv_sec >= 0 && tv.tv_sec < 10);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        let src = 0;
-        let dest = 1;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         context.send(src, dest, b"This is the end")
             .expect("send failed");
 
@@ -491,8 +514,8 @@ mod test {
         assert!(tv.tv_sec >= 3600 && tv.tv_sec < 3610);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        let src = 0;
-        let dest = 1;
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
         context.send(src, dest, b"This is the end")
             .expect("send failed");
 
