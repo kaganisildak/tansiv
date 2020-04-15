@@ -263,7 +263,7 @@ impl Context {
                 let src = self.0.address;
                 // Or use dst address when available in the protocol? Should be the same...
                 let dst = self.0.address;
-                let size = packet.len();
+                // let size = packet.len();
                 if self.0.input_queue.push(Packet::new(src, dst, packet)).is_err() {
                     // info!("Dropping input packet from {} of {} bytes", src, size);
                 }
