@@ -108,6 +108,23 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
     }
 }
 
+/// Sends a message having source address `src`, destination address `dest` and a payload stored in
+/// `msg[0..msglen]`.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// * If `msglen` is `0`, it is allowed that `msg` is `NULL`.
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever context is `NULL` or `msg` is `NULL` with `msglen > 0`.
+///
+/// * Fails with `libc::EMSGSIZE` whenever the payload is bigger than the maximum message size that
+///   vsg can handle.
+///
+/// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
 #[no_mangle]
 pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
