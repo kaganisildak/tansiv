@@ -319,6 +319,7 @@ Vérifier que loop_count ne varie pas trop entre exécution sur VSG et exécutio
 		- Fait
 	4. écrire une version bouchon de fake-vm::timer.rs pour faire semblant qu'on gère le temps de Qemu, un peu comme @msimonin fait en incrémentant l'heure à chaque envoi de message. => Action @lrilling 
 	5. gérer une file de réception de messages en interne de fake-vm pour simplifier la réception des messages côté processus (ie éviter de manipuler des structures de données lock-less avec des atomic pour autoriser la concurrence entre le processus applicatif et le handler de signal de deadline) et peut-être bien côté Qemu aussi. => Action @lrilling 
+		- Fait
 	6. découper en deux fonctions la fonction vsg_output() écrite par @msimonin dans slirp, de façons à isoler la fonction injectant un paquet dans slirp du reste de la boucle de gestion du protocole vsg. => Action @msimonin
 - on a décidé que pour supporter TCP on passerait à une intégration de tansiv dans Qemu comme une interface TAP connectée à Simgrid (via tansiv) ; pour gérer ARP, DHCP, voire peut-être DNS on reprendra les fonctions de slirp.
 - avant de passer à une intégration comme une interface TAP, il faut vérifier qu'on arrive bien à faire communiquer deux VMs via tansiv, en UDP uniquement. => Action @msimonin
