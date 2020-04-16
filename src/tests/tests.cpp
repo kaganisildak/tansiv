@@ -148,7 +148,9 @@ private:
 
 void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
 {
-  printf("callback called\n");
+  // Try not to deadlock with libc's stdout
+  const char hey[] = "callback called\n";
+  write(STDOUT_FILENO, hey, sizeof(hey) - 1);
 };
 
 void TestTansiv::setUp(void) {}
