@@ -473,6 +473,34 @@ mod test {
     }
 
     #[test]
+    fn send_too_big() {
+        init();
+
+        let actor = TestActorDesc::new("titi", recv_one_msg_actor);
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+            .expect("init failed");
+
+        context.start()
+            .expect("start failed");
+
+        let src = local_vsg_address!();
+        let dest = remote_vsg_address!();
+        let buffer = [0u8; crate::MAX_PACKET_SIZE + 1];
+        match context.send(src, dest, &buffer).expect_err("send should have failed") {
+            crate::error::Error::SizeTooBig => (),
+            _ => assert!(false),
+        }
+
+        // Terminate gracefully
+        context.send(src, dest, b"Foo msg")
+            .expect("send failed");
+
+        context.stop();
+
+        drop(actor);
+    }
+
+    #[test]
     fn gettimeofday() {
         init();
 
