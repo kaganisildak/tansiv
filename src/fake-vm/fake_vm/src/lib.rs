@@ -240,15 +240,15 @@ impl Context {
                 send_time
             };
 
-            if let Err(e) = connector.send(MsgOut::SendPacket(send_time, src, dest, payload)) {
-                // error!("send(SendPacket) failed: {}", e);
+            if let Err(_e) = connector.send(MsgOut::SendPacket(send_time, src, dest, payload)) {
+                // error!("send(SendPacket) failed: {}", _e);
                 return AfterDeadline::EndSimulation;
             }
         }
 
         // Second, notify that we reached the deadline
-        if let Err(e) = connector.send(MsgOut::AtDeadline) {
-            // error!("send(AtDeadline) failed: {}", e);
+        if let Err(_e) = connector.send(MsgOut::AtDeadline) {
+            // error!("send(AtDeadline) failed: {}", _e);
             return AfterDeadline::EndSimulation;
         }
 
@@ -262,8 +262,8 @@ impl Context {
                 Ok(msg) => if let Some(after_deadline) = self.handle_actor_msg(msg) {
                     break after_deadline;
                 },
-                Err(e) => {
-                    // error!("recv failed: {}", e);
+                Err(_e) => {
+                    // error!("recv failed: {}", _e);
                     break AfterDeadline::EndSimulation;
                 }
             }
@@ -452,7 +452,7 @@ pub mod test_helpers {
         }
     }
 
-    static INIT: std::sync::Once = std::sync::ONCE_INIT;
+    static INIT: std::sync::Once = std::sync::Once::new();
 
     pub fn init() {
         // Cargo test runs all tests in a same process so don't confuse log by setting a logger

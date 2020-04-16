@@ -60,6 +60,7 @@ impl<I: std::fmt::Debug> WaitfreeArrayQueue<I> {
         self.queue.pop().ok()
     }
 
+    #[allow(dead_code)]
     pub fn iter<'a>(&'a self) -> WaitfreeArrayQueueIter<'a, I> {
         WaitfreeArrayQueueIter {
             queue: self,

@@ -10,7 +10,7 @@ use static_assertions::const_assert;
 use std::os::raw::{c_char, c_int};
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
-    where F: FnOnce(&mut Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>
+    where F: FnOnce(&mut dyn Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>
 {
     use std::os::unix::ffi::OsStrExt;
 
