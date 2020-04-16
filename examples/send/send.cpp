@@ -13,8 +13,6 @@ using namespace std;
 // Addresses used in this program
 #define ADDR_FMT "10.0.%d.1"
 
-std::atomic<bool> callback_called(false);
-
 void die(const char* msg, int error)
 {
   fprintf(stderr, "%s", msg);
@@ -31,9 +29,10 @@ void make_addr(char* addr, int id)
   }
 }
 
-void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
+void recv_cb(uintptr_t arg)
 {
-  callback_called = true;
+  std::atomic<bool>* callback_called = (std::atomic<bool>*)arg; 
+  *callback_called = true;
 };
 
 int main(int argc, char* argv[])
@@ -49,7 +48,8 @@ int main(int argc, char* argv[])
   uint32_t src                 = inet_addr(src_str);
   int vsg_argc                 = 6;
   const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-n", src_str, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context         = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb);
+  std::atomic<bool> callback_called(false);
+  vsg_context* context         = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called);
 
   if (!context) {
     die("Unable to initialize the context", 0);
@@ -69,6 +69,24 @@ int main(int argc, char* argv[])
   // yes, ...
   while (!callback_called.load()) {
   }
+
+  uint32_t recv_src;
+  uint32_t recv_dest;
+  uint32_t buffer_len = msg.length() + 1;
+  char buffer[buffer_len];
+  ret             = vsg_recv(context, &src, &dest, &buffer_len, (uint8_t*)buffer);
+  if (ret) {
+    die("vsg_recv() failed", ret);
+  }
+
+  char recv_src_str[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &recv_src, recv_src_str, INET_ADDRSTRLEN);
+  char recv_dest_str[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &recv_dest, recv_dest_str, INET_ADDRSTRLEN);
+  // We trust our peer to have sent the final NUL byte... or we will see that he
+  // is a bad boy!
+  printf("From %s to %s: %s", recv_src_str, recv_dest_str, buffer);
+
   exit(0);
 
   // vsg_stop block until stopped flag is set

@@ -41,12 +41,6 @@ using namespace std;
 
 typedef void scenario(int);
 
-/* For use in deliver_one test. */
-std::atomic<bool> message_delivered(false);
-
-/* For use in send_deliver_pg_port. */
-std::atomic<uint32_t> port_delivered(0);
-
 pid_t simple_actor(scenario f)
 {
   // I don't care about the status...
@@ -146,7 +140,7 @@ private:
   vsg_context* context;
 };
 
-void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
+void recv_cb(uintptr_t arg)
 {
   // Try not to deadlock with libc's stdout
   const char hey[] = "callback called\n";
@@ -290,7 +284,7 @@ void TestTansiv::testVsgStart(void)
 
   int argc                 = 6;
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
 
   CPPUNIT_ASSERT(context != NULL);
   int ret = vsg_start(context);
@@ -309,7 +303,7 @@ void TestTansiv::testVsgSend(void)
 
   int argc                 = 6;
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
   in_addr_t src            = inet_addr(SRC);
@@ -333,7 +327,7 @@ void TestTansiv::testVsgSendEnsureRaise(void)
 
   int argc                 = 6;
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb);
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
   in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
@@ -377,13 +371,21 @@ void TestTansiv::testVsgPiggyBackPort(void)
   CPPUNIT_ASSERT_EQUAL(msg, actual_msg);
 }
 
-void recv_cb_pg(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
+in_port_t recv_pg(const struct vsg_context* context)
 {
+  uint8_t payload[sizeof(MESSAGE) + sizeof(in_port_t)];
+  uint32_t payload_len = sizeof(payload);
+  int ret = vsg_recv(context, NULL, NULL, &payload_len, payload);
+  if (ret) {
+    // Return 0 as an error port number
+    return 0;
+  }
+
   // un-piggyback
   in_port_t recv_port;
   uint8_t* recv_payload;
-  vsg_upg_port((void*)msg, msglen, &recv_port, &recv_payload);
-  port_delivered = recv_port;
+  vsg_upg_port((void*)payload, payload_len, &recv_port, &recv_payload);
+  return recv_port;
 };
 
 /*
@@ -398,7 +400,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
 
   int argc                 = 6;
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_pg);
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
   in_port_t port           = 5000;
   std::string msg          = MESSAGE;
@@ -413,16 +415,16 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   // fire!
   vsg_send(context, src, dest, payload_length, payload);
 
-  // loop until our atomic is set
+  // loop until some message arrives
   // this shouldn't take long ...
   for (int i = 0; i < 3; i++) {
-    if (port_delivered.load() > 0)
+    if (vsg_poll(context) == 0)
       break;
     sleep(1);
   }
 
   // test the receive port
-  CPPUNIT_ASSERT_EQUAL((uint32_t)port, port_delivered.load());
+  CPPUNIT_ASSERT_EQUAL(port, recv_pg(context));
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -430,9 +432,10 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   finalize(pid);
 }
 
-void recv_cb_atomic(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg)
+void recv_cb_atomic(uintptr_t arg)
 {
-  message_delivered = true;
+  std::atomic<bool>* message_delivered = (std::atomic<bool>*)arg;
+  *message_delivered = true;
 };
 
 void TestTansiv::testVsgDeliver(void)
@@ -442,7 +445,8 @@ void TestTansiv::testVsgDeliver(void)
 
   int argc                 = 6;
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_atomic);
+  std::atomic<bool> message_delivered(false);
+  vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered);
   int ret                  = vsg_start(context);
 
   // loop until our atomic is set to true

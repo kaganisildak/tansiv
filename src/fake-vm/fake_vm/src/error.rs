@@ -4,6 +4,7 @@ use std::{error, fmt, io};
 pub enum Error {
     AlreadyStarted,
     NoMemoryAvailable,
+    NoMessageAvailable,
     ProtocolViolation,
     SizeTooBig,
     IoError(io::Error),
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
                 let msg = match simple {
                     Error::AlreadyStarted => "Already Started",
                     Error::NoMemoryAvailable => "No memory available",
+                    Error::NoMessageAvailable => "No message available",
                     Error::ProtocolViolation => "Protocol violation",
                     Error::SizeTooBig => "Size too big",
                     Error::IoError(_) => unimplemented!(),

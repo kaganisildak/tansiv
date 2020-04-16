@@ -1,9 +1,15 @@
+#include <errno.h>
 #include <fake_vm.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void recv_cb(const struct vsg_context* context, uint32_t msglen, const uint8_t* msg) {}
+void recv_cb(uintptr_t arg)
+{
+  int *flag = (int *)arg;
+  *flag = true;
+}
 
 void die(const char* msg, int error)
 {
@@ -17,10 +23,11 @@ int main(int argc, const char* argv[])
 {
   struct vsg_context* context;
   struct timeval time;
+  int flag = false;
   unsigned char msg[] = "Foo msg";
   int res;
 
-  context = vsg_init(argc, argv, NULL, recv_cb);
+  context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&flag);
   if (!context)
     die("vsg_init() failed", 0);
 
@@ -37,6 +44,15 @@ int main(int argc, const char* argv[])
   res           = vsg_send(context, src, dest, sizeof(msg), msg);
   if (res)
     die("vsg_send() failed", res);
+
+  while ((res = vsg_poll(context)) == EAGAIN) {}
+  if (res)
+    die("vsg_poll() failed", res);
+
+  uint32_t msglen = sizeof(msg);
+  res             = vsg_recv(context, &src, &dest, &msglen, msg);
+  if (res)
+    die("vsg_recv() failed", res);
 
   res = vsg_stop(context);
   if (res)

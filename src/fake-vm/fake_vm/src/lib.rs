@@ -40,7 +40,7 @@ impl From<output_msg_set::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub type RecvCallback = Box<Fn(&Context, &[u8]) -> () + Send + Sync>;
+pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
 
 // #[derive(Debug)]
 // pub struct Destination {
@@ -154,6 +154,29 @@ impl InnerContext {
         self.outgoing_messages.insert(send_time, src, dest, buffer)?;
         Ok(())
     }
+
+    fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(VsgAddress, VsgAddress, &'b mut [u8])> {
+        match self.input_queue.pop() {
+            Some(Packet { src, dst, payload, }) => {
+                if msg.len() >= payload.len() {
+                    let msg = &mut msg[..payload.len()];
+                    msg.copy_from_slice(&payload);
+                    Ok((src, dst, msg))
+                } else {
+                    Err(Error::SizeTooBig)
+                }
+            },
+            None => Err(Error::NoMessageAvailable),
+        }
+    }
+
+    fn poll(&self) -> Option<()> {
+        if self.input_queue.is_empty() {
+            None
+        } else {
+            Some(())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -231,7 +254,7 @@ impl Context {
 
         // Third, receive messages from others, followed by next deadline
         let input_queue = &self.0.input_queue;
-        // let may_notify = input_queue.is_empty();
+        let may_notify = input_queue.is_empty();
 
         let after_deadline = loop {
             let msg = connector.recv();
@@ -246,11 +269,8 @@ impl Context {
             }
         };
 
-        // if may_notify && !input_queue.is_empty() {
-        // (self.0.recv_callback)(self.0.recv_token);
-        // }
-        for packet in input_queue.iter() {
-            (self.0.recv_callback)(self, &packet.payload);
+        if may_notify && !input_queue.is_empty() {
+            (self.0.recv_callback)();
         }
 
         after_deadline
@@ -282,8 +302,12 @@ impl Context {
         self.0.send(src, dest, msg)
     }
 
-    pub fn poll(&self, buffer: &mut [u8]) -> Result<()> {
-        unimplemented!()
+    pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(VsgAddress, VsgAddress, &'b mut [u8])> {
+        self.0.recv(msg)
+    }
+
+    pub fn poll(&self) -> Option<()> {
+        self.0.poll()
     }
 }
 
@@ -301,6 +325,8 @@ pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Box<Context>>
 #[cfg(any(test, feature = "test-helpers"))]
 #[macro_use]
 pub mod test_helpers {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use super::connector::{MsgIn, MsgOut};
     #[cfg(feature = "test-helpers")]
@@ -350,7 +376,7 @@ pub mod test_helpers {
         }
     }
 
-    pub fn dummy_recv_callback(_context: &super::Context, _packet: &[u8]) -> () {
+    pub fn dummy_recv_callback() -> () {
     }
 
     pub fn start_actor(actor: &mut TestActor) -> TestResult<()> {
@@ -373,6 +399,58 @@ pub mod test_helpers {
         actor.send(MsgIn::EndSimulation)
     }
 
+    pub fn send_one_msg_actor(actor: &mut TestActor, msg: &[u8]) -> TestResult<()> {
+        send_one_delayed_msg_actor(actor, msg, 100, 100)
+    }
+
+    pub fn send_one_delayed_msg_actor(actor: &mut TestActor, msg: &[u8], slice_micros: u64, delay_micros: u64) -> TestResult<()> {
+        let buffer_pool = crate::BufferPool::new(msg.len(), 1);
+        let mut buffer = TestActor::check(buffer_pool.allocate_buffer(msg.len()), "Buffer allocation failed")?;
+        (&mut buffer).copy_from_slice(msg);
+
+        let mut next_deadline_micros = slice_micros;
+        while next_deadline_micros < delay_micros {
+            actor.send(MsgIn::GoToDeadline(Duration::from_micros(slice_micros)))?;
+            loop {
+                match actor.recv()? {
+                    MsgOut::AtDeadline => break,
+                    _ => (),
+                }
+            }
+
+            next_deadline_micros += slice_micros;
+        }
+
+        let next_slice = delay_micros - (next_deadline_micros - slice_micros);
+        actor.send(MsgIn::GoToDeadline(Duration::from_micros(next_slice)))?;
+        actor.send(MsgIn::DeliverPacket(buffer))?;
+        actor.send(MsgIn::EndSimulation)
+    }
+
+    #[derive(Clone)]
+    pub struct RecvNotifier(Arc<AtomicBool>);
+
+    impl RecvNotifier {
+        pub fn new() -> RecvNotifier {
+            RecvNotifier(Arc::new(AtomicBool::new(false)))
+        }
+
+        pub fn notify(&self) -> () {
+            self.0.store(true, Ordering::SeqCst);
+        }
+
+        pub fn wait(&self, pause_slice_micros: u64) -> () {
+            while !self.0.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_micros(pause_slice_micros));
+            }
+            self.0.store(false, Ordering::SeqCst);
+        }
+
+        pub fn get_callback(&self) -> crate::RecvCallback {
+            let cb_notifier = self.clone();
+            Box::new(move || cb_notifier.notify())
+        }
+    }
 
     static INIT: std::sync::Once = std::sync::ONCE_INIT;
 
@@ -494,6 +572,141 @@ mod test {
         // Terminate gracefully
         context.send(src, dest, b"Foo msg")
             .expect("send failed");
+
+        context.stop();
+
+        drop(actor);
+    }
+
+    #[test]
+    fn recv() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let recv_notifier = RecvNotifier::new();
+        let context = super::init(valid_args!(), recv_notifier.get_callback())
+            .expect("init failed");
+
+        context.start()
+            .expect("start failed");
+
+        recv_notifier.wait(1000);
+
+        let (src, dst, buffer) = context.recv(&mut buffer)
+            .expect("recv failed");
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        context.stop();
+
+        drop(actor);
+    }
+
+    fn recv_one_delay(slice_micros: u64, delay_micros: u64) {
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_delayed_msg_actor(actor, EXPECTED_MSG, slice_micros, delay_micros));
+
+        let recv_notifier = RecvNotifier::new();
+        let context = super::init(valid_args!(), recv_notifier.get_callback())
+            .expect("init failed");
+
+        context.start()
+            .expect("start failed");
+
+        recv_notifier.wait(delay_micros / 10);
+
+        let (src, dst, buffer) = context.recv(&mut buffer)
+            .expect("recv failed");
+        let tv = context.gettimeofday();
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer, EXPECTED_MSG);
+        let total_usec = tv.tv_sec as u64 * 1_000_000 + tv.tv_usec as u64;
+        assert!(delay_micros <= total_usec && total_usec <= 10 * delay_micros);
+
+        context.stop();
+
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_delayed() {
+        init();
+
+        for delay_slices in 1..=100 {
+            recv_one_delay(100, delay_slices * 100);
+        }
+    }
+
+    #[test]
+    fn recv_too_big() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        const ORIG_BUFFER: &[u8] = b"fOO~MS";
+        let mut buffer: [u8; ORIG_BUFFER.len()] = Default::default();
+        buffer.copy_from_slice(ORIG_BUFFER);
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let recv_notifier = RecvNotifier::new();
+        let context = super::init(valid_args!(), recv_notifier.get_callback())
+            .expect("init failed");
+
+        context.start()
+            .expect("start failed");
+
+        recv_notifier.wait(1000);
+
+        match context.recv(&mut buffer).expect_err("recv should have failed") {
+            crate::error::Error::SizeTooBig => (),
+            _ => assert!(false),
+        }
+
+        assert_eq!(buffer, ORIG_BUFFER);
+
+        context.stop();
+
+        drop(actor);
+    }
+
+    #[test]
+    fn poll() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+            .expect("init failed");
+
+        context.start()
+            .expect("start failed");
+
+        while !context.poll().is_some() {
+            std::thread::sleep(std::time::Duration::from_micros(1000));
+        }
+
+        let (src, dst, buffer) = context.recv(&mut buffer)
+            .expect("recv failed");
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer, EXPECTED_MSG);
 
         context.stop();
 

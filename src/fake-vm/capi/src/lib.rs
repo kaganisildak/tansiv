@@ -3,7 +3,7 @@
 extern crate fake_vm;
 
 use fake_vm::{Context, VsgAddress, Error, Result};
-use libc;
+use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
 use static_assertions::const_assert;
@@ -39,12 +39,11 @@ unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F)
     }
 }
 
-type CRecvCallback = extern "C" fn(*const Context, u32, *const u8);
+type CRecvCallback = unsafe extern "C" fn(uintptr_t);
 
 #[no_mangle]
-pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback) -> *mut Context {
-    const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
-    let callback: fake_vm::RecvCallback = Box::new(move |context, payload| recv_callback(context, payload.len() as u32, payload.as_ptr()));
+pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t) -> *mut Context {
+    let callback: fake_vm::RecvCallback = Box::new(move || recv_callback(recv_callback_arg));
 
     match parse_os_args(argc, argv, |args| fake_vm::init(args, callback)) {
         Ok((context, next_arg)) => {
@@ -154,6 +153,98 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
     }
 }
 
+/// Picks the next message in the receive queue, stores its payload in `msg[0..*msglen]` and
+/// optionnally returns sender and destination addresses in `*psrc` and `*pdest` respectively. The
+/// actual length of the received payload is stored in `*msglen`.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// * `psrc` and `pdest` can be `NULL`, in which case the correponding addresses will not be returned.
+///
+/// * If `msglen` is `NULL` or `*msglen` is `0`, only 0-length messages can be received. Note that
+///   in that case it is allowed that `msg` is `NULL` too.
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever the pointers in arguments do not respect the rules above.
+///
+/// * Fails with `libc::EAGAIN` if the receive queue was empty.
+///
+/// * Fails with `libc::EMSGSIZE` whenever the next message in the queue has a payload bigger than
+///   the provided buffer. The message is lost.
+#[no_mangle]
+pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut VsgAddress, pdest: *mut VsgAddress, msglen: *mut u32, msg: *mut u8) -> c_int {
+    const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
+
+    if let Some(context) = context.as_ref() {
+        let len = if msglen.is_null() {
+            0
+        } else {
+            *msglen
+        };
+        // We can tolerate msg.is_null() if len == 0 but std::slice::from_raw_parts_mut() requires
+        // non null pointers.
+        let ptr = if len == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            if msg.is_null() {
+                return libc::EINVAL;
+            };
+            msg
+        };
+        let payload = std::slice::from_raw_parts_mut(ptr, len as usize);
+
+        match (*context).recv(payload) {
+            Ok((src, dest, payload)) => {
+                if !psrc.is_null() {
+                    *psrc = src;
+                }
+                if !pdest.is_null() {
+                    *pdest = dest;
+                }
+                if !msglen.is_null() {
+                    *msglen = payload.len() as u32;
+                }
+                0
+            },
+            Err(e) => match e {
+                Error::NoMessageAvailable => libc::EAGAIN,
+                Error::SizeTooBig => libc::EMSGSIZE,
+                _ => // Unknown error, fallback to EIO
+                    libc::EIO,
+            },
+        }
+    } else {
+        libc::EINVAL
+    }
+}
+
+/// Checks if a message can be read from the input queue. If `0` is returned a message can be read
+/// from the input queue using [`vsg_recv`].
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever `context` is NULL.
+///
+/// * Fails with `libc::EAGAIN` if the receive queue was empty.
+#[no_mangle]
+pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
+    if let Some(context) = context.as_ref() {
+        match (*context).poll() {
+            Some(_) => 0,
+            None => libc::EAGAIN,
+        }
+    } else {
+        libc::EINVAL
+    }
+}
+
 #[cfg(test)]
 mod test {
     use fake_vm::test_helpers::*;
@@ -161,9 +252,17 @@ mod test {
     #[allow(unused_imports)]
     use log::{error, info};
     use std::ffi::CString;
+    use std::pin::Pin;
     use std::os::raw::{c_char, c_int};
     use std::os::unix::ffi::OsStrExt;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use super::*;
+
+    macro_rules! null_vsg_address {
+        () => {
+            0u32
+        }
+    }
 
     struct OsArgs {
         raw: Vec<CString>,
@@ -294,7 +393,42 @@ mod test {
         assert_eq!(num_required_args + 1, next);
     }
 
-    extern "C" fn dummy_recv_callback(_context: *const Context, _packet_len: u32, _packet: *const u8) -> () {
+    extern "C" fn dummy_recv_callback(_arg: uintptr_t) -> () {
+    }
+
+    // C-style version of fake_vm::test_helpers::RecvNotifier
+    // Ugly
+    struct RecvNotifier(AtomicBool);
+
+    impl RecvNotifier {
+        fn new() -> RecvNotifier {
+            RecvNotifier(AtomicBool::new(false))
+        }
+
+        fn notify(&self) -> () {
+            self.0.store(true, Ordering::SeqCst);
+        }
+
+        fn wait(&self, pause_slice_micros: u64) -> () {
+            while !self.0.load(Ordering::Acquire) {
+                std::thread::sleep(std::time::Duration::from_micros(pause_slice_micros));
+            }
+            self.0.store(false, Ordering::SeqCst);
+        }
+
+        fn pin(&self) -> Pin<&Self> {
+            Pin::new(self)
+        }
+
+        fn get_callback_arg(pinned: &Pin<&Self>) -> uintptr_t {
+            use std::ops::Deref;
+            pinned.deref() as *const Self as uintptr_t
+        }
+
+        unsafe extern "C" fn callback(arg: uintptr_t) -> () {
+            let pinned = (arg as *const Self).as_ref().unwrap();
+            pinned.notify()
+        }
     }
 
     #[test]
@@ -304,7 +438,7 @@ mod test {
         let mut next_arg: c_int = 0;
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0) };
         assert!(!context.is_null());
         assert_eq!(args.argc(), next_arg);
 
@@ -318,7 +452,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         unsafe { vsg_cleanup(context) };
@@ -332,7 +466,7 @@ mod test {
         let mut next_arg: c_int = 0;
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0) };
         assert!(context.is_null());
         assert_eq!(0, next_arg);
 
@@ -345,7 +479,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(context.is_null());
 
         drop(actor);
@@ -369,7 +503,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", start_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -404,7 +538,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -429,7 +563,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -453,7 +587,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -482,7 +616,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -518,12 +652,412 @@ mod test {
     }
 
     #[test]
+    fn recv() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = null_vsg_address!();
+        let mut dst = null_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_no_src() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut dst = null_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, std::ptr::null_mut(), &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(0, res);
+
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_no_dst() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = null_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, std::ptr::null_mut(), &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_null_empty() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"";
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = null_vsg_address!();
+        let mut dst = null_vsg_address!();
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, std::ptr::null_mut(), std::ptr::null_mut()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_null_empty2() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"";
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = null_vsg_address!();
+        let mut dst = null_vsg_address!();
+        let mut buffer_len = 0u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, std::ptr::null_mut()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer_len, 0);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_null_empty3() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"";
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = null_vsg_address!();
+        let mut dst = null_vsg_address!();
+        let mut buffer: [u8; 0] = [];
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, std::ptr::null_mut(), buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_no_context() {
+        init();
+
+        const ORIG_BUFFER: &[u8] = b"Foo msg";
+        let mut buffer: [u8; ORIG_BUFFER.len()] = Default::default();
+        buffer.copy_from_slice(ORIG_BUFFER);
+
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let mut src = local_vsg_address!();
+        let mut dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_recv(std::ptr::null(), &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(libc::EINVAL, res);
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
+        assert_eq!(buffer_len, ORIG_BUFFER.len() as u32);
+        assert_eq!(buffer, ORIG_BUFFER);
+    }
+
+    #[test]
+    fn recv_null_not_empty() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"";
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = local_vsg_address!();
+        let mut dst = remote_vsg_address!();
+        let mut buffer_len = 1u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, std::ptr::null_mut()) };
+        assert_eq!(libc::EINVAL, res);
+
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
+        assert_eq!(buffer_len, 1);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_no_msg() {
+        init();
+
+        const ORIG_BUFFER: &[u8] = b"Foo msg";
+        let mut buffer: [u8; ORIG_BUFFER.len()] = Default::default();
+        buffer.copy_from_slice(ORIG_BUFFER);
+
+        let actor = TestActorDesc::new("titi", start_actor);
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        let mut src = local_vsg_address!();
+        let mut dst = remote_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(libc::EAGAIN, res);
+
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
+        assert_eq!(buffer_len, ORIG_BUFFER.len() as u32);
+        assert_eq!(buffer, ORIG_BUFFER);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn recv_too_big() {
+        init();
+
+        const SENT_MSG: &[u8] = b"Foo msg";
+        const ORIG_BUFFER: &[u8] = b"fOO MS";
+        let mut buffer: [u8; ORIG_BUFFER.len()] = Default::default();
+        buffer.copy_from_slice(ORIG_BUFFER);
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, SENT_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        recv_notifier.wait(1000);
+
+        let mut src = local_vsg_address!();
+        let mut dst = remote_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(libc::EMSGSIZE, res);
+
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
+        assert_eq!(buffer_len, ORIG_BUFFER.len() as u32);
+        assert_eq!(buffer, ORIG_BUFFER);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
+    fn poll() {
+        init();
+
+        const EXPECTED_MSG: &[u8] = b"Foo msg";
+        let mut buffer = [0u8; EXPECTED_MSG.len()];
+
+        let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
+
+        let args = valid_args!();
+        let recv_notifier = RecvNotifier::new();
+        let recv_notifier = recv_notifier.pin();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context) };
+        assert_eq!(0, res);
+
+        loop {
+            match unsafe { vsg_poll(context) } {
+               libc::EAGAIN => std::thread::sleep(std::time::Duration::from_micros(1000)),
+               res => {
+                   assert_eq!(0, res);
+                   break;
+               },
+            }
+        }
+
+        let mut src = null_vsg_address!();
+        let mut dst = null_vsg_address!();
+        let mut buffer_len: u32 = buffer.len() as u32;
+        let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
+        assert_eq!(0, res);
+
+        // FIXME: Use the remote address when available in the protocol
+        assert_eq!(src, local_vsg_address!());
+        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
+        assert_eq!(buffer, EXPECTED_MSG);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
+    }
+
+    #[test]
     fn gettimeofday() {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
@@ -554,7 +1088,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context) };
