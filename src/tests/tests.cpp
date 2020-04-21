@@ -309,9 +309,8 @@ void TestTansiv::testVsgSend(void)
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
-  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
-  vsg_send(context, src, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -332,11 +331,10 @@ void TestTansiv::testVsgSendEnsureRaise(void)
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
-  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
   /* inject an error here msg != MESSAGE*/
   std::string msg = "plop1";
-  vsg_send(context, src, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -407,7 +405,6 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   int ret                  = vsg_start(context);
   in_port_t port           = 5000;
   std::string msg          = MESSAGE;
-  in_addr_t src            = inet_addr(SRC);
   in_addr_t dest           = inet_addr(DEST);
 
   int payload_length = msg.length() + sizeof(in_port_t) + 1; // because of str
@@ -416,7 +413,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
 
   // fire!
-  vsg_send(context, src, dest, payload_length, payload);
+  vsg_send(context, dest, payload_length, payload);
 
   // loop until some message arrives
   // this shouldn't take long ...

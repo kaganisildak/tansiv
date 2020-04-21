@@ -125,7 +125,7 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 ///
 /// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
 #[no_mangle]
-pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
+pub unsafe extern fn vsg_send(context: *const Context, dest: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
         // We can tolerate msg.is_null() if msglen == 0 but std::slice::from_raw_parts() requires
         // non null pointers.
@@ -139,7 +139,7 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
         };
         let payload = std::slice::from_raw_parts(ptr, msglen as usize);
 
-        match (*context).send(src, dest, payload) {
+        match (*context).send(dest, payload) {
             Ok(_) => 0,
             Err(e) => match e {
                 Error::NoMemoryAvailable => libc::ENOMEM,
@@ -545,9 +545,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"Foo msg";
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -569,9 +568,8 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, 0, std::ptr::null()) };
+        let res: c_int = unsafe { vsg_send(context, dest, 0, std::ptr::null()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -593,14 +591,13 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, 1, std::ptr::null()) };
+        let res: c_int = unsafe { vsg_send(context, dest, 1, std::ptr::null()) };
         assert_eq!(libc::EINVAL, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -623,14 +620,13 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, (&buffer).as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::EMSGSIZE, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -645,9 +641,8 @@ mod test {
         init();
 
         let buffer =  b"Foo msg";
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(std::ptr::null(), src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(std::ptr::null(), dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(libc::EINVAL, res);
     }
 
@@ -1070,9 +1065,8 @@ mod test {
         assert_ne!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
 
         let buffer = b"This is the end";
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -1098,9 +1092,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"This is the end";
-        let src = local_vsg_address!();
         let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dest,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
