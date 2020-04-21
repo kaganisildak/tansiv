@@ -29,7 +29,7 @@ impl std::error::Error for Error {}
 struct OutputMsg {
     send_time: Duration,
     src: VsgAddress,
-    dest: VsgAddress,
+    dst: VsgAddress,
     payload: Buffer,
 }
 
@@ -57,7 +57,7 @@ impl<'a> Iterator for OutputMsgDrain<'a> {
             if val.is_some() {
                 self.index = index + 1;
                 let val = val.unwrap();
-                return Some((val.send_time, val.src, val.dest, val.payload));
+                return Some((val.send_time, val.src, val.dst, val.payload));
             }
         }
 
@@ -81,13 +81,13 @@ impl OutputMsgSet {
         }
     }
 
-    pub fn insert(&self, send_time: Duration, src: VsgAddress, dest: VsgAddress, payload: Buffer) -> Result<()> {
+    pub fn insert(&self, send_time: Duration, src: VsgAddress, dst: VsgAddress, payload: Buffer) -> Result<()> {
         for (idx, slot) in self.slot_busy.iter().enumerate() {
             if !slot.swap(true, Ordering::AcqRel) {
                 let output_msg = OutputMsg {
                     send_time: send_time,
                     src: src,
-                    dest: dest,
+                    dst: dst,
                     payload: payload,
                 };
                 unsafe {

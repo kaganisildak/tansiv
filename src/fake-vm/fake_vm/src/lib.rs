@@ -137,7 +137,7 @@ impl InnerContext {
         }
     }
 
-    fn send(&self, dest: VsgAddress, msg: &[u8]) -> Result<()> {
+    fn send(&self, dst: VsgAddress, msg: &[u8]) -> Result<()> {
         let mut buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
         buffer.copy_from_slice(msg);
 
@@ -147,7 +147,7 @@ impl InnerContext {
         // This would violate the property that send times must be after the previous deadline
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
-        self.outgoing_messages.insert(send_time, self.address,  dest, buffer)?;
+        self.outgoing_messages.insert(send_time, self.address,  dst, buffer)?;
         Ok(())
     }
 
@@ -223,7 +223,7 @@ impl Context {
         let messages = self.0.outgoing_messages.drain();
         let previous_deadline = self.0.timer_context.simulation_previous_deadline();
         let current_deadline = self.0.timer_context.simulation_next_deadline();
-        for (send_time, src, dest, payload) in messages {
+        for (send_time, src, dst, payload) in messages {
             let send_time = if send_time < previous_deadline {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
@@ -236,7 +236,7 @@ impl Context {
                 send_time
             };
 
-            if let Err(_e) = connector.send(MsgOut::SendPacket(send_time, src, dest, payload)) {
+            if let Err(_e) = connector.send(MsgOut::SendPacket(send_time, src, dst, payload)) {
                 // error!("send(SendPacket) failed: {}", _e);
                 return AfterDeadline::EndSimulation;
             }
@@ -274,11 +274,7 @@ impl Context {
 
     fn handle_actor_msg(&self, msg: MsgIn) -> Option<AfterDeadline> {
         match msg {
-            MsgIn::DeliverPacket(packet) => {
-                // FIXME: Use src address when available in the protocol
-                let src = self.0.address;
-                // Or use dst address when available in the protocol? Should be the same...
-                let dst = self.0.address;
+            MsgIn::DeliverPacket(src, dst, packet) => {
                 // let size = packet.len();
                 if self.0.input_queue.push(Packet::new(src, dst, packet)).is_err() {
                     // info!("Dropping input packet from {} of {} bytes", src, size);
@@ -294,8 +290,8 @@ impl Context {
         self.0.gettimeofday()
     }
 
-    pub fn send(&self, dest: VsgAddress, msg: &[u8]) -> Result<()> {
-        self.0.send(dest, msg)
+    pub fn send(&self, dst: VsgAddress, msg: &[u8]) -> Result<()> {
+        self.0.send(dst, msg)
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(VsgAddress, VsgAddress, &'b mut [u8])> {
@@ -419,7 +415,9 @@ pub mod test_helpers {
 
         let next_slice = delay_micros - (next_deadline_micros - slice_micros);
         actor.send(MsgIn::GoToDeadline(Duration::from_micros(next_slice)))?;
-        actor.send(MsgIn::DeliverPacket(buffer))?;
+        let src = local_vsg_address!();
+        let dst = remote_vsg_address!();
+        actor.send(MsgIn::DeliverPacket(src, dst, buffer))?;
         actor.send(MsgIn::EndSimulation)
     }
 
@@ -536,8 +534,8 @@ mod test {
         context.start()
             .expect("start failed");
 
-        let dest = remote_vsg_address!();
-        context.send(dest, b"Foo msg")
+        let dst = remote_vsg_address!();
+        context.send(dst, b"Foo msg")
             .expect("send failed");
 
         context.stop();
@@ -556,15 +554,15 @@ mod test {
         context.start()
             .expect("start failed");
 
-        let dest = remote_vsg_address!();
+        let dst = remote_vsg_address!();
         let buffer = [0u8; crate::MAX_PACKET_SIZE + 1];
-        match context.send(dest, &buffer).expect_err("send should have failed") {
+        match context.send(dst, &buffer).expect_err("send should have failed") {
             crate::error::Error::SizeTooBig => (),
             _ => assert!(false),
         }
 
         // Terminate gracefully
-        context.send(dest, b"Foo msg")
+        context.send(dst, b"Foo msg")
             .expect("send failed");
 
         context.stop();
@@ -593,9 +591,8 @@ mod test {
         let (src, dst, buffer) = context.recv(&mut buffer)
             .expect("recv failed");
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer, EXPECTED_MSG);
 
         context.stop();
@@ -624,7 +621,7 @@ mod test {
 
         // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer, EXPECTED_MSG);
         let total_usec = tv.tv_sec as u64 * 1_000_000 + tv.tv_usec as u64;
         assert!(delay_micros <= total_usec && total_usec <= 10 * delay_micros);
@@ -697,9 +694,8 @@ mod test {
         let (src, dst, buffer) = context.recv(&mut buffer)
             .expect("recv failed");
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer, EXPECTED_MSG);
 
         context.stop();
@@ -723,8 +719,8 @@ mod test {
         assert!(tv.tv_sec >= 0 && tv.tv_sec < 10);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        let dest = remote_vsg_address!();
-        context.send(dest, b"This is the end")
+        let dst = remote_vsg_address!();
+        context.send(dst, b"This is the end")
             .expect("send failed");
 
         context.stop();
@@ -748,8 +744,8 @@ mod test {
         assert!(tv.tv_sec >= 3600 && tv.tv_sec < 3610);
         assert!(tv.tv_usec >= 0 && tv.tv_usec < 999999);
 
-        let dest = remote_vsg_address!();
-        context.send(dest, b"This is the end")
+        let dst = remote_vsg_address!();
+        context.send(dst, b"This is the end")
             .expect("send failed");
 
         context.stop();

@@ -207,10 +207,10 @@ void recv_one(int client_socket)
 
   // test the received addresses
   in_addr_t src_expected = inet_addr(SRC);
-  CPPUNIT_ASSERT_EQUAL(src_expected, send_packet.src);
+  CPPUNIT_ASSERT_EQUAL(src_expected, send_packet.packet.src);
 
-  in_addr_t dest_expected = inet_addr(DEST);
-  CPPUNIT_ASSERT_EQUAL(dest_expected, send_packet.dest);
+  in_addr_t dst_expected = inet_addr(DEST);
+  CPPUNIT_ASSERT_EQUAL(dst_expected, send_packet.packet.dst);
 
   // finally get the payload
   uint8_t buf[send_packet.packet.size];
@@ -271,9 +271,9 @@ void deliver_one(int client_socket)
   printf("Entering deliver_one scenario\n");
   init_sequence(client_socket);
 
-  uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-  std::string data                         = MESSAGE;
-  vsg_packet packet                        = {.size = data.length() + 1};
+  uint32_t deliver_flag = vsg_msg_in_type::DeliverPacket;
+  std::string data      = MESSAGE;
+  vsg_packet packet     = {.size = data.length() + 1, .src = inet_addr(SRC), .dst = inet_addr(DEST)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
   vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
   printf("Leaving deliver_one scenario\n");
@@ -309,8 +309,8 @@ void TestTansiv::testVsgSend(void)
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
   std::string msg          = MESSAGE;
-  in_addr_t dest           = inet_addr(DEST);
-  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  in_addr_t dst           = inet_addr(DEST);
+  vsg_send(context, dst, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -331,10 +331,10 @@ void TestTansiv::testVsgSendEnsureRaise(void)
   const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
   vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
   int ret                  = vsg_start(context);
-  in_addr_t dest           = inet_addr(DEST);
+  in_addr_t dst           = inet_addr(DEST);
   /* inject an error here msg != MESSAGE*/
   std::string msg = "plop1";
-  vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  vsg_send(context, dst, msg.length() + 1, (uint8_t*)msg.c_str());
 
   vsg_stop(context);
   vsg_cleanup(context);
@@ -405,7 +405,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   int ret                  = vsg_start(context);
   in_port_t port           = 5000;
   std::string msg          = MESSAGE;
-  in_addr_t dest           = inet_addr(DEST);
+  in_addr_t dst           = inet_addr(DEST);
 
   int payload_length = msg.length() + sizeof(in_port_t) + 1; // because of str
   uint8_t payload[payload_length];
@@ -413,7 +413,7 @@ void TestTansiv::testVsgSendPiggyBackPort(void)
   vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
 
   // fire!
-  vsg_send(context, dest, payload_length, payload);
+  vsg_send(context, dst, payload_length, payload);
 
   // loop until some message arrives
   // this shouldn't take long ...
@@ -458,24 +458,21 @@ void TestTansiv::testVsgDeliver(void)
   }
   CPPUNIT_ASSERT_MESSAGE("Deliver Callback hasn't been received", message_delivered.load());
 
-  uint32_t msg_len;
+  uint32_t msg_len, src, dst;
   uint8_t* buffer = (uint8_t*)malloc(strlen(MESSAGE) + 1);
   // Test the received message
-  vsg_recv(context, NULL, NULL, &msg_len, buffer);
+  vsg_recv(context, &src, &dst, &msg_len, buffer);
 
   // test the received message
   // -- size read
   CPPUNIT_ASSERT_EQUAL((size_t)msg_len, strlen(MESSAGE) + 1);
+  CPPUNIT_ASSERT_EQUAL(inet_addr(SRC), src);
+  CPPUNIT_ASSERT_EQUAL(inet_addr(DEST), dst);
 
   // -- payload
   std::string actual   = std::string((char*)buffer);
   std::string expected = std::string(MESSAGE);
   CPPUNIT_ASSERT_EQUAL(expected, actual);
-  // -- src & dest
-  // test the received addresses
-  // FIXME, currently there's no suppport for src/dest in messages
-  //
-  // https://gitlab.inria.fr/quinson/2018-vsg/-/blob/d29d6880c736f6294aae7b51ea4252495fb2910d/src/fake-vm/fake_vm/src/lib.rs#L282-285
 
   vsg_stop(context);
   vsg_cleanup(context);

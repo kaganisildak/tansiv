@@ -35,6 +35,8 @@ struct Time {
 #[repr(C)]
 struct Packet {
     size: u32,
+    src: u32,
+    dst: u32,
 }
 
 #[derive(Clone, Copy, Debug, FromLe, IntoLe, PartialEq, ValidAsBytes, Validate)]
@@ -120,8 +122,6 @@ impl ToBytes for MsgInType {
 #[repr(C)]
 struct SendPacket {
     send_time: Time,
-    src: u32,
-    dest: u32,
     packet: Packet,
 }
 
@@ -190,7 +190,7 @@ fn allocate_buffer(buffer_pool: &BufferPool, size: usize) -> Result<Buffer> {
 
 #[derive(Debug)]
 pub enum MsgIn {
-    DeliverPacket(Buffer),
+    DeliverPacket(u32, u32, Buffer),
     GoToDeadline(Duration),
     EndSimulation,
 }
@@ -202,17 +202,19 @@ impl MsgIn {
         usize::max(MsgInType::NUM_BYTES, max_msg_in_second_buf_size)
     }
 
-    fn recv<'a, 'b>(src: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgIn> {
-        let msg_type = MsgInType::from_stream(src, scratch_buffer, src_endianness)?;
+    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgIn> {
+        let msg_type = MsgInType::from_stream(reader, scratch_buffer, src_endianness)?;
         match msg_type {
             MsgInType::DeliverPacket => {
-                let msg = DeliverPacket::from_stream(src, scratch_buffer, src_endianness)?;
+                let msg = DeliverPacket::from_stream(reader, scratch_buffer, src_endianness)?;
                 let mut buffer = allocate_buffer(buffer_pool, msg.packet.size as usize)?;
-                src.read_exact(&mut buffer)?;
-                Ok(MsgIn::DeliverPacket(buffer))
+                let src = msg.packet.src;
+                let dst = msg.packet.dst;
+                reader.read_exact(&mut buffer)?;
+                Ok(MsgIn::DeliverPacket(src, dst, buffer))
             },
             MsgInType::GoToDeadline => {
-                let deadline = GoToDeadline::from_stream(src, scratch_buffer, src_endianness)?.deadline;
+                let deadline = GoToDeadline::from_stream(reader, scratch_buffer, src_endianness)?.deadline;
                 if let (Ok(seconds), Ok(nseconds)) = (
                     u64::try_from(deadline.seconds),
                     u32::try_from(deadline.useconds).map_err(|_| ()).and_then(|usecs|
@@ -232,26 +234,28 @@ impl MsgIn {
     }
 
     #[cfg(any(test, feature = "test-helpers"))]
-    fn send<'b>(self, dst: &mut impl Write, scratch_buffer: &'b mut [u8], dst_endianness: Endianness) -> Result<()> {
+    fn send<'b>(self, writer: &mut impl Write, scratch_buffer: &'b mut [u8], dst_endianness: Endianness) -> Result<()> {
         let msg_type = match self {
-            MsgIn::DeliverPacket(_) => MsgInType::DeliverPacket,
+            MsgIn::DeliverPacket(_,_ ,_) => MsgInType::DeliverPacket,
             MsgIn::GoToDeadline(_) => MsgInType::GoToDeadline,
             MsgIn::EndSimulation => MsgInType::EndSimulation,
         };
-        msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
+        msg_type.to_stream(writer, scratch_buffer, dst_endianness)?;
         match self {
-            MsgIn::DeliverPacket(packet) => {
+            MsgIn::DeliverPacket(src, dst, packet) => {
                 const_assert!(crate::MAX_PACKET_SIZE <= std::u32::MAX as usize);
                 assert!(packet.len() <= std::u32::MAX as usize);
 
                 let deliver_packet_header = DeliverPacket {
                     packet: Packet {
                         size: packet.len() as u32,
+                        src: src,
+                        dst: dst
                     },
                 };
 
-                deliver_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
-                dst.write_all(&packet)
+                deliver_packet_header.to_stream(writer, scratch_buffer, dst_endianness)?;
+                writer.write_all(&packet)
             },
             MsgIn::GoToDeadline(deadline) => {
                 let go_to_deadline = GoToDeadline {
@@ -260,7 +264,7 @@ impl MsgIn {
                         useconds: deadline.subsec_micros() as u64,
                     },
                 };
-                go_to_deadline.to_stream(dst, scratch_buffer, dst_endianness)
+                go_to_deadline.to_stream(writer, scratch_buffer, dst_endianness)
             },
             MsgIn::EndSimulation => Ok(()),
         }
@@ -278,15 +282,15 @@ impl MsgOut {
         usize::max(MsgOutType::NUM_BYTES, SendPacket::NUM_BYTES)
     }
 
-    fn send(self, dst: &mut impl Write, scratch_buffer: &mut [u8], dst_endianness: Endianness) -> Result<()> {
+    fn send(self, writer: &mut impl Write, scratch_buffer: &mut [u8], dst_endianness: Endianness) -> Result<()> {
         let msg_type = match self {
             MsgOut::AtDeadline => MsgOutType::AtDeadline,
             MsgOut::SendPacket(_, _, _, _) => MsgOutType::SendPacket,
         };
-        msg_type.to_stream(dst, scratch_buffer, dst_endianness)?;
+        msg_type.to_stream(writer, scratch_buffer, dst_endianness)?;
         match self {
             MsgOut::AtDeadline => Ok(()),
-            MsgOut::SendPacket(send_time, src, dest, packet) => {
+            MsgOut::SendPacket(send_time, src, dst, packet) => {
                 const_assert!(crate::MAX_PACKET_SIZE <= std::u32::MAX as usize);
                 assert!(packet.len() <= std::u32::MAX as usize);
 
@@ -295,15 +299,15 @@ impl MsgOut {
                         seconds: send_time.as_secs(),
                         useconds: send_time.subsec_micros() as u64,
                     },
-                    src: src,
-                    dest: dest,
                     packet: Packet {
                         size: packet.len() as u32,
+                        src: src,
+                        dst: dst
                     },
                 };
 
-                send_packet_header.to_stream(dst, scratch_buffer, dst_endianness)?;
-                dst.write_all(&packet)
+                send_packet_header.to_stream(writer, scratch_buffer, dst_endianness)?;
+                writer.write_all(&packet)
             },
         }
     }
@@ -315,7 +319,7 @@ impl MsgOut {
             MsgOutType::AtDeadline => Ok(MsgOut::AtDeadline),
             MsgOutType::SendPacket => {
                 let header = SendPacket::from_stream(reader, scratch_buffer, src_endianness)?;
-                if let (Ok(seconds), Ok(nseconds), Ok(src), Ok(dest)) = (
+                if let (Ok(seconds), Ok(nseconds)) = (
                     u64::try_from(header.send_time.seconds),
                     u32::try_from(header.send_time.useconds).map_err(|_| ()).and_then(|usecs|
                                                                                       if usecs < 1000000 {
@@ -323,13 +327,13 @@ impl MsgOut {
                                                                                       } else {
                                                                                           Err(())
                                                                                       }),
-                    u32::try_from(header.src),
-                    u32::try_from(header.dest)
                 ) {
                     let mut buffer = allocate_buffer(buffer_pool, header.packet.size as usize)?;
+                    let src = header.packet.src;
+                    let dst = header.packet.dst;
                     reader.read_exact(&mut buffer)?;
 
-                    Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), src, dest, buffer))
+                    Ok(MsgOut::SendPacket(Duration::new(seconds, nseconds), src, dst, buffer))
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Time out of bounds"))
                 }

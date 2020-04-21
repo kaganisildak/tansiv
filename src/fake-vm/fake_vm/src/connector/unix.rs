@@ -446,6 +446,8 @@ mod test {
     static DELIVER_PACKET: DeliverPacket = DeliverPacket {
         packet: Packet {
             size: 42,
+            src: 0,
+            dst: 1
         },
     };
     static PACKET_PAYLOAD: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF";
@@ -496,6 +498,8 @@ mod test {
         let msg = DeliverPacket {
             packet: Packet {
                 size: (crate::MAX_PACKET_SIZE + 1) as u32,
+                src: 0,
+                dst: 1
             },
         };
         let mut big_payload = vec!(0; msg.packet.size as usize);
@@ -537,7 +541,7 @@ mod test {
             assert!(msg.is_ok());
             let msg = msg.unwrap();
             match msg {
-                MsgIn::DeliverPacket(payload) => {
+                MsgIn::DeliverPacket(_, _, payload) => {
                     assert_eq!(payload.deref(), PACKET_PAYLOAD)
                 },
                 _ => assert!(false),
