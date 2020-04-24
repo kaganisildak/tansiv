@@ -41,6 +41,14 @@ configure_file(examples/send/deployment.xml examples/send/deployment.xml)
 configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
 add_dependencies(send fake-vm)
 
+
+# Bench (with vsg)
+add_executable(gettimeofday examples/benchs/gettimeofday.cpp)
+set_target_properties(gettimeofday PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/benchs)
+target_link_libraries(gettimeofday PUBLIC ${FAKEVM_LIBS} vsg)
+configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
+configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
+add_dependencies(gettimeofday fake-vm)
 # Unit tests
 add_executable(tests src/tests/tests.cpp)
 target_link_libraries(tests PUBLIC ${FAKEVM_LIBS} vsg ${SimGrid_LIBRARY})
@@ -49,4 +57,7 @@ target_compile_options(tests PUBLIC -fexceptions)
 add_dependencies(tests fake-vm)
 
 install(TARGETS tansiv DESTINATION bin)
-
+install(TARGETS vsg DESTINATION lib)
+install(FILES src/vsg/vsg.h DESTINATION include)
+install(CODE "MESSAGE(\"-- Installing libfake_vm\")")
+install(CODE "execute_process(COMMAND make install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm )")
