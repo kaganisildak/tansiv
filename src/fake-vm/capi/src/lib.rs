@@ -2,7 +2,7 @@
 #[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
 extern crate fake_vm;
 
-use fake_vm::{Context, VsgAddress, Error, Result};
+use fake_vm::{Context, Error, Result};
 use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
@@ -125,7 +125,7 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 ///
 /// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
 #[no_mangle]
-pub unsafe extern fn vsg_send(context: *const Context, dst: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
+pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
         // We can tolerate msg.is_null() if msglen == 0 but std::slice::from_raw_parts() requires
         // non null pointers.
@@ -175,7 +175,7 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: VsgAddress, msglen: 
 /// * Fails with `libc::EMSGSIZE` whenever the next message in the queue has a payload bigger than
 ///   the provided buffer. The message is lost.
 #[no_mangle]
-pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut VsgAddress, pdst: *mut VsgAddress, msglen: *mut u32, msg: *mut u8) -> c_int {
+pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut libc::in_addr_t, pdst: *mut libc::in_addr_t, msglen: *mut u32, msg: *mut u8) -> c_int {
     const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
 
     if let Some(context) = context.as_ref() {

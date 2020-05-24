@@ -42,9 +42,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
 
-pub type VsgAddress = u32;
-
-fn vsg_address_from_str(ip: &str) -> std::result::Result<VsgAddress, std::net::AddrParseError> {
+fn vsg_address_from_str(ip: &str) -> std::result::Result<libc::in_addr_t , std::net::AddrParseError> {
     use std::str::FromStr;
     let ipv4 = std::net::Ipv4Addr::from_str(ip)?;
     Ok(Into::<u32>::into(ipv4).to_be())
@@ -52,13 +50,13 @@ fn vsg_address_from_str(ip: &str) -> std::result::Result<VsgAddress, std::net::A
 
 #[derive(Debug)]
 struct Packet {
-    src: VsgAddress,
-    dst: VsgAddress,
+    src: libc::in_addr_t,
+    dst: libc::in_addr_t,
     payload: Buffer,
 }
 
 impl Packet {
-    fn new(src: VsgAddress, dst: VsgAddress, payload: Buffer) -> Packet {
+    fn new(src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer) -> Packet {
         Packet {
             src: src,
             dst: dst,
@@ -72,7 +70,7 @@ impl Packet {
 // interior mutability.
 struct InnerContext {
     // Read-only
-    address: VsgAddress,
+    address: libc::in_addr_t,
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
@@ -137,7 +135,7 @@ impl InnerContext {
         }
     }
 
-    fn send(&self, dst: VsgAddress, msg: &[u8]) -> Result<()> {
+    fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         let mut buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
         buffer.copy_from_slice(msg);
 
@@ -151,7 +149,7 @@ impl InnerContext {
         Ok(())
     }
 
-    fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(VsgAddress, VsgAddress, &'b mut [u8])> {
+    fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
         match self.input_queue.pop() {
             Some(Packet { src, dst, payload, }) => {
                 if msg.len() >= payload.len() {
@@ -290,11 +288,11 @@ impl Context {
         self.0.gettimeofday()
     }
 
-    pub fn send(&self, dst: VsgAddress, msg: &[u8]) -> Result<()> {
+    pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         self.0.send(dst, msg)
     }
 
-    pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(VsgAddress, VsgAddress, &'b mut [u8])> {
+    pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
         self.0.recv(msg)
     }
 

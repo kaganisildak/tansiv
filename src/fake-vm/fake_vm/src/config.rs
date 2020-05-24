@@ -1,5 +1,5 @@
 use chrono::naive::NaiveDateTime;
-use crate::VsgAddress;
+use libc;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -13,7 +13,7 @@ pub(crate) struct Config {
 
     /// Name (address) of this application in the network
     #[structopt(short = "n", long = "name", parse(try_from_str = "crate::vsg_address_from_str"))]
-    pub address: VsgAddress,
+    pub address: libc::in_addr_t,
 
     /// Initial time in the VM, formatted as %Y-%m-%dT%H:%M:%S%.f (%.f part is optional)
     #[structopt(short = "t", long = "initial_time", parse(try_from_str = "chrono::naive::NaiveDateTime::from_str"))]
