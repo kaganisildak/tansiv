@@ -41,14 +41,19 @@ configure_file(examples/send/deployment.xml examples/send/deployment.xml)
 configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
 add_dependencies(send fake-vm)
 
-
-# Bench (with vsg)
+# Benchs
 add_executable(gettimeofday examples/benchs/gettimeofday.cpp)
 set_target_properties(gettimeofday PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/benchs)
 target_link_libraries(gettimeofday PUBLIC ${FAKEVM_LIBS} vsg)
 configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
 configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
 add_dependencies(gettimeofday fake-vm)
+
+# Qemus
+configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh COPYONLY)
+configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml COPYONLY)
+configure_file(examples/qemus/nova_cluster.xml examples/qemus/nova_cluster.xml COPYONLY)
+
 # Unit tests
 add_executable(tests src/tests/tests.cpp)
 target_link_libraries(tests PUBLIC ${FAKEVM_LIBS} vsg ${SimGrid_LIBRARY})

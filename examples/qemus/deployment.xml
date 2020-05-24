@@ -3,21 +3,17 @@
 <platform version="4.1">
 
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
-    <argument value="192.168.0.53"/>  <!-- how simgrid knows me-->
+    <argument value="192.168.0.10"/>  <!-- how simgrid knows me-->
     <argument value="./examples/qemus/boot_and_log.sh"/>
-    <argument value="192.168.0.53"/>  <!-- listen to this -->
-    <argument value="1234"/>          <!-- listen to this -->
-    <argument value="192.168.0.54"/>  <!-- connect to this -->
-    <argument value="1235"/>          <!-- connect to this -->
+    <argument value="192.168.0.10"/>  <!-- how vsg knows me-->
+    <argument value="52:54:00:00:00:10"/>  <!-- my mac address so that the dhcp give the above IP -->
   </actor>
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
-    <argument value="192.168.0.54"/>  <!-- how simgrid knows me-->
+    <argument value="192.168.0.11"/>  <!-- how simgrid knows me-->
     <argument value="./examples/qemus/boot_and_log.sh"/>
-    <argument value="192.168.0.54"/>  <!-- listen to this -->
-    <argument value="1235"/>          <!-- listen to this -->
-    <argument value="192.168.0.53"/>  <!-- connect to this -->
-    <argument value="1234"/>          <!-- connect to this -->
+    <argument value="192.168.0.11"/>  <!-- how vsg knows me-->
+    <argument value="52:54:00:00:00:11"/>  <!-- my mac address so that the dhcp give the above IP -->
   </actor>
 
 </platform>
