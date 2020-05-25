@@ -38,12 +38,12 @@ enum vsg_msg_out_type {
 };
 struct vsg_packet {
   uint32_t size;
+  in_addr_t src;
+  in_addr_t dst;
 };
 
 struct vsg_send_packet {
   struct vsg_time send_time;
-  in_addr_t src;
-  in_addr_t dest;
   struct vsg_packet packet;
 };
 
@@ -57,7 +57,7 @@ void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
 /*
  * Decoding function
  */
-int vsg_decode_src_dest(struct vsg_send_packet, char* src_addr, char* dest_addr);
+int vsg_decode_src_dst(struct vsg_send_packet, char* src_addr, char* dst_addr);
 
 /*
  * Receive order from vsg

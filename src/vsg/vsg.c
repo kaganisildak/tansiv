@@ -16,12 +16,12 @@
  * This decode the src and dest field from in_addr to cghar*
  *
  */
-int vsg_decode_src_dest(struct vsg_send_packet packet, char* src_addr, char* dest_addr)
+int vsg_decode_src_dst(struct vsg_send_packet packet, char* src_addr, char* dst_addr)
 {
-  struct in_addr _dest_addr = {packet.dest};
-  struct in_addr _src_addr  = {packet.src};
+  struct in_addr _dst_addr = {packet.packet.dst};
+  struct in_addr _src_addr = {packet.packet.src};
   inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
-  inet_ntop(AF_INET, &(_dest_addr), dest_addr, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &(_dst_addr), dst_addr, INET_ADDRSTRLEN);
   return 0;
 }
 

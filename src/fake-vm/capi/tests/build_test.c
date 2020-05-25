@@ -39,9 +39,8 @@ int main(int argc, const char* argv[])
   if (res)
     die("vsg_gettimeofday() failed", res);
 
-  uint32_t src  = 0;
   uint32_t dest = 1;
-  res           = vsg_send(context, src, dest, sizeof(msg), msg);
+  res           = vsg_send(context, dest, sizeof(msg), msg);
   if (res)
     die("vsg_send() failed", res);
 
@@ -49,6 +48,7 @@ int main(int argc, const char* argv[])
   if (res)
     die("vsg_poll() failed", res);
 
+  uint32_t src  = 0;
   uint32_t msglen = sizeof(msg);
   res             = vsg_recv(context, &src, &dest, &msglen, msg);
   if (res)

@@ -15,9 +15,13 @@ static std::vector<simgrid::s4u::ActorPtr> receivers;
 
 const std::string vsg_vm_name = "vsg_vm";
 
+double force_min_latency = -1;
+
 static double compute_min_latency()
 {
-
+  if (force_min_latency >= 0) {
+    return force_min_latency;
+  }
   double min_latency = std::numeric_limits<double>::infinity();
 
   for (simgrid::s4u::ActorPtr sender : receivers) {
@@ -35,7 +39,6 @@ static double compute_min_latency()
   xbt_assert(min_latency > 0, "error with the platform file : the minimum latency between hosts is %f  <= 0",
              min_latency);
   XBT_INFO("the minimum latency on the network is %f sec", min_latency);
-
   return min_latency;
 }
 
@@ -200,9 +203,22 @@ static void vm_coordinator()
   XBT_INFO("end of simulation");
 }
 
+double parse_args_force(int argc, char* argv[])
+{
+  for (int i = 1; i < argc; ++i) {
+    if (std::string(argv[i]) == "--force") {
+      return std::stod(argv[i + 1]);
+    }
+  }
+  return -1;
+}
+
 int main(int argc, char* argv[])
 {
   xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
+
+  force_min_latency = parse_args_force(argc, argv);
+  XBT_DEBUG("Forcing the minimum latency to %d", force_min_latency);
 
   simgrid::s4u::Engine e(&argc, argv);
 

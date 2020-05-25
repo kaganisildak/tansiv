@@ -193,11 +193,11 @@ std::vector<message> VmsInterface::goTo(double deadline)
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
           end_simulation();
         }
-        char dest_addr[INET_ADDRSTRLEN];
+        char dst_addr[INET_ADDRSTRLEN];
         char src_addr[INET_ADDRSTRLEN];
-        vsg_decode_src_dest(send_packet, src_addr, dest_addr);
+        vsg_decode_src_dst(send_packet, src_addr, dst_addr);
         XBT_INFO("got the message [%s] (size %lu) from VM [%s](=ip(%s)) to VM [%d](=ip(%s)) with timestamp [%d.%06d]",
-                 data, sizeof(data), vm_name.c_str(), src_addr, send_packet.dest, dest_addr,
+                 data, sizeof(data), vm_name.c_str(), src_addr, send_packet.packet.dst, dst_addr,
                  send_packet.send_time.seconds, send_packet.send_time.useconds);
 
         struct message m;
@@ -208,7 +208,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
         m.data.append(data);
         m.packet    = send_packet.packet;
         m.src       = std::string(src_addr);
-        m.dest      = std::string(dest_addr);
+        m.dest      = std::string(dst_addr);
         m.sent_time = vmToSimgridTime(send_packet.send_time);
         messages.push_back(m);
       } else {

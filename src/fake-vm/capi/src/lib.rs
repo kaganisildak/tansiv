@@ -2,7 +2,7 @@
 #[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
 extern crate fake_vm;
 
-use fake_vm::{Context, VsgAddress, Error, Result};
+use fake_vm::{Context, Error, Result};
 use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
@@ -107,7 +107,7 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
     }
 }
 
-/// Sends a message having source address `src`, destination address `dest` and a payload stored in
+/// Sends a message having source address `src`, destination address `dst` and a payload stored in
 /// `msg[0..msglen]`.
 ///
 /// # Safety
@@ -125,7 +125,7 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 ///
 /// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
 #[no_mangle]
-pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: VsgAddress, msglen: u32, msg: *const u8) -> c_int {
+pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
         // We can tolerate msg.is_null() if msglen == 0 but std::slice::from_raw_parts() requires
         // non null pointers.
@@ -139,7 +139,7 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
         };
         let payload = std::slice::from_raw_parts(ptr, msglen as usize);
 
-        match (*context).send(src, dest, payload) {
+        match (*context).send(dst, payload) {
             Ok(_) => 0,
             Err(e) => match e {
                 Error::NoMemoryAvailable => libc::ENOMEM,
@@ -154,14 +154,14 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
 }
 
 /// Picks the next message in the receive queue, stores its payload in `msg[0..*msglen]` and
-/// optionnally returns sender and destination addresses in `*psrc` and `*pdest` respectively. The
+/// optionnally returns sender and destination addresses in `*psrc` and `*pdst` respectively. The
 /// actual length of the received payload is stored in `*msglen`.
 ///
 /// # Safety
 ///
 /// * `context` should point to a valid context, as previously returned by [`vsg_init`].
 ///
-/// * `psrc` and `pdest` can be `NULL`, in which case the correponding addresses will not be returned.
+/// * `psrc` and `pdst` can be `NULL`, in which case the correponding addresses will not be returned.
 ///
 /// * If `msglen` is `NULL` or `*msglen` is `0`, only 0-length messages can be received. Note that
 ///   in that case it is allowed that `msg` is `NULL` too.
@@ -175,7 +175,7 @@ pub unsafe extern fn vsg_send(context: *const Context, src: VsgAddress, dest: Vs
 /// * Fails with `libc::EMSGSIZE` whenever the next message in the queue has a payload bigger than
 ///   the provided buffer. The message is lost.
 #[no_mangle]
-pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut VsgAddress, pdest: *mut VsgAddress, msglen: *mut u32, msg: *mut u8) -> c_int {
+pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut libc::in_addr_t, pdst: *mut libc::in_addr_t, msglen: *mut u32, msg: *mut u8) -> c_int {
     const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
 
     if let Some(context) = context.as_ref() {
@@ -197,12 +197,12 @@ pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut VsgAddress, pd
         let payload = std::slice::from_raw_parts_mut(ptr, len as usize);
 
         match (*context).recv(payload) {
-            Ok((src, dest, payload)) => {
+            Ok((src, dst, payload)) => {
                 if !psrc.is_null() {
                     *psrc = src;
                 }
-                if !pdest.is_null() {
-                    *pdest = dest;
+                if !pdst.is_null() {
+                    *pdst = dst;
                 }
                 if !msglen.is_null() {
                     *msglen = payload.len() as u32;
@@ -545,9 +545,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"Foo msg";
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -569,9 +568,8 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, 0, std::ptr::null()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst, 0, std::ptr::null()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -593,14 +591,13 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, 1, std::ptr::null()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst, 1, std::ptr::null()) };
         assert_eq!(libc::EINVAL, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -623,14 +620,13 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, (&buffer).as_ptr()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::EMSGSIZE, res);
 
         // Terminate gracefully
         let buffer = b"Foo msg";
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -645,9 +641,8 @@ mod test {
         init();
 
         let buffer =  b"Foo msg";
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(std::ptr::null(), src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(std::ptr::null(), dst, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(libc::EINVAL, res);
     }
 
@@ -677,9 +672,8 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
         assert_eq!(0, res);
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
         assert_eq!(buffer, EXPECTED_MSG);
 
@@ -715,7 +709,7 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, std::ptr::null_mut(), &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
         assert_eq!(0, res);
 
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
         assert_eq!(buffer, EXPECTED_MSG);
 
@@ -787,9 +781,8 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, std::ptr::null_mut(), std::ptr::null_mut()) };
         assert_eq!(0, res);
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
 
         let res: c_int = unsafe { vsg_stop(context) };
         assert_eq!(0, res);
@@ -823,9 +816,8 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer_len, 0);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -860,9 +852,8 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, std::ptr::null_mut(), buffer.as_mut().as_mut_ptr()) };
         assert_eq!(0, res);
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer, EXPECTED_MSG);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -1038,9 +1029,8 @@ mod test {
         let res: c_int = unsafe { vsg_recv(context, &mut src, &mut dst, &mut buffer_len, buffer.as_mut().as_mut_ptr()) };
         assert_eq!(0, res);
 
-        // FIXME: Use the remote address when available in the protocol
         assert_eq!(src, local_vsg_address!());
-        assert_eq!(dst, local_vsg_address!());
+        assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer_len, EXPECTED_MSG.len() as u32);
         assert_eq!(buffer, EXPECTED_MSG);
 
@@ -1070,9 +1060,8 @@ mod test {
         assert_ne!(TIMEVAL_POISON.tv_usec, tv.tv_usec);
 
         let buffer = b"This is the end";
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest, buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };
@@ -1098,9 +1087,8 @@ mod test {
         assert_eq!(0, res);
 
         let buffer = b"This is the end";
-        let src = local_vsg_address!();
-        let dest = remote_vsg_address!();
-        let res: c_int = unsafe { vsg_send(context, src, dest,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
+        let dst = remote_vsg_address!();
+        let res: c_int = unsafe { vsg_send(context, dst,  buffer.len() as u32, buffer.as_ref().as_ptr()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_stop(context) };

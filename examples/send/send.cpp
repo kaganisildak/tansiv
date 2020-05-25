@@ -31,15 +31,15 @@ void make_addr(char* addr, int id)
 
 void recv_cb(uintptr_t arg)
 {
-  std::atomic<bool>* callback_called = (std::atomic<bool>*)arg; 
-  *callback_called = true;
+  std::atomic<bool>* callback_called = (std::atomic<bool>*)arg;
+  *callback_called                   = true;
 };
 
 int main(int argc, char* argv[])
 {
   // initialization phase
-  int dest_id                  = std::atoi(argv[1]);
-  int src_id                   = 1 - dest_id;
+  int dest_id = std::atoi(argv[1]);
+  int src_id  = 1 - dest_id;
   char dest_str[INET_ADDRSTRLEN];
   make_addr(dest_str, dest_id);
   char src_str[INET_ADDRSTRLEN];
@@ -49,7 +49,7 @@ int main(int argc, char* argv[])
   int vsg_argc                 = 6;
   const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-n", src_str, "-t", "1970-01-01T00:00:00"};
   std::atomic<bool> callback_called(false);
-  vsg_context* context         = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called);
+  vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called);
 
   if (!context) {
     die("Unable to initialize the context", 0);
@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
   }
 
   std::string msg = "plop";
-  ret             = vsg_send(context, src, dest, msg.length() + 1, (uint8_t*)msg.c_str());
+  ret             = vsg_send(context, dest, msg.length() + 1, (uint8_t*)msg.c_str());
   if (ret) {
     die("vsg_send() failed", ret);
   }
@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
   uint32_t recv_dest;
   uint32_t buffer_len = msg.length() + 1;
   char buffer[buffer_len];
-  ret             = vsg_recv(context, &src, &dest, &buffer_len, (uint8_t*)buffer);
+  ret = vsg_recv(context, &src, &dest, &buffer_len, (uint8_t*)buffer);
   if (ret) {
     die("vsg_recv() failed", ret);
   }
