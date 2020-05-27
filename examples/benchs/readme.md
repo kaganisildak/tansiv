@@ -16,4 +16,4 @@ sns.swarmplot(data=ddf, x="latency", y="value", hue="variable")
 plt.show()
 ```
 
-[gettimeofday](gettimeofday.png)
+![gettimeofday](gettimeofday.png)
