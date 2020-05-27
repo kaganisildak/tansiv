@@ -1,6 +1,7 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
@@ -11,6 +12,8 @@ extern "C" {
 }
 
 using namespace std;
+
+#define MAX_COUNT ((uint64_t)pow(10, 8))
 
 // Addresses used in this program
 #define ADDR_FMT "10.0.%d.1"
@@ -59,48 +62,47 @@ vsg_context* init_vsg(int argc, char* argv[])
 
 #define LIMIT 5
 
-int bench_vsg_gettimeofday(int argc, char* argv[])
+double to_double(timeval time)
+{
+  return (double)time.tv_sec + ((double)time.tv_usec) * pow(10, -6);
+}
+
+double bench_vsg_gettimeofday(int argc, char* argv[])
 {
   vsg_context* context = init_vsg(argc, argv);
 
-  timeval limit = {.tv_sec = LIMIT, .tv_usec = 0};
-  int loop_count;
   timeval start;
-  vsg_gettimeofday(context, &start, NULL);
   timeval current;
   timeval diff;
-  for (loop_count = 0; loop_count < std::numeric_limits<int>::max(); loop_count++) {
-    vsg_gettimeofday(context, &current, NULL);
-    timersub(&current, &start, &diff);
-    if (timercmp(&diff, &limit, >=)) {
-      break;
-    }
+  double result = 0.;
+
+  vsg_gettimeofday(context, &start, NULL);
+  for (int loop_count = 1; loop_count < MAX_COUNT; loop_count++) {
+    result = result + 1 / pow(loop_count, 2);
   }
-  printf("I'm done with bench_vsg_gettimeofday\n");
-  return loop_count;
+  vsg_gettimeofday(context, &current, NULL);
+
+  timersub(&current, &start, &diff);
+  // printf("vsg_gettimeofday] 6*result = %f\n", result);
+  return to_double(diff);
 }
 
-int bench_gettimeofday(int argc, char* argv[])
+double bench_gettimeofday(int argc, char* argv[])
 {
-  timeval limit = {.tv_sec = LIMIT, .tv_usec = 0};
-  int loop_count;
   timeval start;
-  gettimeofday(&start, NULL);
   timeval current;
   timeval diff;
-  for (loop_count = 0; loop_count < std::numeric_limits<int>::max(); loop_count++) {
-    // TODO(msimonin): faire un truc genre une addition
-    // à nombre d'itérations fixé
-    // compilé en mode release (make RELEASE=0)
-    // make install avec prefix connu
-    gettimeofday(&current, NULL);
-    timersub(&current, &start, &diff);
-    if (timercmp(&diff, &limit, >=)) {
-      break;
-    }
+  double result = 0.;
+
+  gettimeofday(&start, NULL);
+  for (int loop_count = 1; loop_count < MAX_COUNT; loop_count++) {
+    result = result + 1. / pow(loop_count, 2);
   }
-  printf("I'm done with bench_gettimeofday\n");
-  return loop_count;
+  gettimeofday(&current, NULL);
+
+  timersub(&current, &start, &diff);
+  // printf("gettimeofday] 6*result = %f\n", result);
+  return to_double(diff);
 }
 
 /*
@@ -109,13 +111,14 @@ int bench_gettimeofday(int argc, char* argv[])
  */
 int main(int argc, char* argv[])
 {
-  int count1   = bench_gettimeofday(argc, argv);
-  int count2   = bench_vsg_gettimeofday(argc, argv);
-  double rate1 = (double)count1 / LIMIT;
-  double rate2 = (double)count2 / LIMIT;
+  double time1 = bench_gettimeofday(argc, argv);
+  double time2 = bench_vsg_gettimeofday(argc, argv);
+  printf("%f, %f\n", time1, time2);
+  /*
   printf("\n");
-  printf("|%-20s|%16.2f /s|\n", "gettimeofday", rate1);
-  printf("|%-20s|%16.2f /s|\n", "vsg_gettimeofday", rate2);
+  printf("|%-20s|%16.3f s|\n", "gettimeofday", time1);
+  printf("|%-20s|%16.3f s|\n", "vsg_gettimeofday", time2);
   printf("\n");
+  */
   exit(0);
 }

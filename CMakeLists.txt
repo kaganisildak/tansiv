@@ -10,8 +10,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/tools/cmake/")
 # order of linked library is important !
 # https://stackoverflow.com/questions/45135/why-does-the-order-in-which-libraries-are-linked-sometimes-cause-errors-in-gcc
-set(FAKEVM_LIBS ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm/target/debug/libfake_vm.a dl rt pthread cppunit)
-set(FAKEVM_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm/capi/src/)
+set(FAKEVM_LIBS /opt/fake-vm/lib/libfake_vm.a dl rt pthread cppunit)
+set(FAKEVM_INCLUDE_DIR /opt/fake-vm/include)
 set(VSG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/vsg/)
 
 # Search for SimGrid
@@ -20,13 +20,14 @@ find_package(SimGrid REQUIRED)
 include_directories("${SimGrid_INCLUDE_DIR}" "${FAKEVM_INCLUDE_DIR}" "${VSG_INCLUDE_DIR}"  SYSTEM)
 
 # fake-vm client lib (rust implementation)
-add_custom_target(fake-vm ALL COMMAND make WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm)
+# installed in /opt/fake-vm
+# compiled in RELEASE mode (I've got the power !)
+add_custom_target(fake-vm ALL COMMAND make PREFIX=/opt/fake-vm RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm)
 
 # vsg lib (actor side)
 add_library(vsg STATIC src/vsg/vsg.c src/vsg/log.c)
 target_compile_options(vsg PUBLIC -DLOG_USE_COLOR)
 target_link_libraries(vsg PUBLIC m)
-
 
 # Tansiv (coordinator of the simulation)
 add_executable(tansiv src/simgrid/VmsInterface.cpp src/simgrid/VmsCoordinator.cpp)
