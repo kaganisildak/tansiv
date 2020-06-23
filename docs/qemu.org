@@ -1,0 +1,72 @@
+* MMIO management
+
+- MMIO: https://en.wikipedia.org/wiki/Memory-mapped_I%2FO
+
+- Question: What happens when the guest want to output a network packet ?
+
+- Configuration under consideration: 
+  + full emulation (soft qemu, tcg accelerated) with e1000 emulated network card (network frontend) and and a TAP network backend
+  + example of corresponding command: 
+    ~qemu-system-x86_64 --accel tcg -m 1g -drive file=tantap.qcow2 -netdev tap,id=mynet0,ifname=tap0,script=no,downscript=no -device e1000,netdev=mynet0,mac=52:55:00:d1:55:01~
+
+- Initialisation
+  When the device is initialised it declares a MMIO region which is a special
+  Memory Region with callbacks associated for ~read~ and ~write~ operation.
+
+  + For e1000 emulated card this is found here: https://github.com/qemu/qemu/blob/v4.2.0/hw/net/e1000.c#L1626-L1642
+  + The MMIO region is built with this options: https://github.com/qemu/qemu/blob/v4.2.0/hw/net/e1000.c#L1342-L1350
+  + ~e1000_mmio_write~ will be responsible to send the network packet to its associated peer (here the tap backend)
+    - following some calls, e1000 ends up calling ~qemu_send_packet~, the generic function to transfer data between peers (here frontend -> backend): https://github.com/qemu/qemu/blob/v4.2.0/hw/net/e1000.c#L552
+
+- Runtime: how/when the ~read/write~ callbacks are actually called ?
+  + that's easy to answer tracing the callers: ~read/write~ callbacks are called by ~memory_dispatch_read/write~ and ~io_readx/io_writex~ in ~cputlb.c~
+    which are called by the ~read/store_helper~ in the same file. 
+
+- Now the fun part, who's calling the helper functions
+  + enter the TCG magic ...
+  + for instance An ARM guest can be emulated in an i386 machines
+    Qemu needs to offer various guest/host combination (arm, i386, 32 bits, 64 bits).
+    If the gurest can be almost anything the host is determined by the machine qemu is runnning on.
+  + Qemu translates the guest instructions to host understandable instructions in 2 phases:
+    - first it translates the guest instruction into instructions of an intermediate instruction set: TCG (Tiny Code Generation)
+    - second it translates the TCG instruction into instruction executable by the host
+    Réf: https://github.com/qemu/qemu/blob/v4.2.0/docs/devel/tcg.rst
+    - translation occurs in the emulated CPU routine. 
+      an emulated CPU will (almost) continuously -- https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cpu-exec.c#L715
+      + get the next sets of instruction to translate and translate it to TCG -- https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/translate-all.c#L1734
+      + then translate it to the target host instruction sets -- https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/translate-all.c#L1757
+      + and execute it --  https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cpu-exec.c#L731
+  + First phase: Guest to TCG -- (actually depends on the guest implementation) https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/translate-all.c#L1734
+    - instructions are translated by block of instructions:  ~Translation Block (tb)~. Each tb is
+      translated one after the another.
+    - a ~Tb~ in qemu stores some some meta
+      data about the translated instructions (e.g the program counter of the
+      current block, the address of the next instruction of the next Tb [e.g to
+      jump directly to the next Tb code]) -- https://github.com/qemu/qemu/blob/v4.2.0/include/exec/exec-all.h#L366-L433
+    - there's a cache mecanism that caches Tbs -- https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cpu-exec.c#L403-L410
+    - guest instructions are translated one after another.
+      + depends on the guest arch: e.g for i386 -- https://github.com/qemu/qemu/blob/v4.2.0/target/i386/translate.c#L4486
+        - e.g for ~inc~ instruction 
+          + https://en.wikipedia.org/wiki/X86_instruction_listings
+          + https://github.com/qemu/qemu/blob/v4.2.0/target/i386/translate.c#L4773-L4776
+        - One interesting aspect is that for memory access TCG uses load/store instructions
+          + e.g for inc if the operant is a memory address it is detected and special load instruction is generated (instead of a move)
+            + instruction for loading the operand (address in this case) is generated here: https://github.com/qemu/qemu/blob/v4.2.0/target/i386/translate.c#L1413
+            + instruction for storing the operand (address in this case) is generated here: https://github.com/qemu/qemu/blob/v4.2.0/target/i386/translate.c#L439
+   + Second phase: TCG to Host -- https://github.com/qemu/qemu/blob/v4.2.0/tcg/tcg.c#L4013
+     - ~tcg_gen_code~ go through all the TCG instructions -- https://github.com/qemu/qemu/blob/v4.2.0/tcg/tcg.c#L4131-L4138
+     - But now we have special ld/st instruction when memory is accessed.
+       this code is specific to the host arch. For i386: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L2255
+       for ld/st instruction -- https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L2527-L2538
+       opcode are macro generated by: https://github.com/qemu/qemu/blob/v4.2.0/tcg/tcg-opc.h#L52-L59
+     - For load/store opcode, qemu relies on a tlb to do guest to host address translation and proceed with the operations
+       + e.g for ld instruction: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L2122-L2130
+       + the host address from the TLB are generated: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L1699
+       + if a cache miss occurs (at the execution time (not now)) qemu generate a conditional jump: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L1759-L1761
+     - When all the TCG instructions are generated, Qemu generates all the slow path blocks (needed in cas of cache miss)
+       + here -- https://github.com/qemu/qemu/blob/v4.2.0/tcg/tcg.c#L4209
+       + for i386/ld op: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L1810
+       + and here ... is the magic ... it generate a call to a c helper function: https://github.com/qemu/qemu/blob/v4.2.0/tcg/i386/tcg-target.inc.c#L1850
+         - ld/store helper calls ~io_readx~/~io_writex~  if the ~tlb_addr~ is flagged as an MMIO region: e.g https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L1715-L1718
+
+- TODO who's flagging the ~tlb_addr~ as MMIO ?
