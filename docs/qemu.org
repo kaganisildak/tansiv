@@ -85,11 +85,14 @@
     - This function eventually write in RAM the incoming packet: -- [[https://github.com/qemu/qemu/blob/v4.2.0/exec.c#L3132-L3135]]
       (au passage cela va invalider tous les TB qui utiliserait les pages concernés.)
     - ~e1000~ sets an interruption -- [[https://github.com/qemu/qemu/blob/v4.2.0/hw/net/e1000.c#L1013]]
-      + TODO: understand why it will be seen by the CPU on the next loop.
-        - the interruption flows until reaching the CPU ( though pci and i8259 PIC)
+    - the interruption flows until reaching the CPU ( though pci and i8259 PIC)
+      + called by the generic function ~cpu_interrupt~ which call the specific ~cpu_interrupt_handler~ (there's one per accelerator and thus one for tcg)
+      + for tcg ~cpu_interrupt_handler~ is  https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/tcg-all.c#L37-L59
+        this sets the share variable ~cpu->interrupt_request~.
 
 - CPU hardware interruption in QEMU
-  + in between two TB executions the CPU check the interruption status -- [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cpu-exec.c#L715]]
+  + in between two TB executions the CPU check the interruption status (~cpu->interrupt_request~) -- [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cpu-exec.c#L715]]
+  + NOTE: does that means the first vCore ready will handle the interruption ?
   + cpu interruption routine is deferred to a specific harware (e.g x86) -- [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/cpu.c#L7061]]
     + which filter the interruption source (e.g hardware) -- [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/seg_helper.c#L1357-L1365]]
     + finally look up on the Interruption Table Descriptor to find the (kernel) interruption handler to call -- [[[[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/seg_helper.c#L872-L879]]]]
