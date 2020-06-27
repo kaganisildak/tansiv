@@ -86,6 +86,7 @@
       (au passage cela va invalider tous les TB qui utiliserait les pages concernés.)
     - ~e1000~ sets an interruption -- [[https://github.com/qemu/qemu/blob/v4.2.0/hw/net/e1000.c#L1013]]
     - the interruption flows until reaching the CPU ( though pci and i8259 PIC)
+      + interruptions is passed between chips using ~irq.c:qemu_set_irq~ (it calls the recorded handler of a chip)
       + called by the generic function ~cpu_interrupt~ which call the specific ~cpu_interrupt_handler~ (there's one per accelerator and thus one for tcg)
       + for tcg ~cpu_interrupt_handler~ is  [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/tcg-all.c#L37-L59]]
         this sets the share variable ~cpu->interrupt_request~.
