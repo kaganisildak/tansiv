@@ -107,4 +107,5 @@
     + which filter the interruption source (e.g hardware) -- [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/seg_helper.c#L1357-L1365]]
     + finally look up on the Interruption Table Descriptor to find the (kernel) interruption handler to call -- [[[[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/seg_helper.c#L872-L879]]]]
     + TODO: understand how/when the packet is actually read by the guest driver (when the interruption handler is called ?)
-  
+      - réponse: cpu_get_tb_cpu_state dans target/i386/cpu.h il positionne le pc en fonction de env->eip qui est positionné par do_interrupt64,
+        ce qui veut dire que lorsque la traduction/exécution des tb suivant reprend elle reprendra au handler d'interruption en question (youpi !)
