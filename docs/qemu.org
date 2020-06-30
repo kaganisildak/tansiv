@@ -72,8 +72,8 @@
   + Now the final magic principle: load/store from/to MMIO regions always lead to a TLB cache miss. How?
     - The TLB is initially empty.
     - In the load/store slow path, ~load_helper~ / ~store_helper~ insert an entry in the TLB: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L1682-L1691]]
-      + ~[[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L895-L912][tlb_fill]]~ (generic) calls [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L676-L702][~x86_cpu_tlb_fill~]] which calls [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L344-L673][~handle_mmu_fault~]] (x86-specific)
-      + ~handle_mmu_fault~ first finds the physical address associated to the virtual address of the memory access while checking access rights at the same time, then calls [~tlb_set_page_with_attrs~](https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L695-L870) (generic), which:
+      + [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L895-L912][tlb_fill]] (generic) calls [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L676-L702][x86_cpu_tlb_fill]] which calls [[https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L344-L673][handle_mmu_fault]] (x86-specific)
+      + ~handle_mmu_fault~ first finds the physical address associated to the virtual address of the memory access while checking access rights at the same time, then calls [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L695-L870][tlb_set_page_with_attrs]] (generic), which:
         + finds the memory region backing the physical address: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L732-L733]]
         + for an MMIO region, tags with ~TLB_MMIO~ the virtual address which will figure in the TLB entry: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L782-L785]]
         + after applying some cache replacement strategy, sets the TLB entry: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L867-L868]]
