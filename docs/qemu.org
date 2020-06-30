@@ -73,7 +73,7 @@
     - The TLB is initially empty.
     - In the load/store slow path, ~load_helper~ / ~store_helper~ insert an
       entry in the TLB: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L1682-L1691]]
-      + [~tlb_fill~](https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L895-L912) (generic) calls [~x86_cpu_tlb_fill~](https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L676-L702) which calls [~handle_mmu_fault~](https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L349-L673) (x86-specific)
+      + [[~tlb_fill~]](https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L895-L912) (generic) calls [~x86_cpu_tlb_fill~](https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L676-L702) which calls [~handle_mmu_fault~](https://github.com/qemu/qemu/blob/v4.2.0/target/i386/excp_helper.c#L349-L673) (x86-specific)
       + ~handle_mmu_fault~ first finds the physical address associated to the virtual address of the memory access while checking access rights at the same time, then calls [~tlb_set_page_with_attrs~](https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L695-L870) (generic), which:
         + finds the memory region backing the physical address: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L732-L733]]
         + for an MMIO region, tags with ~TLB_MMIO~ the virtual address which will figure in the TLB entry: [[https://github.com/qemu/qemu/blob/v4.2.0/accel/tcg/cputlb.c#L782-L785]]
