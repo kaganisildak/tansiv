@@ -1,2 +1,3 @@
 [workspace]
-members = ["fake_vm", "capi"]
+members = ["tansiv-client", "fake_vm", "capi"]
+default-members = ["fake_vm", "capi"]

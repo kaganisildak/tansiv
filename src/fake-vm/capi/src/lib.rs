@@ -1,8 +1,8 @@
 #[cfg(test)]
 #[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
-extern crate fake_vm;
+extern crate tansiv_client;
 
-use fake_vm::{Context, Error, Result};
+use tansiv_client::{Context, Error, Result};
 use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
@@ -43,9 +43,9 @@ type CRecvCallback = unsafe extern "C" fn(uintptr_t);
 
 #[no_mangle]
 pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t) -> *mut Context {
-    let callback: fake_vm::RecvCallback = Box::new(move || recv_callback(recv_callback_arg));
+    let callback: tansiv_client::RecvCallback = Box::new(move || recv_callback(recv_callback_arg));
 
-    match parse_os_args(argc, argv, |args| fake_vm::init(args, callback)) {
+    match parse_os_args(argc, argv, |args| tansiv_client::init(args, callback)) {
         Ok((context, next_arg)) => {
             if let Some(next_arg_p) = next_arg_p.as_mut() {
                 *next_arg_p = next_arg;
@@ -176,7 +176,7 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
 ///   the provided buffer. The message is lost.
 #[no_mangle]
 pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut libc::in_addr_t, pdst: *mut libc::in_addr_t, msglen: *mut u32, msg: *mut u8) -> c_int {
-    const_assert!(fake_vm::MAX_PACKET_SIZE <= std::u32::MAX as usize);
+    const_assert!(tansiv_client::MAX_PACKET_SIZE <= std::u32::MAX as usize);
 
     if let Some(context) = context.as_ref() {
         let len = if msglen.is_null() {
@@ -247,7 +247,7 @@ pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
 
 #[cfg(test)]
 mod test {
-    use fake_vm::test_helpers::*;
+    use tansiv_client::test_helpers::*;
     use libc::timeval;
     #[allow(unused_imports)]
     use log::{error, info};
@@ -396,7 +396,7 @@ mod test {
     extern "C" fn dummy_recv_callback(_arg: uintptr_t) -> () {
     }
 
-    // C-style version of fake_vm::test_helpers::RecvNotifier
+    // C-style version of tansiv_client::test_helpers::RecvNotifier
     // Ugly
     struct RecvNotifier(AtomicBool);
 
@@ -619,7 +619,7 @@ mod test {
         let res: c_int = unsafe { vsg_start(context) };
         assert_eq!(0, res);
 
-        let buffer = [0u8; fake_vm::MAX_PACKET_SIZE + 1];
+        let buffer = [0u8; tansiv_client::MAX_PACKET_SIZE + 1];
         let dst = remote_vsg_address!();
         let res: c_int = unsafe { vsg_send(context, dst, buffer.len() as u32, (&buffer).as_ptr()) };
         assert_eq!(libc::EMSGSIZE, res);

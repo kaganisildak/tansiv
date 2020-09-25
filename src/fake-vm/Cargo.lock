@@ -105,30 +105,18 @@ dependencies = [
 name = "fake_vm"
 version = "0.1.0"
 dependencies = [
- "binser",
- "binser_derive",
- "chrono",
- "crossbeam-queue",
- "lazy_static 1.4.0",
- "libc",
- "libc_timer",
- "log",
- "nix",
- "seq_lock",
- "static_assertions",
- "stderrlog",
- "structopt",
+ "tansiv-client",
 ]
 
 [[package]]
 name = "fake_vm_capi"
 version = "0.1.0"
 dependencies = [
- "fake_vm",
  "libc",
  "log",
  "static_assertions",
  "stderrlog",
+ "tansiv-client",
 ]
 
 [[package]]
@@ -312,6 +300,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "tansiv-client"
+version = "0.1.0"
+dependencies = [
+ "binser",
+ "binser_derive",
+ "chrono",
+ "crossbeam-queue",
+ "lazy_static 1.4.0",
+ "libc",
+ "libc_timer",
+ "log",
+ "nix",
+ "seq_lock",
+ "static_assertions",
+ "stderrlog",
+ "structopt",
 ]
 
 [[package]]
