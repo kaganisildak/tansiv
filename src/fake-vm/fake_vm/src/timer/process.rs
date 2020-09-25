@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration as StdDuration;
-use super::{Context, InnerContext};
+use crate::{Context, InnerContext};
 
 #[derive(Debug)]
 struct AdjustedTime(SeqLock<Duration>);
@@ -258,7 +258,7 @@ pub fn register(context: &Context) -> Result<()> {
 }
 
 extern "C" fn deadline_handler(_: libc::c_int) {
-    use super::AfterDeadline;
+    use crate::AfterDeadline;
 
     if let Some(context) = CONTEXT.read().unwrap().upgrade() {
         let context = Context(context);
