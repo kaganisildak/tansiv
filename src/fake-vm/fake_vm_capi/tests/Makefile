@@ -17,4 +17,4 @@ test: $(TARGET_BUILD_TESTS) $(TARGET_RUN_TESTS)
 	for test in $(TARGET_RUN_TESTS); do $$test || { echo "test $$test failed!"; exit 1; }; done
 
 $(TARGET_BUILD_TESTS) $(TARGET_RUN_TESTS): $(OUT_DIR)/%: %.c $(OUT_DIR)/libfake_vm.a
-	gcc -Wall -o $@ -I../src -L$(OUT_DIR) $< -lfake_vm -lpthread -ldl -lrt
+	gcc -Wall -o $@ -I../../capi/src -L$(OUT_DIR) $< -lfake_vm -lpthread -ldl -lrt

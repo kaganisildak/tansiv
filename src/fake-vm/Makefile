@@ -13,7 +13,7 @@ else
 endif
 OUT_DIR := $(TOP_DIR)/target/$(PROFILE)
 
-TEST_DIRS := $(TOP_DIR)/capi/tests
+TEST_DIRS := $(TOP_DIR)/fake_vm_capi/tests
 
 DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include

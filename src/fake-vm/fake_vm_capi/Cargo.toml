@@ -1,0 +1,12 @@
+[package]
+name = "fake_vm_capi"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+capi = {version = "0.1.0", path = "../capi", features = ["process"]}
+
+[lib]
+name = "fake_vm"
+crate-type = ["staticlib"]
