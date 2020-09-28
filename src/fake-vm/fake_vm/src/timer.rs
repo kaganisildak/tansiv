@@ -237,7 +237,7 @@ pub fn register(context: &Context) -> Result<()> {
     INIT.call_once(|| {
         // Signal handler safety: This is the only place where CONTEXT is write-locked.
         let mut uniq_context = CONTEXT.write().unwrap();
-        *uniq_context = Arc::downgrade(context);
+        *uniq_context = Arc::downgrade(&context.0);
         success = true;
     });
 
