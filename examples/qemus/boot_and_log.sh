@@ -22,6 +22,10 @@ Environment Variables:
     from third party (examples)
       SLIRP_DEBUG="all": activate all debug message from slirp
       G_MESSAGES_DEBUG="Slirp": glib debug filter
+
+NOTE:
+  - create tuntap /a priori/:
+   e.g: sudo ip tuntap add tap11 mode tap user $USER && sudo ip link set tap11 master virbr0 && sudo ip link set tap11 up
 EOF
 }
 
@@ -64,6 +68,8 @@ disable_root: false
 bootcmd:
 - echo "-----> START of MY CLOUD INIT <---------- \n"
 - echo "-----> END of MY CLOUD INIT <---------- \n"
+- echo "192.168.122.10    m10" >> /etc/hosts
+- echo "192.168.122.11    m11" >> /etc/hosts
 EOF
 
 genisoimage -output $CLOUD_INIT_ISO -volid cidata -joliet -rock $CLOUD_INIT_DIR/user-data $CLOUD_INIT_DIR/meta-data
@@ -80,6 +86,7 @@ VM_IMAGE=$VM_NAME.qcow2
 
 TAP_NAME=tap${MAC:(-2)}
 $QEMU \
+  --vsg mynet0,src=$IP \
   -m 1g \
   -drive file=$VM_IMAGE \
   -cdrom $CLOUD_INIT_ISO \

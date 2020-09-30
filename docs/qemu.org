@@ -109,3 +109,16 @@
     + TODO: understand how/when the packet is actually read by the guest driver (when the interruption handler is called ?)
       - réponse: cpu_get_tb_cpu_state dans target/i386/cpu.h il positionne le pc en fonction de env->eip qui est positionné par do_interrupt64,
         ce qui veut dire que lorsque la traduction/exécution des tb suivant reprend elle reprendra au handler d'interruption en question (youpi !)
+
+* Gestion du temps / icount mode
+
+- Dans ce mode l'horloge virtuelle s'incrémente à chaque instruction (virtuelle) executée.
+- Par défaut une instruction = 1 nanoseconde (1 instruction par cycle sur un processeur à 1GHz)
+- l'option ~shift~ permet de cadencer le proc à des diviseurs de 1GHz.
+  (~shift=2~ chaque opération compte pour ~2^2~ nanoseconde soit un proc émuler
+  de ~1/2^2~ 250MHz)
+- en pratique
+  + Lorsque ~icount~ est utilisé TCG passe en mode mono-threadé:
+  + Anatomie de la boucle d'évaluation des instructions lorsque icount est actif:
+    - 
+

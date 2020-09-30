@@ -1,7 +1,12 @@
-# Copyright (C) 2018. The SimGrid Team. All rights reserved.
-
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Affero Licence (see in file LICENCE).
+# Compile and install the various par of the project:
+# For now (09/20):
+# - make DESTDIR=/opt/tansiv
+# - fake-vm: implements the client side of the vsg protocol (rust)
+#   + installed in  /opt/fake-vm
+# - vsg: implements the simgrid side of the vsg protocol (c/c++)
+#   + installed in $DESTDIR
+# - tansiv: simgrid simulation
+#   + installed in $DESTDIR
 
 cmake_minimum_required(VERSION 2.8.10)
 project (Tansiv C CXX)
@@ -66,4 +71,4 @@ install(TARGETS tansiv DESTINATION bin)
 install(TARGETS vsg DESTINATION lib)
 install(FILES src/vsg/vsg.h DESTINATION include)
 install(CODE "MESSAGE(\"-- Installing libfake_vm\")")
-install(CODE "execute_process(COMMAND make install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm )")
+install(CODE "execute_process(COMMAND make PREFIX=/opt/fake-vm RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm )")
