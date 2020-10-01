@@ -8,6 +8,7 @@ use libc::{self, uintptr_t};
 use log::{debug, error};
 use static_assertions::const_assert;
 use std::os::raw::{c_char, c_int};
+use std::sync::Arc;
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
     where F: FnOnce(&mut dyn Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>
@@ -42,7 +43,7 @@ unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F)
 type CRecvCallback = unsafe extern "C" fn(uintptr_t);
 
 #[no_mangle]
-pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t) -> *mut Context {
+pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t) -> *const Context {
     let callback: tansiv_client::RecvCallback = Box::new(move || recv_callback(recv_callback_arg));
 
     match parse_os_args(argc, argv, |args| tansiv_client::init(args, callback)) {
@@ -50,7 +51,7 @@ pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_
             if let Some(next_arg_p) = next_arg_p.as_mut() {
                 *next_arg_p = next_arg;
             }
-            Box::into_raw(context)
+            Arc::into_raw(context)
         },
         Err(e) => {
             error!("vsg_init failed: {}", e);
@@ -60,9 +61,9 @@ pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_
 }
 
 #[no_mangle]
-pub unsafe extern fn vsg_cleanup(context: *mut Context) {
-    if let Some(context) = context.as_mut() {
-        drop(Box::from_raw(context));
+pub unsafe extern fn vsg_cleanup(context: *const Context) {
+    if !context.is_null() {
+        drop(Arc::from_raw(context));
     }
 }
 
