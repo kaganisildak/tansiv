@@ -1,3 +1,5 @@
+LIB_CRATES := fake_vm_capi
+
 CARGO := cargo
 CARGO_FLAGS ?=
 TEST_FLAGS ?=
@@ -19,8 +21,11 @@ DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include
 
 .PHONY: build
-build:
-	$(CARGO) build $(CARGO_FLAGS)
+build: $(LIB_CRATES)
+
+.PHONY: $(LIB_CRATES)
+$(LIB_CRATES):
+	$(CARGO) build -p $@  $(CARGO_FLAGS)
 
 .PHONY: test
 test: cargo-tests other-tests
