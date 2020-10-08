@@ -1,5 +1,4 @@
-#[cfg(feature = "process")]
-pub use process::*;
+pub use inner::*;
 
-#[cfg(feature = "process")]
-mod process;
+#[cfg_attr(feature = "process", path = "process.rs")]
+mod inner;
