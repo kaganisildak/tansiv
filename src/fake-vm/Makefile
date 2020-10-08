@@ -1,9 +1,17 @@
+LIB_CRATES := fake_vm_capi tanqemu_capi
+
 CARGO := cargo
+CARGO_ENV ?=
 CARGO_FLAGS ?=
 TEST_FLAGS ?=
 PREFIX ?= /usr/local
 
 TOP_DIR := $(shell pwd)
+
+QEMU_SRC ?= $(TOP_DIR)/../qemu
+QEMU_BUILD ?= $(TOP_DIR)/../qemu
+
+CARGO_ENV += QEMU_SRC=$(QEMU_SRC) QEMU_BUILD=$(QEMU_BUILD)
 
 ifeq ($(RELEASE),)
 	PROFILE := debug
@@ -13,21 +21,24 @@ else
 endif
 OUT_DIR := $(TOP_DIR)/target/$(PROFILE)
 
-TEST_DIRS := $(TOP_DIR)/capi/tests
+TEST_DIRS := $(TOP_DIR)/fake_vm_capi/tests
 
 DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include
 
 .PHONY: build
-build:
-	$(CARGO) build $(CARGO_FLAGS)
+build: $(LIB_CRATES)
+
+.PHONY: $(LIB_CRATES)
+$(LIB_CRATES):
+	$(CARGO_ENV) $(CARGO) build -p $@  $(CARGO_FLAGS)
 
 .PHONY: test
 test: cargo-tests other-tests
 
 .PHONY: cargo-tests
 cargo-tests:
-	$(CARGO) test $(CARGO_FLAGS) -- --test-threads 1 $(TEST_FLAGS)
+	$(CARGO_ENV) $(CARGO) test --workspace $(CARGO_FLAGS) -- --test-threads 1 $(TEST_FLAGS)
 
 .PHONY: other-tests $(TEST_DIRS)
 other-tests: $(TEST_DIRS)

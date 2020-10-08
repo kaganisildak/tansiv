@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration as StdDuration;
-use super::{Context, InnerContext};
+use crate::Context;
 
 #[derive(Debug)]
 struct AdjustedTime(SeqLock<Duration>);
@@ -225,19 +225,19 @@ impl Drop for TimerContext {
 }
 
 lazy_static! {
-    static ref CONTEXT: RwLock<Weak<InnerContext>> = RwLock::new(Weak::new());
+    static ref CONTEXT: RwLock<Weak<Context>> = RwLock::new(Weak::new());
 }
 #[cfg(not(any(test, feature = "test-helpers")))]
 static INIT: Once = Once::new();
 
 #[cfg(not(any(test, feature = "test-helpers")))]
-pub fn register(context: &Context) -> Result<()> {
+pub fn register(context: &Arc<Context>) -> Result<()> {
     let mut success = false;
 
     INIT.call_once(|| {
         // Signal handler safety: This is the only place where CONTEXT is write-locked.
         let mut uniq_context = CONTEXT.write().unwrap();
-        *uniq_context = Arc::downgrade(context);
+        *uniq_context = Arc::downgrade(&context);
         success = true;
     });
 
@@ -251,23 +251,22 @@ pub fn register(context: &Context) -> Result<()> {
 // Let individual tests overwrite each other's context in turn.
 // Assumes that tests are run in a single thread
 #[cfg(any(test, feature = "test-helpers"))]
-pub fn register(context: &Context) -> Result<()> {
+pub fn register(context: &Arc<Context>) -> Result<()> {
     let mut uniq_context = CONTEXT.write().unwrap();
-    *uniq_context = Arc::downgrade(&context.0);
+    *uniq_context = Arc::downgrade(&context);
     Ok(())
 }
 
 extern "C" fn deadline_handler(_: libc::c_int) {
-    use super::AfterDeadline;
+    use crate::AfterDeadline;
 
     if let Some(context) = CONTEXT.read().unwrap().upgrade() {
-        let context = Context(context);
-        let freeze_time = context.0.timer_context.freeze_time();
+        let freeze_time = context.timer_context.freeze_time();
         match context.at_deadline() {
             AfterDeadline::NextDeadline(time_to_deadline) => {
-                context.0.timer_context.thaw_time_to_deadline(Some(freeze_time), time_to_deadline).expect("thaw_time_to_deadline failed")
+                context.timer_context.thaw_time_to_deadline(Some(freeze_time), time_to_deadline).expect("thaw_time_to_deadline failed")
             },
-            AfterDeadline::EndSimulation => context.0.timer_context.stopped.store(true, Ordering::Release),
+            AfterDeadline::EndSimulation => context.timer_context.stopped.store(true, Ordering::Release),
         }
     }
 }

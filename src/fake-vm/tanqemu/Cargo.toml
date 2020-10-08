@@ -1,8 +1,8 @@
 [package]
-name = "fake_vm"
+name = "tanqemu"
 version = "0.1.0"
 authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
 edition = "2018"
 
 [dependencies]
-tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["process"]}
+tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["qemu"]}

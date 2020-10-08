@@ -1,0 +1,12 @@
+[package]
+name = "tanqemu_capi"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+capi = {version = "0.1.0", path = "../capi", features = ["qemu"]}
+
+[lib]
+name = "tanqemu"
+crate-type = ["staticlib"]
