@@ -1,7 +1,8 @@
 ---
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
-  RUST_VERSION: 1.42.0
+  LD_PRELOAD: ""
+  RUST_VERSION: 1.46.0
 
 workflow:
   rules:
@@ -15,8 +16,34 @@ workflow:
 image: simgrid/unstable:latest
 
 stages:
-  - build
+  - build1
+  - build2
   - test
+
+
+###############################################################################
+#
+# Build Qemu patched for Tansiv
+#   -- test locally:
+#      $) gitlab-runner exec docker qemu
+#
+###############################################################################
+qemu:
+  stage: build1
+  script:
+    #
+    # Some missing build tools
+    #
+    - apt-get update
+    - apt-get install -y build-essential git pkg-config libglib2.0-dev libpixman-1-dev clang
+    #
+    - git clone --depth 1 https://gitlab.inria.fr/msimonin/qemu.git -b dev/global_vsg src/qemu
+    - cd src/qemu
+    - ./configure && make config-host.h
+  artifacts:
+    paths:
+      - src/qemu
+
 
 ###############################################################################
 #
@@ -26,7 +53,7 @@ stages:
 #
 ###############################################################################
 tansiv:
-  stage: build
+  stage: build2
   script:
     #
     # Some missing build tools
@@ -64,8 +91,8 @@ tansiv:
 #
 ###############################################################################
 fake-vm:
-  stage: build
-  image: rust:1.42.0-slim-buster
+  stage: build2
+  image: rust:${RUST_VERSION}-slim-buster
   script:
   - apt-get update
   - apt-get install -y build-essential
