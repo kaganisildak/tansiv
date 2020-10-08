@@ -7,6 +7,7 @@ edition = "2018"
 [features]
 default = []
 process = ["tansiv-client/process"]
+qemu = ["tansiv-client/qemu"]
 
 [dependencies]
 tansiv-client = {version = "0.1.0", path = "../tansiv-client"}
