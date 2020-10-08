@@ -111,9 +111,9 @@ enum AfterDeadline {
 impl Context {
     fn new(config: &Config, recv_callback: RecvCallback) -> Result<Arc<Context>> {
         let address = config.address;
-        let connector = ConnectorImpl::new(&config)?;
+        let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
-        let timer_context = TimerContext::new(&config)?;
+        let timer_context = TimerContext::new(config)?;
         let output_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
 
