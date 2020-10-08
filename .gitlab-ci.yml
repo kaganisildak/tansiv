@@ -59,7 +59,7 @@ tansiv:
     # Some missing build tools
     #
     - apt-get update
-    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev libglib-2.0-dev clang
+    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev libglib2.0-dev clang
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
     - sh rustup-init -y --profile minimal --default-toolchain $RUST_VERSION
     - export PATH=$HOME/.cargo/bin:$PATH
@@ -95,7 +95,7 @@ fake-vm:
   image: rust:${RUST_VERSION}-slim-buster
   script:
   - apt-get update
-  - apt-get install -y build-essential pkg-config libglib-2.0-dev clang
+  - apt-get install -y build-essential pkg-config libglib2.0-dev clang
   - cd src/fake-vm
   - make build
   - make test
