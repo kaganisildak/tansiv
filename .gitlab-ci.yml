@@ -59,7 +59,7 @@ tansiv:
     # Some missing build tools
     #
     - apt-get update
-    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev libglib2.0-dev clang
+    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev libglib2.0-dev clang libclang-dev
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
     - sh rustup-init -y --profile minimal --default-toolchain $RUST_VERSION
     - export PATH=$HOME/.cargo/bin:$PATH
