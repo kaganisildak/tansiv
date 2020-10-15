@@ -4,7 +4,7 @@ use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
 pub use error::Error;
 use libc;
 #[allow(unused_imports)]
-use log::{debug, error};
+use log::{debug, info, error};
 use output_msg_set::OutputMsgSet;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -135,6 +135,7 @@ impl Context {
         self.start_once.call_once(|| res = (|| {
             let mut connector = self.connector.lock().unwrap();
             let msg = connector.recv()?;
+            deadline_handler_debug!("Context::start() received msg = {:?}", msg);
             // The deadline handler can fire and try to lock connector at any time once self.0.start()
             // is called so we must unlock connector before.
             drop(connector);
@@ -145,6 +146,9 @@ impl Context {
             }
         })());
 
+        if res.is_err() {
+            error!("Context::start() failed: {:?}", res);
+        }
         res
     }
 
@@ -159,34 +163,41 @@ impl Context {
         let messages = self.outgoing_messages.drain();
         let previous_deadline = self.timer_context.simulation_previous_deadline();
         let current_deadline = self.timer_context.simulation_next_deadline();
+        deadline_handler_debug!("Context::at_deadline() current_deadline = {:?}", current_deadline);
         for (send_time, src, dst, payload) in messages {
+            deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {}, payload = {})", send_time, vsg_address::to_ipv4addr(src), vsg_address::to_ipv4addr(dst), payload);
+
             let send_time = if send_time < previous_deadline {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
+                deadline_handler_debug!("Context::at_deadline() fixing send_time to {:?}", previous_deadline);
                 previous_deadline
             } else {
                 if send_time >= current_deadline {
                     // The kernel was too slow to fire the timer...
+                    error!("send_time = {:?} is beyond current_deadline = {:?}! Aborting", send_time, current_deadline);
                     return AfterDeadline::EndSimulation;
                 }
                 send_time
             };
 
             if let Err(_e) = connector.send(MsgOut::SendPacket(send_time, src, dst, payload)) {
-                // error!("send(SendPacket) failed: {}", _e);
+                error!("send(SendPacket) failed: {}", _e);
                 return AfterDeadline::EndSimulation;
             }
         }
 
         // Second, notify that we reached the deadline
+        deadline_handler_debug!("Context::at_deadline() sending AtDeadline");
         if let Err(_e) = connector.send(MsgOut::AtDeadline) {
-            // error!("send(AtDeadline) failed: {}", _e);
+            error!("send(AtDeadline) failed: {}", _e);
             return AfterDeadline::EndSimulation;
         }
 
         // Third, receive messages from others, followed by next deadline
         let input_queue = &self.input_queue;
         let may_notify = input_queue.is_empty();
+        deadline_handler_debug!("Context::at_deadline() may_notify = {}", may_notify);
 
         let after_deadline = loop {
             let msg = connector.recv();
@@ -195,25 +206,28 @@ impl Context {
                     break after_deadline;
                 },
                 Err(_e) => {
-                    // error!("recv failed: {}", _e);
+                    error!("recv failed: {}", _e);
                     break AfterDeadline::EndSimulation;
                 }
             }
         };
 
         if may_notify && !input_queue.is_empty() {
+            deadline_handler_debug!("Context::at_deadline() calling recv_callback()");
             (self.recv_callback)();
         }
 
+        deadline_handler_debug!("Context::at_deadline() after_deadline = {:?}", after_deadline);
         after_deadline
     }
 
     fn handle_actor_msg(&self, msg: MsgIn) -> Option<AfterDeadline> {
+        deadline_handler_debug!("Context::handle_actor_msg() received msg = {}", msg);
         match msg {
             MsgIn::DeliverPacket(src, dst, packet) => {
-                // let size = packet.len();
+                let size = packet.len();
                 if self.input_queue.push(Packet::new(src, dst, packet)).is_err() {
-                    // info!("Dropping input packet from {} of {} bytes", src, size);
+                    info!("Dropping input packet from {} of {} bytes", src, size);
                 }
                 None
             },

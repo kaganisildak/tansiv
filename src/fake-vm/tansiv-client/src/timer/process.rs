@@ -122,14 +122,16 @@ impl TimerContext {
 
     fn freeze_time(&self) -> StdDuration {
         let now = clock::gettime(Self::CLOCK).unwrap();
+        deadline_handler_debug!("TimerContext::freeze_time() system time = {:?}", now);
         *self.current_deadline.lock().unwrap() = self.application_now();
         self.at_deadline.store(true, Ordering::Release);
-        // DEBUG: We can observe here the difference between 'now' and self.next_deadline_raw
+        deadline_handler_debug!("TimerContext::freeze_time() jitter (now - next_deadline_raw) = {}", Duration::from_std(now).unwrap() - Duration::from_std(*self.next_deadline_raw.lock().unwrap()).unwrap());
         now
     }
 
     fn thaw_time_to_deadline(&self, freeze_time: Option<StdDuration>, time_to_deadline: StdDuration) -> Result<()> {
         let now = clock::gettime(Self::CLOCK).unwrap();
+        deadline_handler_debug!("TimerContext::thaw_time_to_deadline() system time = {:?}", now);
         let new_next_deadline_raw = now + time_to_deadline;
 
         // DEBUG only
@@ -142,6 +144,7 @@ impl TimerContext {
 
         if let Some(freeze_time) = freeze_time {
             let elapsed_time = Duration::from_std(now - freeze_time).unwrap();
+            deadline_handler_debug!("TimerContext::thaw_time_to_deadline() elapsed_time = {}", elapsed_time);
 
             self.application_time.adjust(|offset| offset - elapsed_time);
             self.simulation_time.adjust(|offset| offset - elapsed_time);
@@ -150,9 +153,11 @@ impl TimerContext {
             let current_deadline = *self.current_deadline.lock().unwrap();
             // Here is where the application time reference is recorded
             let local_now = chrono::offset::Local::now().naive_local();
+            deadline_handler_debug!("TimerContext::thaw_time_to_deadline() application time offset = {}", current_deadline - local_now);
             self.application_time.adjust(|_| current_deadline - local_now);
 
             // Time starts at 0 in global simulation time.
+            deadline_handler_debug!("TimerContext::thaw_time_to_deadline() simulation time offset = -{:?}", now);
             self.simulation_time.adjust(|_| -Duration::from_std(now).unwrap());
         }
 
@@ -160,6 +165,7 @@ impl TimerContext {
         let next_deadline_val = *next_deadline;
         *self.prev_deadline.lock().unwrap() = next_deadline_val;
         *next_deadline = next_deadline_val + time_to_deadline;
+        deadline_handler_debug!("TimerContext::thaw_time_to_deadline() set next_deadline = {:?}", next_deadline);
         // First call can be interrupted by the signal handler and deadlock
         drop(next_deadline);
 
@@ -167,6 +173,7 @@ impl TimerContext {
 
         // The first call of ::thaw_time_to_deadline() is not in signal handler context and can be
         // interrupted by the signal handler, so make sure that everything is already up to date
+        deadline_handler_debug!("TimerContext::thaw_time_to_deadline() setting timer to fire at {:?}", new_next_deadline_raw);
         timer::settime(self.timer_id, timer::SettimeFlags::AbsoluteTime, None, new_next_deadline_raw)?;
         Ok(())
     }
@@ -260,6 +267,7 @@ pub fn register(context: &Arc<Context>) -> Result<()> {
 extern "C" fn deadline_handler(_: libc::c_int) {
     use crate::AfterDeadline;
 
+    deadline_handler_debug!("deadline_handler() called");
     if let Some(context) = CONTEXT.read().unwrap().upgrade() {
         let freeze_time = context.timer_context.freeze_time();
         match context.at_deadline() {
