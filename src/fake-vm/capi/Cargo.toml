@@ -8,6 +8,7 @@ edition = "2018"
 default = []
 process = ["tansiv-client/process"]
 qemu = ["tansiv-client/qemu"]
+deadline-handler-debug = ["tansiv-client/deadline-handler-debug"]
 
 [dependencies]
 tansiv-client = {version = "0.1.0", path = "../tansiv-client"}
@@ -17,4 +18,3 @@ static_assertions = "0.3.1"
 
 [dev-dependencies]
 tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["test-helpers"]}
-stderrlog = "0.4"

@@ -16,6 +16,8 @@ pub const MAX_PACKET_SIZE: usize = 2048;
 mod buffer_pool;
 mod config;
 mod connector;
+#[macro_use]
+mod debug;
 pub mod error;
 mod output_msg_set;
 mod timer;
@@ -414,7 +416,7 @@ pub mod test_helpers {
     pub fn init() {
         // Cargo test runs all tests in a same process so don't confuse log by setting a logger
         // several times.
-        INIT.call_once(|| stderrlog::new().module(module_path!()).verbosity(log::Level::Info as usize).init().unwrap());
+        INIT.call_once(|| simple_logger::SimpleLogger::from_env().init().unwrap());
     }
 }
 

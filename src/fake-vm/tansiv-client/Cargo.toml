@@ -8,7 +8,8 @@ edition = "2018"
 default = []
 process = []
 qemu = []
-test-helpers = ["stderrlog"]
+deadline-handler-debug = []
+test-helpers = ["simple_logger"]
 
 [dependencies]
 binser = {version = "0.1.0", path = "../../binser"}
@@ -24,10 +25,10 @@ seq_lock = {version = "0.1.0", path = "../../seq_lock"}
 static_assertions = "0.3.1"
 structopt = "0.2"
 
-stderrlog = {version = "0.4", optional = true}
+simple_logger = {version = "1.11.0", optional = true}
 
 [dev-dependencies]
-stderrlog = "0.4"
+simple_logger = "1.11.0"
 
 [build-dependencies]
 bindgen = "0.55.1"
