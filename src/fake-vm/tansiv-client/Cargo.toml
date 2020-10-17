@@ -9,6 +9,7 @@ default = []
 process = []
 qemu = []
 deadline-handler-debug = []
+use-own-logger = ["simple_logger"]
 test-helpers = ["simple_logger"]
 
 [dependencies]
