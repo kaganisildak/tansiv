@@ -19,6 +19,7 @@ mod connector;
 pub mod error;
 mod output_msg_set;
 mod timer;
+mod vsg_address;
 mod waitfree_array_queue;
 
 impl From<buffer_pool::Error> for Error {
@@ -41,12 +42,6 @@ impl From<output_msg_set::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
-
-fn vsg_address_from_str(ip: &str) -> std::result::Result<libc::in_addr_t , std::net::AddrParseError> {
-    use std::str::FromStr;
-    let ipv4 = std::net::Ipv4Addr::from_str(ip)?;
-    Ok(Into::<u32>::into(ipv4).to_be())
-}
 
 #[derive(Debug)]
 struct Packet {

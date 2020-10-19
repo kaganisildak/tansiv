@@ -12,7 +12,7 @@ pub(crate) struct Config {
     pub actor_socket: std::path::PathBuf,
 
     /// Name (address) of this application in the network
-    #[structopt(short = "n", long = "name", parse(try_from_str = "crate::vsg_address_from_str"))]
+    #[structopt(short = "n", long = "name", parse(try_from_str = "crate::vsg_address::from_str"))]
     pub address: libc::in_addr_t,
 
     /// Initial time in the VM, formatted as %Y-%m-%dT%H:%M:%S%.f (%.f part is optional)
