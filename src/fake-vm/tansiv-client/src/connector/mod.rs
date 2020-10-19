@@ -3,6 +3,7 @@ use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
 use crate::buffer_pool::{Buffer, BufferPool};
 use static_assertions::const_assert;
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem::size_of;
 use std::time::Duration;
@@ -193,6 +194,16 @@ pub enum MsgIn {
     DeliverPacket(u32, u32, Buffer),
     GoToDeadline(Duration),
     EndSimulation,
+}
+
+impl fmt::Display for MsgIn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use crate::vsg_address::to_ipv4addr;
+        match self {
+            MsgIn::DeliverPacket(src, dst, payload) => write!(f, "DeliverPacket(src = {}, dst = {}, payload = {})", to_ipv4addr(*src), to_ipv4addr(*dst), payload),
+            _ => fmt::Debug::fmt(self, f),
+        }
+    }
 }
 
 impl MsgIn {

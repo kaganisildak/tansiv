@@ -119,6 +119,17 @@ pub struct Buffer {
     inner: InnerBuffer,
 }
 
+impl fmt::Display for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let bytes = self.deref();
+        write!(f, "{:?} / \"", bytes)?;
+        for b in bytes {
+            write!(f, "{}", char::from(*b))?;
+        }
+        write!(f, "\"")
+    }
+}
+
 impl Drop for Buffer {
     fn drop(&mut self) {
         let pool = &self.pool;
