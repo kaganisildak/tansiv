@@ -287,8 +287,14 @@ pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Arc<Context>>
           I::Item: Into<std::ffi::OsString> + Clone {
     use structopt::StructOpt;
 
-    #[cfg(all(feature = "use-own-logger", not(any(test, feature = "test-helpers"))))]
-    simple_logger::SimpleLogger::from_env().init().or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    #[cfg(all(feature = "use-own-logger", not(any(test, feature = "test-helpers"))))] {
+        // Allow multiple contexts to be created in a same process
+        static INIT: std::sync::Once = std::sync::Once::new();
+        let mut ret = Ok(());
+
+        INIT.call_once(|| ret = simple_logger::SimpleLogger::from_env().init().or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e))));
+        ret
+    }?;
 
     let config = Config::from_iter_safe(args).or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     debug!("{:?}", config);
