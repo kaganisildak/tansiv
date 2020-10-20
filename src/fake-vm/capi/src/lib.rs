@@ -155,14 +155,18 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
 }
 
 /// Picks the next message in the receive queue, stores its payload in `msg[0..*msglen]` and
-/// optionnally returns sender and destination addresses in `*psrc` and `*pdst` respectively. The
-/// actual length of the received payload is stored in `*msglen`.
+/// optionnally returns sender and destination addresses in `*psrc` and `*pdst` respectively.
+/// `*msglen` initially contains the size of the buffer pointed to by `msg`. When `vsg_recv`
+/// returns with success, `*msglen` contains the actual length of the received payload.
 ///
 /// # Safety
 ///
 /// * `context` should point to a valid context, as previously returned by [`vsg_init`].
 ///
 /// * `psrc` and `pdst` can be `NULL`, in which case the correponding addresses will not be returned.
+///
+/// * If `msglen` is not `NULL`, `msg` must point to a valid memory range of at least `*msglen`
+///   bytes. This memory range does not need to be initialized.
 ///
 /// * If `msglen` is `NULL` or `*msglen` is `0`, only 0-length messages can be received. Note that
 ///   in that case it is allowed that `msg` is `NULL` too.
