@@ -15,7 +15,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/tools/cmake/")
 # order of linked library is important !
 # https://stackoverflow.com/questions/45135/why-does-the-order-in-which-libraries-are-linked-sometimes-cause-errors-in-gcc
-set(FAKEVM_LIBS /opt/fake-vm/lib/libfake_vm.a dl rt pthread cppunit)
+set(FAKEVM_LIBS /opt/fake-vm/lib/libfake_vm.a dl rt pthread)
 set(FAKEVM_INCLUDE_DIR /opt/fake-vm/include)
 set(VSG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/vsg/)
 
@@ -61,9 +61,9 @@ configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml COPYO
 configure_file(examples/qemus/nova_cluster.xml examples/qemus/nova_cluster.xml COPYONLY)
 
 # Unit tests
-add_executable(tests src/tests/tests.cpp)
+add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
+target_include_directories(tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 target_link_libraries(tests PUBLIC ${FAKEVM_LIBS} vsg ${SimGrid_LIBRARY})
-target_compile_options(tests PUBLIC -fexceptions)
 
 add_dependencies(tests fake-vm)
 
