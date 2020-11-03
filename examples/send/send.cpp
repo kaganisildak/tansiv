@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <unistd.h>
 extern "C" {
 #include <fake_vm.h>
 #include <vsg.h>
@@ -74,7 +75,7 @@ int main(int argc, char* argv[])
   uint32_t recv_dest;
   uint32_t buffer_len = msg.length() + 1;
   char buffer[buffer_len];
-  ret = vsg_recv(context, &src, &dest, &buffer_len, (uint8_t*)buffer);
+  ret = vsg_recv(context, &recv_src, &recv_dest, &buffer_len, (uint8_t*)buffer);
   if (ret) {
     die("vsg_recv() failed", ret);
   }
@@ -85,9 +86,9 @@ int main(int argc, char* argv[])
   inet_ntop(AF_INET, &recv_dest, recv_dest_str, INET_ADDRSTRLEN);
   // We trust our peer to have sent the final NUL byte... or we will see that he
   // is a bad boy!
-  printf("From %s to %s: %s", recv_src_str, recv_dest_str, buffer);
-
-  exit(0);
+  printf("\n###### \n");
+  printf("Received from %s to %s: %s", recv_src_str, recv_dest_str, buffer);
+  printf("\n###### \n\n");
 
   // vsg_stop block until stopped flag is set
   // stopped flag is set, for instance, when EndSimulation is received

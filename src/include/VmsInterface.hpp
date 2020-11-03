@@ -10,13 +10,22 @@ extern "C" {
 
 namespace vsg {
 
-struct message {
+class Message {
+public:
+  Message(vsg_send_packet send_packet, uint8_t* payload);
+  Message(const Message& other);
+  Message(Message&& other);
+  Message& operator=(Message&& other);
+  ~Message();
   double sent_time;
-  std::string src;      // decoded src
-  std::string dest;     // decoded dest
-  uint32_t packet_size; // decoded packet size
-  vsg_packet packet;    // (raw)packet info
-  std::string data;     // raw data
+  vsg_send_packet send_packet;
+  // decoded attribute
+  std::string src;
+  std::string dest;
+  // keep size here for backward compatibility
+  uint32_t size;
+  // this will be dynamically allocated according to size
+  uint8_t* data;
 };
 
 class VmsInterface {
@@ -25,9 +34,9 @@ public:
   VmsInterface(bool stop_condition = false);
   ~VmsInterface();
   bool vmActive();
-  std::vector<message> goTo(double deadline);
+  std::vector<Message> goTo(double deadline);
   std::string getHostOfVm(std::string vm_name);
-  void deliverMessage(message m);
+  void deliverMessage(Message m);
   void end_simulation(bool must_unlink = true, bool must_exit = true);
   void register_vm(std::string host_name, std::string vm_name, std::string file, std::vector<std::string> args);
   const std::vector<std::string> get_dead_vm_hosts();

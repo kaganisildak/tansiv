@@ -51,6 +51,8 @@ struct vsg_deliver_packet {
   struct vsg_packet packet;
 };
 
+void dump_packet(const uint8_t*, size_t);
+
 void vsg_pg_port(in_port_t, uint8_t*, int, uint8_t*);
 void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
 

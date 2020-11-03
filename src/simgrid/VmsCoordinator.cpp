@@ -9,7 +9,7 @@ vsg::VmsInterface* vms_interface;
 
 std::vector<simgrid::s4u::CommPtr> pending_comms;
 
-std::vector<vsg::message> pending_messages;
+std::vector<vsg::Message> pending_messages;
 
 static std::vector<simgrid::s4u::ActorPtr> receivers;
 
@@ -55,13 +55,13 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void sender(std::string mailbox_name, vsg::message m)
+static void sender(std::string mailbox_name, vsg::Message m)
 {
 
-  XBT_INFO("sending [%s] (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.data.c_str(), m.packet_size,
-           m.src.c_str(), m.dest.c_str(), mailbox_name.c_str());
+  XBT_INFO("sending (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.size, m.src.c_str(), m.dest.c_str(),
+           mailbox_name.c_str());
 
-  int msg_size               = m.packet_size;
+  int msg_size               = m.size;
   simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(&m, msg_size);
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
@@ -100,9 +100,8 @@ static void receiver(std::vector<std::string> args)
   myself->daemonize();
 
   while (true) {
-    vsg::message* m = static_cast<vsg::message*>(mailbox->get());
-    XBT_INFO("[receiver] delivering data [%s] from vm [%s] to vm [%s]", m->data.c_str(), m->src.c_str(),
-             m->dest.c_str());
+    vsg::Message* m = static_cast<vsg::Message*>(mailbox->get());
+    XBT_INFO("[receiver] delivering data from vm [%s] to vm [%s]", m->src.c_str(), m->dest.c_str());
   }
 }
 
@@ -141,10 +140,8 @@ static void vm_coordinator()
     XBT_DEBUG("next deadline = %f [time+min_latency=%f, next_reception_time=%f]", deadline, time + min_latency,
               next_reception_time);
 
-    std::vector<vsg::message> messages = vms_interface->goTo(deadline);
-
-    for (vsg::message m : messages) {
-
+    std::vector<vsg::Message> messages = vms_interface->goTo(deadline);
+    for (vsg::Message m : messages) {
       time                = simgrid::s4u::Engine::get_clock();
       double send_timeeps = m.sent_time + std::numeric_limits<double>::epsilon();
       xbt_assert(
@@ -177,20 +174,18 @@ static void vm_coordinator()
       double time = simgrid::s4u::Engine::get_clock();
       simgrid::s4u::this_actor::sleep_until(deadline);
     }
-
     int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
-
     while (
         changed_pos >=
         0) { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
       simgrid::s4u::CommPtr comm = pending_comms[changed_pos];
-      vsg::message m             = pending_messages[changed_pos];
+      vsg::Message m             = pending_messages[changed_pos];
 
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_DEBUG("[coordinator]: delivering data [%s] from vm [%s] to vm [%s]", m.data.c_str(), m.src.c_str(),
-                m.dest.c_str());
+      XBT_DEBUG("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m.src.c_str(), m.dest.c_str(),
+                m.size);
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
