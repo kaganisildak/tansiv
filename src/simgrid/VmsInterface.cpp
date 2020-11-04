@@ -13,7 +13,7 @@ XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface
 
 namespace vsg {
 
-bool sortMessages(message i, message j)
+bool sortMessages(Message i, Message j)
 {
   return i.sent_time < j.sent_time;
 }
@@ -140,7 +140,7 @@ bool VmsInterface::vmActive()
   return (!vm_sockets.empty() && !simulate_until_any_stop) || (!a_vm_stopped && simulate_until_any_stop);
 }
 
-std::vector<message> VmsInterface::goTo(double deadline)
+std::vector<Message> VmsInterface::goTo(double deadline)
 {
   // Beforehand, forget about the VMs that bailed out recently.
   // We hope that the coordinator cleaned the SimGrid side in between
@@ -158,7 +158,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   }
 
   // then, we pick up all the messages send by the VM until they reach the deadline
-  std::vector<message> messages;
+  std::vector<Message> messages;
   XBT_DEBUG("getting the message send by the VMs");
   for (auto kv : vm_sockets) {
     uint32_t vm_flag    = 0;
@@ -188,7 +188,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
         //   - and the data transfer, that correspond to the data actually send through the (simulated) network
         // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
         // to have the same size)
-        char data[send_packet.packet.size];
+        uint8_t data[send_packet.packet.size];
         if (recv(vm_socket, data, sizeof(data), MSG_WAITALL) <= 0) {
           XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
           end_simulation();
@@ -200,16 +200,10 @@ std::vector<message> VmsInterface::goTo(double deadline)
                  data, sizeof(data), vm_name.c_str(), src_addr, send_packet.packet.dst, dst_addr,
                  send_packet.send_time.seconds, send_packet.send_time.useconds);
 
-        struct message m;
+        Message m = Message(send_packet, data);
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
         //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
 
-        m.packet_size = sizeof(data);
-        m.data.append(data);
-        m.packet    = send_packet.packet;
-        m.src       = std::string(src_addr);
-        m.dest      = std::string(dst_addr);
-        m.sent_time = vmToSimgridTime(send_packet.send_time);
         messages.push_back(m);
       } else {
         XBT_ERROR("unknown message received from VM %s : %lu", vm_name.c_str(), vm_flag);
@@ -221,8 +215,7 @@ std::vector<message> VmsInterface::goTo(double deadline)
   for (auto sock_name : vm_sockets_trash)
     vm_sockets.erase(sock_name);
 
-  XBT_DEBUG("forwarding all the messages to SimGrid");
-
+  XBT_DEBUG("forwarding all the %d messages to SimGrid", messages.size());
   std::sort(messages.begin(), messages.end(), sortMessages);
 
   return messages;
@@ -253,19 +246,73 @@ const std::vector<std::string> VmsInterface::get_dead_vm_hosts()
   return dead_hosts;
 }
 
-void VmsInterface::deliverMessage(message m)
+void VmsInterface::deliverMessage(Message m)
 {
   if (vm_sockets.find(m.dest) != vm_sockets.end()) {
     int socket                               = vm_sockets[m.dest];
     uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-    std::string data                         = m.data;
-    struct vsg_deliver_packet deliver_packet = {.packet = m.packet};
-    vsg_deliver_send(socket, deliver_packet, (uint8_t*)data.c_str());
+    struct vsg_deliver_packet deliver_packet = {.packet = m.send_packet.packet};
+    vsg_deliver_send(socket, deliver_packet, m.data);
 
-    XBT_VERB("message from vm %s delivered to vm %s", m.src.c_str(), m.dest.c_str());
+    XBT_VERB("message from vm %s delivered to vm %s size=%ld", m.src.c_str(), m.dest.c_str(),
+             m.send_packet.packet.size);
   } else {
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(),
              m.dest.c_str());
+  }
+}
+
+Message::Message(vsg_send_packet send_packet, uint8_t* payload)
+    : send_packet(send_packet), size(send_packet.packet.size)
+{
+  // -- compute sent time the sent_time
+  this->sent_time = vmToSimgridTime(send_packet.send_time);
+  // -- then src and dest and make them a std::string
+  char dst_addr[INET_ADDRSTRLEN];
+  char src_addr[INET_ADDRSTRLEN];
+  vsg_decode_src_dst(send_packet, src_addr, dst_addr);
+  this->src  = std::string(src_addr);
+  this->dest = std::string(dst_addr);
+  // -- finally handle the payload
+  this->data = new uint8_t[this->size];
+  memcpy(this->data, payload, this->size);
+  // printf("Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
+};
+
+Message::Message(const Message& other) : Message(other.send_packet, other.data)
+{
+  // printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+}
+
+Message::Message(Message&& other) : data(nullptr)
+{
+  // uses the assignement
+  *this = std::move(other);
+  // printf("Moved Message[%p]: size=%d, data@%p from Message[%p]\n", this, this->size, this->data, &other);
+}
+
+Message& Message::operator=(Message&& other)
+{
+  if (this != &other) {
+    delete[] this->data;
+    this->data        = other.data;
+    this->size        = other.size;
+    this->src         = other.src;
+    this->dest        = other.dest;
+    this->send_packet = other.send_packet;
+    this->sent_time   = other.sent_time;
+
+    other.data = nullptr;
+  }
+  // printf("Moved assigned Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+  return *this;
+}
+
+Message::~Message()
+{
+  if (this->data != nullptr) {
+    delete[] this->data;
+    // printf("Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
   }
 }
 

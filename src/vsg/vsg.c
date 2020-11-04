@@ -1,5 +1,5 @@
-#include "log.h"
 #include "vsg.h"
+#include "log.h"
 #include <arpa/inet.h>
 #include <limits.h>
 #include <math.h>
@@ -9,6 +9,18 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+void dump_packet(const uint8_t* buf, size_t size)
+{
+  printf("Dumping packet at %p size %ld \n", buf, size);
+  // c compatible dump
+  printf("{");
+  for (int i = 0; i < size - 1; i++) {
+    printf("0x%02x,", buf[i]);
+  }
+  printf("0x%02x}", buf[size - 1]);
+  printf("\n");
+}
 
 /**
  *
