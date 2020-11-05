@@ -86,7 +86,7 @@ VM_IMAGE=$VM_NAME.qcow2
 
 TAP_NAME=tap${MAC:(-2)}
 $QEMU \
-  --icount shift=auto \
+  --icount shift=1 \
   --vsg mynet0,src=$IP \
   -m 1g \
   -drive file=$VM_IMAGE \
