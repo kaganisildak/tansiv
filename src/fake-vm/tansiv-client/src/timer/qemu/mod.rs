@@ -69,18 +69,18 @@ impl TimerContextInner {
         }
     }
 
-    fn set_next_deadline(self: &Pin<Arc<Self>>, time_to_deadline: StdDuration) {
+    fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration) {
         let mut next_deadline = self.next_deadline.lock().unwrap();
         let next_deadline_val = *next_deadline;
         *self.prev_deadline.lock().unwrap() = next_deadline_val;
-        *next_deadline = next_deadline_val + time_to_deadline;
+        *next_deadline = deadline;
 
         // Safety:
         // - Qemu clocks are assumed initialized when self is created
         // - qemu_clock_get_ns() only accesses Qemu's internal data
         // - qemu_clock_get_ns() does not require locking
-        let vm_time = unsafe { qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
-        let timer_deadline = vm_time + time_to_deadline.as_nanos() as i64;
+        // let vm_time = unsafe { qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
+        let timer_deadline = (self.offset.lock().unwrap().to_std().unwrap() + deadline).as_nanos() as i64;
         // Safety:
         // - qemu_timer is pinned
         // - qemu_timer is initialized in ::start() and de-initialized in ::stop()
@@ -93,7 +93,7 @@ impl TimerContextInner {
         unsafe { qemu_timer_sys::timer_mod(qemu_timer, timer_deadline) };
     }
 
-    pub fn start(self: &Pin<Arc<Self>>, time_to_deadline: StdDuration) -> Result<()> {
+    pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<()> {
         // TODO: Make sure ::start() is not called again before ::stop()
 
         // Count a new reference to self in qemu_timer
@@ -120,7 +120,7 @@ impl TimerContextInner {
         let vm_time = unsafe { qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
         *self.offset.lock().unwrap() = Duration::nanoseconds(vm_time);
 
-        self.set_next_deadline(time_to_deadline);
+        self.set_next_deadline(deadline);
 
         Ok(())
     }
