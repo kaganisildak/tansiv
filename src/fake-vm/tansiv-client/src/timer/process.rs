@@ -129,10 +129,18 @@ impl TimerContext {
         now
     }
 
-    fn thaw_time_to_deadline(&self, freeze_time: Option<StdDuration>, time_to_deadline: StdDuration) -> Result<()> {
+    fn thaw_time_to_deadline(&self, freeze_time: Option<StdDuration>, deadline: StdDuration) -> Result<()> {
+        let mut next_deadline = self.next_deadline.lock().unwrap();
+        let next_deadline_val = *next_deadline;
+        *self.prev_deadline.lock().unwrap() = next_deadline_val;
+        *next_deadline = deadline;
+        deadline_handler_debug!("TimerContext::thaw_time_to_deadline() set next_deadline = {:?}", next_deadline);
+        // First call can be interrupted by the signal handler and deadlock
+        drop(next_deadline);
+
         let now = clock::gettime(Self::CLOCK).unwrap();
         deadline_handler_debug!("TimerContext::thaw_time_to_deadline() system time = {:?}", now);
-        let new_next_deadline_raw = now + time_to_deadline;
+        let new_next_deadline_raw = now + (deadline - next_deadline_val);
 
         // DEBUG only
         let mut next_deadline_raw = self.next_deadline_raw.lock().unwrap();
@@ -161,14 +169,6 @@ impl TimerContext {
             self.simulation_time.adjust(|_| -Duration::from_std(now).unwrap());
         }
 
-        let mut next_deadline = self.next_deadline.lock().unwrap();
-        let next_deadline_val = *next_deadline;
-        *self.prev_deadline.lock().unwrap() = next_deadline_val;
-        *next_deadline = next_deadline_val + time_to_deadline;
-        deadline_handler_debug!("TimerContext::thaw_time_to_deadline() set next_deadline = {:?}", next_deadline);
-        // First call can be interrupted by the signal handler and deadlock
-        drop(next_deadline);
-
         self.at_deadline.store(false, Ordering::Release);
 
         // The first call of ::thaw_time_to_deadline() is not in signal handler context and can be
@@ -178,9 +178,9 @@ impl TimerContext {
         Ok(())
     }
 
-    pub fn start(&self, time_to_deadline: StdDuration) -> Result<()> {
+    pub fn start(&self, deadline: StdDuration) -> Result<()> {
         self.stopped.store(false, Ordering::Release);
-        let res = self.thaw_time_to_deadline(None, time_to_deadline);
+        let res = self.thaw_time_to_deadline(None, deadline);
         if res.is_err() {
             self.stopped.store(true, Ordering::Release);
         }
@@ -271,8 +271,8 @@ extern "C" fn deadline_handler(_: libc::c_int) {
     if let Some(context) = CONTEXT.read().unwrap().upgrade() {
         let freeze_time = context.timer_context.freeze_time();
         match context.at_deadline() {
-            AfterDeadline::NextDeadline(time_to_deadline) => {
-                context.timer_context.thaw_time_to_deadline(Some(freeze_time), time_to_deadline).expect("thaw_time_to_deadline failed")
+            AfterDeadline::NextDeadline(deadline) => {
+                context.timer_context.thaw_time_to_deadline(Some(freeze_time), deadline).expect("thaw_time_to_deadline failed")
             },
             AfterDeadline::EndSimulation => context.timer_context.stopped.store(true, Ordering::Release),
         }

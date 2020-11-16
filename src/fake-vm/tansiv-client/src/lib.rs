@@ -368,8 +368,11 @@ pub mod test_helpers {
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
     pub fn recv_one_msg_actor(actor: &mut TestActor) -> TestResult<()> {
+        let mut deadline = Duration::from_micros(0);
+        let slice = Duration::from_micros(100);
         loop {
-            actor.send(MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+            deadline += slice;
+            actor.send(MsgIn::GoToDeadline(deadline))?;
             let msg = actor.recv()?;
             match msg {
                 MsgOut::AtDeadline => (),
@@ -390,7 +393,7 @@ pub mod test_helpers {
 
         let mut next_deadline_micros = slice_micros;
         while next_deadline_micros < delay_micros {
-            actor.send(MsgIn::GoToDeadline(Duration::from_micros(slice_micros)))?;
+            actor.send(MsgIn::GoToDeadline(Duration::from_micros(next_deadline_micros)))?;
             loop {
                 match actor.recv()? {
                     MsgOut::AtDeadline => break,
@@ -401,8 +404,7 @@ pub mod test_helpers {
             next_deadline_micros += slice_micros;
         }
 
-        let next_slice = delay_micros - (next_deadline_micros - slice_micros);
-        actor.send(MsgIn::GoToDeadline(Duration::from_micros(next_slice)))?;
+        actor.send(MsgIn::GoToDeadline(Duration::from_micros(delay_micros)))?;
         let src = local_vsg_address!();
         let dst = remote_vsg_address!();
         actor.send(MsgIn::DeliverPacket(src, dst, buffer))?;
