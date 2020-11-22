@@ -37,7 +37,7 @@ qemu:
     - apt-get update
     - apt-get install -y build-essential git pkg-config libglib2.0-dev libpixman-1-dev
     #
-    - git clone --depth 1 https://gitlab.inria.fr/msimonin/qemu.git -b dev/global_vsg src/qemu
+    - git clone --depth 1 https://gitlab.inria.fr/msimonin/qemu.git -b tantap src/qemu
     - cd src/qemu
     - ./configure && make config-host.h
   artifacts:
