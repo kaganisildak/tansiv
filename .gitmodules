@@ -2,3 +2,6 @@
 	path = src/crossbeam
 	url = https://gitlab.inria.fr/lrilling/crossbeam.git
 	branch = dev/waitfree
+[submodule "src/qemu"]
+	path = src/qemu
+	url = git@gitlab.inria.fr:msimonin/qemu.git

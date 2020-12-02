@@ -31,16 +31,23 @@ class TansivVM(object):
         qemu_cmd: str,
         qemu_image: Path(),
         qemu_args: Optional[str] = None,
+        public_key: Optional[str] = None,
     ):
         self.tantap = ip_tantap
         self.management = ip_management
         self.qemu_cmd = qemu_cmd
         self.qemu_image = qemu_image.resolve()
+        self.public_key = public_key
 
         if qemu_args is None:
-            self.qemu_args = " --icount shift=1,sleep=on" " -rtc clock=vm" " -m 1g"
+            # Tansiv profile ?
+            self.qemu_args = (
+                " --icount shift=1,sleep=on"
+                " -rtc clock=vm"
+                f" -m 1g --vsg mynet0,src={ip_tantap.ip}"
+            )
         else:
-            self.qemu_args = args
+            self.qemu_args = qemu_args
 
     @property
     def hostname(self) -> str:
@@ -63,6 +70,9 @@ class TansivVM(object):
 
     def ci_meta_data(self) -> Dict:
         meta_data = dict()
+        meta_data.update({"instance-id": self.hostname})
+        if self.public_key is not None:
+            meta_data.update({"public-keys": self.public_key})
         return meta_data
 
     def ci_network_config(self) -> Dict:
@@ -154,7 +164,7 @@ class TansivVM(object):
             f" {self.qemu_args}"
             f" -drive file={image} "
             f" -cdrom {iso}"
-            f" -netdev tantap,src={self.tantap.ip},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
+            f" -netdev tantap,id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
             f" -device e1000,netdev=mynet0,mac={self.mac[0]}"
             f" -netdev tap,id=mynet1,ifname={self.tapname[1]},script=no,downscript=no"
             f" -device e1000,netdev=mynet1,mac={self.mac[1]}"
@@ -210,17 +220,33 @@ done
         help="The ip (in cidr) to use for the management interface",
     )
 
+    parser.add_argument("--qemu-args", type=str, help="arguments to pass to qemu")
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
     ip_tantap = IPv4Interface(args.ip_tantap)
     ip_management = IPv4Interface(args.ip_management)
+    qemu_args = args.qemu_args
 
     # get the mandatory variables from the env
     qemu_cmd = from_env(ENV_QEMU)
     qemu_image = Path(from_env(ENV_IMAGE))
+    # check the required third party software
+    check_call("genisoimage --help", shell=True)
+    check_call("qemu-img --help", shell=True)
 
-    vm = TansivVM(ip_tantap, ip_management, qemu_cmd=qemu_cmd, qemu_image=qemu_image)
+    # will be pushed to the root authorized_keys (root)
+    public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
+
+    vm = TansivVM(
+        ip_tantap,
+        ip_management,
+        qemu_cmd=qemu_cmd,
+        qemu_image=qemu_image,
+        qemu_args=qemu_args,
+        public_key=public_key,
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         LOGGER.info(f"Launching in {tmp}")

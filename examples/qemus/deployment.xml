@@ -16,4 +16,11 @@
     <argument value="172.16.0.11/24"/> <!-- management -->
   </actor>
 
+  <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="192.168.120.12"/>  <!-- how simgrid knows me-->
+    <argument value="./examples/qemus/boot.py"/>
+    <argument value="192.168.120.12/24"/>  <!-- how vsg knows me-->
+    <argument value="172.16.0.12/24"/> <!-- management -->
+  </actor>
+
 </platform>
