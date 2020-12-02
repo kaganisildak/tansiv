@@ -223,4 +223,5 @@ done
     vm = TansivVM(ip_tantap, ip_management, qemu_cmd=qemu_cmd, qemu_image=qemu_image)
 
     with tempfile.TemporaryDirectory() as tmp:
+        LOGGER.info(f"Launching in {tmp}")
         vm.start(working_dir=Path(tmp))

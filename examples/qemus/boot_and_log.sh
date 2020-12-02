@@ -63,6 +63,9 @@ IP=$1
 MAC=$2
 MAC2=$3
 
+DESCRIPTOR=${MAC:(-2)}
+DESCRIPTOR2=${MAC2:(-2)}
+
 VM_NAME="vm-${MAC//:/-}"
 
 # A decent key to use
@@ -98,9 +101,15 @@ cat <<EOF > $CLOUD_INIT_DIR/network-config
 version: 2
 ethernets:
   ens3:
-    dhcp4: true
+    addresses: [192.168.120.${DESCRIPTOR}/24]
+    gateway4: 192.168.120.1
+    dhcp4: false
+    dhcp6: false
   ens4:
-    dhcp4: true
+    addresses: [192.168.121.${DESCRIPTOR2}/24]
+    gateway4: 192.168.120.1
+    dhcp4: false
+    dhcp6: false
 EOF
 
 
@@ -112,8 +121,8 @@ VM_IMAGE=$VM_NAME.qcow2
 # start on the base one
 # VM_IMAGE=debian10-x64-min.qcow2
 
-TAP_NAME=tap${MAC:(-2)}
-TAP2_NAME=tap${MAC2:(-2)}
+TAP_NAME=tap$DESCRIPTOR
+TAP2_NAME=tap$DESCRIPTOR2
 $QEMU \
   --icount shift=1,sleep=on \
   -rtc clock=vm \

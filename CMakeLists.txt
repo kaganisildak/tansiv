@@ -56,7 +56,7 @@ configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml
 add_dependencies(gettimeofday fake-vm)
 
 # Qemus
-configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh COPYONLY)
+configure_file(examples/qemus/boot.py examples/qemus/boot.py COPYONLY)
 configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml COPYONLY)
 configure_file(examples/qemus/nova_cluster.xml examples/qemus/nova_cluster.xml COPYONLY)
 

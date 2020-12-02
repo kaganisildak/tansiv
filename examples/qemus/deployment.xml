@@ -4,18 +4,16 @@
 
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.10"/>  <!-- how simgrid knows me-->
-    <argument value="./examples/qemus/boot_and_log.sh"/>
-    <argument value="192.168.120.10"/>  <!-- how vsg knows me-->
-    <argument value="52:54:00:00:00:10"/>  <!-- my mac address so that the dhcp give the above IP -->
-    <argument value="52:54:00:00:01:20"/>  <!-- secondary mac address-->
+    <argument value="./examples/qemus/boot.py"/>
+    <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
+    <argument value="172.16.0.10/24"/> <!-- management -->
   </actor>
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.11"/>  <!-- how simgrid knows me-->
-    <argument value="./examples/qemus/boot_and_log.sh"/>
-    <argument value="192.168.120.11"/>  <!-- how vsg knows me-->
-    <argument value="52:54:00:00:00:11"/>  <!-- my mac address so that the dhcp give the above IP -->
-    <argument value="52:54:00:00:01:21"/>  <!-- secondary mac address -->
+    <argument value="./examples/qemus/boot.py"/>
+    <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
+    <argument value="172.16.0.11/24"/> <!-- management -->
   </actor>
 
 </platform>
