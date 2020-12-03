@@ -4,4 +4,4 @@
 	branch = dev/waitfree
 [submodule "src/qemu"]
 	path = src/qemu
-	url = git@gitlab.inria.fr:msimonin/qemu.git
+	url = https://gitlab.inria.fr/msimonin/qemu
