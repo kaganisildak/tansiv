@@ -23,6 +23,8 @@ image: simgrid/unstable:latest
 
 build:
   stage: build
+  tags:
+  - large
   script:
   #
   # Some missing build tools

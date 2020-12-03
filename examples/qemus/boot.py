@@ -6,24 +6,29 @@ from pathlib import Path
 import os
 from subprocess import check_call
 import tempfile
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import yaml
 
 # some env variable supported by the program
 ENV_QEMU = "QEMU"
 ENV_IMAGE = "IMAGE"
+ENV_AUTOCONFIG_NET = "AUTOCONFIG_NET"
 
 LOGGER = logging.getLogger(__name__)
 
 
-def from_env(key: str) -> str:
-    value = os.environ.get(key)
+def from_env(key: str, default: Optional[Any] = None) -> str:
+    value = os.environ.get(key, default)
     if value is None:
         raise ValueError(f"Missing {key} in the environment")
     return value
 
 
 class TansivVM(object):
+    """
+    TODO autogenerate this based on the cli
+    """
+
     def __init__(
         self,
         ip_tantap: IPv4Interface,
@@ -32,12 +37,14 @@ class TansivVM(object):
         qemu_image: Path(),
         qemu_args: Optional[str] = None,
         public_key: Optional[str] = None,
+        autoconfig_net: bool = False,
     ):
         self.tantap = ip_tantap
         self.management = ip_management
         self.qemu_cmd = qemu_cmd
         self.qemu_image = qemu_image.resolve()
         self.public_key = public_key
+        self.autoconfig_net = autoconfig_net
 
         if qemu_args is None:
             # Tansiv profile ?
@@ -50,19 +57,42 @@ class TansivVM(object):
             self.qemu_args = qemu_args
 
     @property
+    def tantap_id(self):
+        _, _, _, t = self.tantap.ip.packed
+        return t
+
+    @property
+    def management_id(self):
+        _, _, _, m = self.management.ip.packed
+        return m
+
+    @property
     def hostname(self) -> str:
         return f"tansiv-{str(self.tantap.ip).replace('.', '-')}"
 
     @property
     def tapname(self) -> List[str]:
-        _, _, _, t = self.tantap.ip.packed
-        _, _, _, m = self.management.ip.packed
+        t = self.tantap_id
+        m = self.management_id
         return [f"tantap{t}", f"mantap{m}"]
 
     @property
+    def bridgename(self) -> List[str]:
+        return ["tantap-br", "mantap-br"]
+
+    @property
+    def gateway(self) -> List[IPv4Interface]:
+        t_cidr = str(self.tantap).split("/")[1]
+        m_cidr = str(self.management).split("/")[1]
+        return [
+            IPv4Interface(f"{str(next(self.tantap.network.hosts()))}/{t_cidr}"),
+            IPv4Interface(f"{str(next(self.management.network.hosts()))}/{m_cidr}"),
+        ]
+
+    @property
     def mac(self) -> List[str]:
-        _, _, _, t = self.tantap.ip.packed
-        _, _, _, m = self.management.ip.packed
+        t = self.tantap_id
+        m = self.management_id
         return [
             f"02:ca:fe:f0:0d:{hex(t).lstrip('0x').rjust(2, '0')}",
             f"54:52:fe:f0:0d:{hex(m).lstrip('0x').rjust(2, '0')}",
@@ -76,7 +106,6 @@ class TansivVM(object):
         return meta_data
 
     def ci_network_config(self) -> Dict:
-        ethernets = []
         # yes the nic names are hardcoded...
         def ethernet_config(interface: IPv4Interface):
             return dict(
@@ -152,12 +181,41 @@ class TansivVM(object):
         )
         return qemu_image
 
+    def prepare_net(self):
+        """Create the bridges, the tap if needed."""
+
+        def br_tap(br: str, ip: IPv4Interface, tap: str):
+            """Create a bridge and a tap attached."""
+            check_call(
+                f"""
+                       ip link show dev {br} || ip link add name {br} type bridge
+                       ip link set {br} up
+                       (ip addr show dev {br} | grep {ip}) || ip addr add {ip} dev {br}
+                       ip link show dev {tap} || ip tuntap add {tap} mode tap
+                       ip link set {tap} master {br}
+                       ip link set {tap} up
+                       """,
+                shell=True,
+            )
+
+        if not self.autoconfig_net:
+            return
+
+        br_tap(self.bridgename[0], self.gateway[0], self.tapname[0])
+        br_tap(
+            self.bridgename[1],
+            self.gateway[1],
+            self.tapname[1],
+        )
+
     def start(self, working_dir: Path) -> Path:
         working_dir.mkdir(parents=True, exist_ok=True)
         # generate cloud_init
         iso = self.prepare_cloud_init(working_dir)
         # generate the base image
         image = self.prepare_image(working_dir)
+
+        self.prepare_net()
         # boot
         cmd = (
             f"{self.qemu_cmd}"
@@ -235,6 +293,7 @@ done
     # check the required third party software
     check_call("genisoimage --help", shell=True)
     check_call("qemu-img --help", shell=True)
+    autoconfig_net = from_env(ENV_AUTOCONFIG_NET, False)
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
@@ -246,6 +305,7 @@ done
         qemu_image=qemu_image,
         qemu_args=qemu_args,
         public_key=public_key,
+        autoconfig_net=autoconfig_net,
     )
 
     with tempfile.TemporaryDirectory() as tmp:

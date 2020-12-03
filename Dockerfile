@@ -47,7 +47,11 @@ RUN make -j  && make install
 RUN rm -rf /app
 
 ENV PATH=/opt/tansiv/usr/local/bin:$PATH
+ENV QEMU=$(which qemu-system-x86_64)
 
-WORKDIR /opt
+# create an ssh key
+RUN ssh-keygen -t rsa -P ""
+
+WORKDIR /srv
 
 ENTRYPOINT ["tansiv"]
