@@ -47,10 +47,12 @@ RUN make -j  && make install
 RUN rm -rf /app
 
 ENV PATH=/opt/tansiv/usr/local/bin:$PATH
-ENV QEMU=$(which qemu-system-x86_64)
+ENV QEMU=/usr/local/bin/qemu-system-x86_64
 
-# create an ssh key
-RUN ssh-keygen -t rsa -P ""
+# create an ssh key (not really usefull, we'd want our local key to be pushed
+# inside the vm anyway)
+RUN mkdir -p /root/.ssh
+RUN ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
 
 WORKDIR /srv
 

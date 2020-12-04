@@ -52,3 +52,9 @@ simgrid. Il faut:
 ./tansiv examples/qemus/nova_cluster.xml examples/qemus/deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug
 ```
 
+# Run in docker
+
+WiP
+```
+docker run -v $(pwd):/srv --device /dev/net/tun --cap-add=NET_ADMIN -ti --entrypoint bash registry.gitlab.inria.fr/msimonin/2018-vsg/tansiv:9458b5c2
+```
