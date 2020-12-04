@@ -14,10 +14,6 @@ cmake .. && make
 TODO c'est pas tout à fait ça :( (voir la chaîne de build dans le ci ou l'image docker).
 
 
-# Example jouets
-
-... TEC: Travail En Cours...
-
 # Tests unitaires
 
 Il y a des tests à différents niveau:
@@ -49,12 +45,42 @@ simgrid. Il faut:
     intercepte/réinjecte les communications vers/en provenance de simgrid)
 
 ```
-./tansiv examples/qemus/nova_cluster.xml examples/qemus/deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug
+cd examples/qemus
+../../tansiv nova_cluster.xml deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug
 ```
 
-# Run in docker
+# Docker (par exemple sur g5k)
 
-WiP
+
 ```
-docker run -v $(pwd):/srv --device /dev/net/tun --cap-add=NET_ADMIN -ti --entrypoint bash registry.gitlab.inria.fr/msimonin/2018-vsg/tansiv:9458b5c2
+g5k-setup-docker -t
+
+cd examples/qemus
+
+(get the debian-10.3.0-x86_64.qcow2 image)
+
+docker run   \
+  --network host \
+  --device /dev/net/tun \
+  --cap-add=NET_ADMIN \
+  -e AUTOCONFIG_NET=1 \
+  -e IMAGE=debian-10.3.0-x86_64.qcow2 \
+  -v /home/msimonin/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub \
+  -v $(pwd):/srv \
+  -ti  registry.gitlab.inria.fr/msimonin/2018-vsg/tansiv:ad782302 nova_cluster.xml deployment.xml
 ```
+
+ensuite (ça met un peu de temps à arriver)
+```
+# connection using the management interface should be able after some time
+$) ssh -l root 172.16.0.10
+
+# test d'un ping à travers vsg
+root@tansiv-192-168-120-10:~# ping t11
+
+PING t11 (192.168.120.11) 56(84) bytes of data.
+64 bytes from t11 (192.168.120.11): icmp_seq=1 ttl=64 time=400 ms
+64 bytes from t11 (192.168.120.11): icmp_seq=2 ttl=64 time=400 ms
+```
+
+

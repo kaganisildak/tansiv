@@ -36,6 +36,7 @@ class TansivVM(object):
         qemu_cmd: str,
         qemu_image: Path(),
         qemu_args: Optional[str] = None,
+        hostname: Optional[str] = None,
         public_key: Optional[str] = None,
         autoconfig_net: bool = False,
     ):
@@ -43,6 +44,7 @@ class TansivVM(object):
         self.management = ip_management
         self.qemu_cmd = qemu_cmd
         self.qemu_image = qemu_image.resolve()
+        self._hostname = hostname
         self.public_key = public_key
         self.autoconfig_net = autoconfig_net
 
@@ -68,7 +70,9 @@ class TansivVM(object):
 
     @property
     def hostname(self) -> str:
-        return f"tansiv-{str(self.tantap.ip).replace('.', '-')}"
+        if self._hostname is None:
+            return f"tansiv-{str(self.tantap.ip).replace('.', '-')}"
+        return self._hostname
 
     @property
     def tapname(self) -> List[str]:
@@ -266,6 +270,7 @@ done
 """,
         formatter_class=argparse.RawTextHelpFormatter,
     )
+
     parser.add_argument(
         "ip_tantap",
         type=str,
@@ -277,6 +282,12 @@ done
         type=str,
         help="The ip (in cidr) to use for the management interface",
     )
+    parser.add_argument(
+        "--hostname",
+        type=str,
+        help="The hostname of the virtual machine",
+    )
+
 
     parser.add_argument("--qemu-args", type=str, help="arguments to pass to qemu")
 
@@ -286,6 +297,7 @@ done
     ip_tantap = IPv4Interface(args.ip_tantap)
     ip_management = IPv4Interface(args.ip_management)
     qemu_args = args.qemu_args
+    hostname = args.hostname
 
     # get the mandatory variables from the env
     qemu_cmd = from_env(ENV_QEMU)
@@ -304,6 +316,7 @@ done
         qemu_cmd=qemu_cmd,
         qemu_image=qemu_image,
         qemu_args=qemu_args,
+        hostname=hostname,
         public_key=public_key,
         autoconfig_net=autoconfig_net,
     )
