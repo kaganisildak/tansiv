@@ -24,10 +24,16 @@ find_package(SimGrid REQUIRED)
 
 include_directories("${SimGrid_INCLUDE_DIR}" "${FAKEVM_INCLUDE_DIR}" "${VSG_INCLUDE_DIR}"  SYSTEM)
 
+# To build fake-vm/qemu implementation we need to generate the config-host.h header
+add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu && make -j config-host.h WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu)
 # fake-vm client lib (rust implementation)
 # installed in /opt/fake-vm
 # compiled in RELEASE mode (I've got the power !)
 add_custom_target(fake-vm ALL COMMAND make PREFIX=/opt/fake-vm RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/fake-vm)
+add_dependencies(fake-vm config-host.h)
+
+# build the qemu base image
+add_custom_target(packer COMMAND packer build debian-10.3.0-x86_64.json WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packer)
 
 # vsg lib (actor side)
 add_library(vsg STATIC src/vsg/vsg.c src/vsg/log.c)
@@ -56,7 +62,7 @@ configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml
 add_dependencies(gettimeofday fake-vm)
 
 # Qemus
-configure_file(examples/qemus/boot_and_log.sh examples/qemus/boot_and_log.sh COPYONLY)
+configure_file(examples/qemus/boot.py examples/qemus/boot.py COPYONLY)
 configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml COPYONLY)
 configure_file(examples/qemus/nova_cluster.xml examples/qemus/nova_cluster.xml COPYONLY)
 
