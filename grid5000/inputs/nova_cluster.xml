@@ -1,0 +1,17 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid/simgrid.dtd">
+<platform version="4.1">
+  <config>
+    <prop id ="network/latency-factor" value = "1" />
+  </config>
+  <zone id="AS0" routing="Full">
+    <!--
+          https://simgrid.org/doc/latest/Configuring_SimGrid.html#choosing-the-platform-models
+          We are transfering only small packets so we don't want to pay the slow start every time
+      -->
+    <cluster id="nova" prefix="nova-" suffix=".lyon.grid5000.fr" radical="0-200" speed="16120000000.0f,0.0f,0.0f" core="16" bw="10Gbps" lat="1.0E-1s" router_id="router1">
+      <prop id="watt_per_state" value="75.83:81.97:174.04, 123.86:123.86:123.86, 66:66:66" />
+      <prop id="watt_off" value="8.81" />
+    </cluster>
+  </zone>
+</platform>
