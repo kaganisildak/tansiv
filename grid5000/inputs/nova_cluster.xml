@@ -2,7 +2,7 @@
 <!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid/simgrid.dtd">
 <platform version="4.1">
   <config>
-    <prop id ="network/latency-factor" value = "1" />
+    <prop id ="network/model" value = "CM02" />
   </config>
   <zone id="AS0" routing="Full">
     <!--
