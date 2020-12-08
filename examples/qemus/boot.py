@@ -115,14 +115,19 @@ class TansivVM(object):
             return dict(
                 addresses=[f"{interface.ip}"],
                 gateway4=str(next(interface.network.hosts())),
+                # routes=[
+                #     dict(to=str(interface), via=str(next(interface.network.hosts())))
+                # ],
                 dhcp4=False,
                 dhcp6=False,
             )
 
         ens3 = ethernet_config(self.tantap)
-        ens4 = ethernet_config(self.management)
-
+        ens4 = ethernet_config(
+            self.management,
+        )
         network_config = dict(version=2, ethernets=dict(ens3=ens3, ens4=ens4))
+        LOGGER.debug(network_config)
         return network_config
 
     def ci_user_data(self) -> Dict:
@@ -138,11 +143,11 @@ class TansivVM(object):
 
         t_entries = [
             f'echo "{ip}    {alias}" >> /etc/hosts'
-            for ip, alias in _mapping(self.tantap, "t")
+            for ip, alias in _mapping(self.tantap, "tantap")
         ]
         m_entries = [
             f'echo "{ip}    {alias}" >> /etc/hosts'
-            for ip, alias in _mapping(self.management, "m")
+            for ip, alias in _mapping(self.management, "mantap")
         ]
         bootcmd.extend(t_entries)
         bootcmd.extend(m_entries)
@@ -189,7 +194,11 @@ class TansivVM(object):
         """Create the bridges, the tap if needed."""
 
         def br_tap(br: str, ip: IPv4Interface, tap: str):
-            """Create a bridge and a tap attached."""
+            """Create a bridge and a tap attached.
+
+            This assumes that the current process is running with the right
+            level of privilege.
+            """
             check_call(
                 f"""
                        ip link show dev {br} || ip link add name {br} type bridge
@@ -287,7 +296,6 @@ done
         type=str,
         help="The hostname of the virtual machine",
     )
-
 
     parser.add_argument("--qemu-args", type=str, help="arguments to pass to qemu")
 

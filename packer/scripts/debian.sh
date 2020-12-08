@@ -8,7 +8,7 @@ apt -y install cloud-init iperf wget vim
 # some apps to validate the bouzin
 # since we have ssh ready on the management interface, we could also install
 # some apps on the fly
-apt -y install taktuk
+apt -y install taktuk fping
 
 mkdir -p /home/tansiv/.ssh
 ssh-keygen -t rsa -f /home/tansiv/.ssh/id_rsa -P ''
