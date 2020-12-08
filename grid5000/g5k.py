@@ -5,7 +5,6 @@ from pathlib import Path
 import traceback
 
 from enoslib import *
-from enoslib.api import gather_facts
 from enoslib.types import Host, Roles
 
 
@@ -23,7 +22,7 @@ def build_tansiv_roles(deployment: Path, tansiv_node: Host) -> Roles:
     # build the inventory based on the deployment file in use
     import xml.etree.ElementTree as ET
 
-    tree = ET.parse(deployment)
+    tree = ET.parse(str(deployment))
     root = tree.getroot()
     ip_ifaces = sorted(
         [
@@ -48,6 +47,36 @@ def build_tansiv_roles(deployment: Path, tansiv_node: Host) -> Roles:
     )
     print(tansiv_roles)
     return tansiv_roles
+
+
+def generate_deployment(args) -> str:
+    """Generate a deployment file with size vms.
+
+    Many things remain hardcoded (e.g physical host to map the processes).
+    """
+    size = int(args.size)
+    out = args.out
+    import xml.etree.ElementTree as ET
+    from xml.etree.ElementTree import ElementTree
+
+    platform = ET.Element("platform", dict(version="4.1"))
+    for i in range(1, size + 1):
+        # we start at 10.0.0.10/192.168.120.10
+        descriptor = 9 + i
+        vm = ET.SubElement(
+            platform,
+            "actor",
+            dict(host=f"nova-{i}.lyon.grid5000.fr", function="vsg_vm"),
+        )
+        ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}"))
+        ET.SubElement(vm, "argument", dict(value="./boot.py"))
+        ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}/24"))
+        ET.SubElement(vm, "argument", dict(value=f"10.0.0.{descriptor}/24"))
+
+    element_tree = ElementTree(platform)
+    with open(out, "w") as f:
+        f.write('<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">')
+        f.write(ET.tostring(platform, encoding="unicode"))
 
 
 @enostask(new=True)
@@ -145,9 +174,7 @@ def deploy(args, env=None):
             sysctl_set="yes",
         )
 
-    tansiv_roles = build_tansiv_roles(
-        "../examples/qemus/deployment.xml", roles["tansiv"][0]
-    )
+    tansiv_roles = build_tansiv_roles(Path(deployment), roles["tansiv"][0])
 
     # waiting for the tansiv vms to show up
     wait_ssh(roles=tansiv_roles)
@@ -173,7 +200,9 @@ def validate(args, env=None):
     ]
     print(hostnames)
     result = run_command(
-        f'fping -q -C 10 -s -e {" ".join(hostnames)}', roles=tansiv_roles
+        f'fping -q -C 10 -s -e {" ".join(hostnames)}',
+        roles=tansiv_roles,
+        on_error_continue=True,
     )
 
     # displayng the output (the result datastructure is a bit painful to parse...ask enoslib maintainer)
@@ -189,8 +218,17 @@ def validate(args, env=None):
 
 @enostask()
 def destroy(args, env=None):
-    provider = env["provider"]
-    provider.destroy()
+    force = args.force
+    if force:
+        provider = env["provider"]
+        provider.destroy()
+    else:
+        # be kind / soft removal
+        roles = env["roles"]
+        with play_on(roles=roles) as p:
+            p.docker_container(
+                name="tansiv", state="absent", display_name="Removing tansiv container"
+            )
 
 
 if __name__ == "__main__":
@@ -231,9 +269,28 @@ if __name__ == "__main__":
 
     # ------------------------------------------------------------------ DESTROY
     parser_destroy = subparsers.add_parser("destroy", help="Destroy the deployment")
+    parser_destroy.add_argument(
+        "--force",
+        action="store_true",
+        help="Remove the remote running tansiv container. Forcing will free the g5k resources",
+    )
     parser_destroy.set_defaults(func=destroy)
     # --------------------------------------------------------------------------
 
+    # ---------------------------------------------------------------------- GEN
+    parser_destroy = subparsers.add_parser(
+        "gen", help="Generate the deployment file (wip)"
+    )
+    parser_destroy.add_argument(
+        "size",
+        help="Size of the deployment",
+    )
+    parser_destroy.add_argument(
+        "out",
+        help="Output file",
+    )
+    parser_destroy.set_defaults(func=generate_deployment)
+    # --------------------------------------------------------------------------
     args = parser.parse_args()
     try:
         args.func(args)
