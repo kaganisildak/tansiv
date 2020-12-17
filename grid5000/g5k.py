@@ -5,6 +5,7 @@ from pathlib import Path
 import traceback
 
 from enoslib import *
+from enoslib.infra.enos_g5k.g5k_api_utils import get_cluster_site
 from enoslib.types import Host, Roles
 
 
@@ -89,13 +90,16 @@ def deploy(args, env=None):
     cluster = args.cluster
     platform = args.platform
     deployment = args.deployment
+    walltime = args.walltime
     queue = args.queue
-    prod = G5kNetworkConf(id="id", roles=["prod"], site="nancy", type="prod")
+    prod = G5kNetworkConf(
+        id="id", roles=["prod"], site=get_cluster_site(cluster), type="prod"
+    )
     conf = (
         G5kConf.from_settings(
             job_name="tansiv",
             job_type="allow_classic_ssh",
-            walltime="01:00:00",
+            walltime=walltime,
             queue=queue,
         )
         .add_machine(cluster=cluster, roles=["tansiv"], nodes=1, primary_network=prod)
@@ -184,7 +188,7 @@ def deploy(args, env=None):
 
 
 @enostask()
-def validate(args, env=None):
+def fping(args, env=None):
     """Validates the deployment.
 
     Idempotent.
@@ -214,6 +218,13 @@ def validate(args, env=None):
 
     for hostname, r in result["failed"].items():
         print(f"host that fails = {hostname}")
+
+
+@enostask()
+def flent(args, env=None):
+    """Runs flent."""
+    print(args.remaining)
+    pass
 
 
 @enostask()
@@ -257,14 +268,23 @@ if __name__ == "__main__":
     parser_deploy.add_argument(
         "--cluster", help="Cluster where to get the node", default="parapluie"
     )
+    parser_deploy.add_argument(
+        "--walltime", help="Walltime for the reservation", default="02:00:00"
+    )
     parser_deploy.add_argument("--queue", help="Qeueue to use", default="default")
 
     parser_deploy.set_defaults(func=deploy)
     # --------------------------------------------------------------------------
 
-    # ----------------------------------------------------------------- VALIDATE
-    parser_validate = subparsers.add_parser("validate", help="Validate the deployment")
-    parser_validate.set_defaults(func=validate)
+    # -------------------------------------------------------------------- FPING
+    parser_fping = subparsers.add_parser("fping", help="Run a fping in full mesh")
+    parser_fping.set_defaults(func=fping)
+    # --------------------------------------------------------------------------
+
+    # -------------------------------------------------------------------- FLENT
+    parser_flent = subparsers.add_parser("flent", help="Run flent")
+    parser_flent.set_defaults(func=flent)
+    parser_flent.add_argument("remaining", nargs=argparse.REMAINDER)
     # --------------------------------------------------------------------------
 
     # ------------------------------------------------------------------ DESTROY
