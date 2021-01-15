@@ -24,8 +24,8 @@ static double compute_min_latency()
   }
   double min_latency = std::numeric_limits<double>::infinity();
 
-  for (simgrid::s4u::ActorPtr sender : receivers) {
-    for (simgrid::s4u::ActorPtr receiver : receivers) {
+  for (simgrid::s4u::ActorPtr const& sender : receivers) {
+    for (simgrid::s4u::ActorPtr const& receiver : receivers) {
       if (sender != receiver) {
         std::vector<simgrid::s4u::Link*> links;
         double latency = 0;
@@ -47,7 +47,7 @@ static double get_next_event()
   double time            = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::infinity();
   for (simgrid::kernel::resource::Model* model : all_existing_models) {
-    double model_event = time + model->next_occuring_event(time);
+    double model_event = time + model->next_occurring_event(time);
     if (model_event < next_event_time && model_event > time) {
       next_event_time = model_event;
     }
@@ -55,10 +55,10 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void sender(std::string mailbox_name, vsg::Message m)
+static void sender(std::string const& mailbox_name, vsg::Message m)
 {
 
-  XBT_INFO("sending (size %lu) from vm [%s], to vm [%s] (on pm [%s])", m.size, m.src.c_str(), m.dest.c_str(),
+  XBT_INFO("sending (size %u) from vm [%s], to vm [%s] (on pm [%s])", m.size, m.src.c_str(), m.dest.c_str(),
            mailbox_name.c_str());
 
   int msg_size               = m.size;
@@ -100,7 +100,7 @@ static void receiver(std::vector<std::string> args)
   myself->daemonize();
 
   while (true) {
-    vsg::Message* m = static_cast<vsg::Message*>(mailbox->get());
+    vsg::Message* m = mailbox->get<vsg::Message>();
     XBT_INFO("[receiver] delivering data from vm [%s] to vm [%s]", m->src.c_str(), m->dest.c_str());
   }
 }
@@ -116,15 +116,11 @@ static void vm_coordinator()
 
     // first we check if a VM stops. If so, we recompute the minimum latency.
     bool deads = false;
-    for (auto host : vms_interface->get_dead_vm_hosts()) {
+    for (auto const& host : vms_interface->get_dead_vm_hosts()) {
 
       auto erased_section_begin =
-          std::remove_if(receivers.begin(), receivers.end(), [host](const simgrid::s4u::ActorPtr& o) {
-            if (o->get_host()->get_name() == host) {
-              return true;
-            }
-            return false;
-          });
+          std::remove_if(receivers.begin(), receivers.end(),
+                         [host](const simgrid::s4u::ActorPtr& o) { return (o->get_host()->get_name() == host); });
 
       receivers.erase(erased_section_begin, receivers.end());
       deads = true;
@@ -141,7 +137,7 @@ static void vm_coordinator()
               next_reception_time);
 
     std::vector<vsg::Message> messages = vms_interface->goTo(deadline);
-    for (vsg::Message m : messages) {
+    for (vsg::Message const& m : messages) {
       time                = simgrid::s4u::Engine::get_clock();
       double send_timeeps = m.sent_time + std::numeric_limits<double>::epsilon();
       xbt_assert(
@@ -155,10 +151,10 @@ static void vm_coordinator()
       }
 
       std::string src_host = vms_interface->getHostOfVm(m.src);
-      xbt_assert(src_host != "", "The VM %s tries to send a message but we do not know its PM", m.src.c_str());
+      xbt_assert(not src_host.empty(), "The VM %s tries to send a message but we do not know its PM", m.src.c_str());
 
       std::string dest_host = vms_interface->getHostOfVm(m.dest);
-      if (dest_host != "") {
+      if (not dest_host.empty()) {
         simgrid::s4u::ActorPtr actor =
             simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
         // For the simulation to end with the coordinator actor, we daemonize all the other actors.
@@ -171,7 +167,6 @@ static void vm_coordinator()
     // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
     // so we do not have to sleep until "infinity" because the simulation is done
     if (deadline != std::numeric_limits<double>::infinity()) {
-      double time = simgrid::s4u::Engine::get_clock();
       simgrid::s4u::this_actor::sleep_until(deadline);
     }
     int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
@@ -213,7 +208,7 @@ int main(int argc, char* argv[])
   xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
 
   force_min_latency = parse_args_force(argc, argv);
-  XBT_DEBUG("Forcing the minimum latency to %d", force_min_latency);
+  XBT_DEBUG("Forcing the minimum latency to %f", force_min_latency);
 
   simgrid::s4u::Engine e(&argc, argv);
 
