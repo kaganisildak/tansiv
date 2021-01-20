@@ -34,9 +34,9 @@ public:
   VmsInterface(bool stop_condition = false);
   ~VmsInterface();
   bool vmActive();
-  std::vector<Message> goTo(double deadline);
+  std::vector<Message*> goTo(double deadline);
   std::string getHostOfVm(std::string vm_name);
-  void deliverMessage(Message m);
+  void deliverMessage(Message* m);
   void end_simulation(bool must_unlink = true, bool must_exit = true);
   void register_vm(std::string host_name, std::string vm_name, std::string file, std::vector<std::string> args);
   const std::vector<std::string> get_dead_vm_hosts();

@@ -13,9 +13,9 @@ XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface
 
 namespace vsg {
 
-bool sortMessages(Message i, Message j)
+bool sortMessages(Message* i, Message* j)
 {
-  return i.sent_time < j.sent_time;
+  return i->sent_time < j->sent_time;
 }
 
 vsg_time simgridToVmTime(double simgrid_time)
@@ -140,7 +140,7 @@ bool VmsInterface::vmActive()
   return (!vm_sockets.empty() && !simulate_until_any_stop) || (!a_vm_stopped && simulate_until_any_stop);
 }
 
-std::vector<Message> VmsInterface::goTo(double deadline)
+std::vector<Message*> VmsInterface::goTo(double deadline)
 {
   // Beforehand, forget about the VMs that bailed out recently.
   // We hope that the coordinator cleaned the SimGrid side in between
@@ -158,7 +158,7 @@ std::vector<Message> VmsInterface::goTo(double deadline)
   }
 
   // then, we pick up all the messages send by the VM until they reach the deadline
-  std::vector<Message> messages;
+  std::vector<Message*> messages;
   XBT_DEBUG("getting the message send by the VMs");
   for (auto kv : vm_sockets) {
     uint32_t vm_flag    = 0;
@@ -200,7 +200,7 @@ std::vector<Message> VmsInterface::goTo(double deadline)
                  data, sizeof(data), vm_name.c_str(), src_addr, send_packet.packet.dst, dst_addr,
                  send_packet.send_time.seconds, send_packet.send_time.useconds);
 
-        Message m = Message(send_packet, data);
+        Message* m = new Message(send_packet, data);
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
         //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
 
@@ -215,7 +215,7 @@ std::vector<Message> VmsInterface::goTo(double deadline)
   for (auto sock_name : vm_sockets_trash)
     vm_sockets.erase(sock_name);
 
-  XBT_DEBUG("forwarding all the %d messages to SimGrid", messages.size());
+  XBT_DEBUG("forwarding all the %lu messages to SimGrid", messages.size());
   std::sort(messages.begin(), messages.end(), sortMessages);
 
   return messages;
@@ -246,20 +246,20 @@ const std::vector<std::string> VmsInterface::get_dead_vm_hosts()
   return dead_hosts;
 }
 
-void VmsInterface::deliverMessage(Message m)
+void VmsInterface::deliverMessage(Message* m)
 {
-  if (vm_sockets.find(m.dest) != vm_sockets.end()) {
-    int socket                               = vm_sockets[m.dest];
-    uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-    struct vsg_deliver_packet deliver_packet = {.packet = m.send_packet.packet};
-    vsg_deliver_send(socket, deliver_packet, m.data);
+  if (vm_sockets.find(m->dest) != vm_sockets.end()) {
+    int socket                               = vm_sockets[m->dest];
+    struct vsg_deliver_packet deliver_packet = {.packet = m->send_packet.packet};
+    vsg_deliver_send(socket, deliver_packet, m->data);
 
-    XBT_VERB("message from vm %s delivered to vm %s size=%ld", m.src.c_str(), m.dest.c_str(),
-             m.send_packet.packet.size);
+    XBT_VERB("message from vm %s delivered to vm %s size=%u", m->src.c_str(), m->dest.c_str(),
+             m->send_packet.packet.size);
   } else {
-    XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m.src.c_str(),
-             m.dest.c_str());
+    XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m->src.c_str(),
+             m->dest.c_str());
   }
+  delete m;
 }
 
 Message::Message(vsg_send_packet send_packet, uint8_t* payload)
