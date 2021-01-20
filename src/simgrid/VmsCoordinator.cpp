@@ -66,8 +66,6 @@ static void sender(std::string const& mailbox_name, vsg::Message* m)
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
   comm->wait();
-  // for the receiver to be able to get the message (just useful for login purpose)
-  simgrid::s4u::this_actor::yield();
 }
 
 static void receiver(std::vector<std::string> args)
