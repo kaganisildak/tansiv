@@ -55,17 +55,12 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void sender(std::string const& mailbox_name, vsg::Message* m)
+static void sender(simgrid::s4u::Host* src_host, simgrid::s4u::Host* dest_host, vsg::Message* m)
 {
-
-  XBT_INFO("sending (size %u) from vm [%s], to vm [%s] (on pm [%s])", m->size, m->src.c_str(), m->dest.c_str(),
-           mailbox_name.c_str());
-
-  int msg_size               = m->size;
-  simgrid::s4u::CommPtr comm = simgrid::s4u::Mailbox::by_name(mailbox_name)->put_async(m, msg_size);
+  int msg_size = m->size;
+  auto comm    = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size);
   pending_comms.push_back(comm);
   pending_messages.push_back(m);
-  comm->wait();
 }
 
 static void receiver(std::vector<std::string> args)
@@ -88,20 +83,6 @@ static void receiver(std::vector<std::string> args)
   // AFTER all the registrations.
   vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);
   receivers.push_back(simgrid::s4u::Actor::self());
-
-  simgrid::s4u::ActorPtr myself  = simgrid::s4u::Actor::self();
-  simgrid::s4u::Mailbox* mailbox = simgrid::s4u::Mailbox::by_name(mailbox_name);
-
-  // this actor is a permanent receiver on its host mailbox.
-  mailbox->set_receiver(myself);
-  // For the simulation to end with the coordinator actor, we daemonize all the other actors.
-  myself->daemonize();
-
-  while (true) {
-    // The received message is freed in the deliverMessage() function, so don't access it from here, as we don't know
-    // anything about the actors' ordering
-    mailbox->get<vsg::Message>();
-  }
 }
 
 static void vm_coordinator()
@@ -154,8 +135,9 @@ static void vm_coordinator()
 
       std::string dest_host = vms_interface->getHostOfVm(m->dest);
       if (not dest_host.empty()) {
-        simgrid::s4u::ActorPtr actor =
-            simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host), sender, dest_host, m);
+        simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host),
+                                                                   sender, simgrid::s4u::Host::by_name(src_host),
+                                                                   simgrid::s4u::Host::by_name(dest_host), m);
         // For the simulation to end with the coordinator actor, we daemonize all the other actors.
         actor->daemonize();
       } else {
@@ -178,8 +160,8 @@ static void vm_coordinator()
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_DEBUG("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dest.c_str(),
-                m->size);
+      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dest.c_str(),
+               m->size);
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
