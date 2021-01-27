@@ -9,6 +9,25 @@ from enoslib.infra.enos_g5k.g5k_api_utils import get_cluster_site
 from enoslib.types import Host, Roles
 
 
+class TansivHost(Host):
+    """
+    A TansivHost is an EnOSlib Host but requires an extra jump to access it
+
+    local_machine --ssh1--> g5k machine --ssh2--> tansiv host
+    ssh1 also requires a jump through the access machine but that should be
+    already set in your .ssh/config
+    ssh2 is what we handle here.
+    """
+
+    def __init__(self, address, alias_descriptor, g5k_machine):
+        super().__init__(address, alias=f"mantap{alias_descriptor}", user="root")
+        self.extra.update(
+            tansiv_alias=f"tantap{alias_descriptor}",
+            gateway=g5k_machine,
+            gateway_user="root",
+        )
+
+
 def build_tansiv_roles(deployment: Path, tansiv_node: Host) -> Roles:
     """Build enoslib roles based on a simgrid deployment file.
 
@@ -33,16 +52,7 @@ def build_tansiv_roles(deployment: Path, tansiv_node: Host) -> Roles:
     )
     tansiv_roles = dict(
         all=[
-            Host(
-                str(ip_iface.ip),
-                alias=f"mantap{ip_iface.ip.packed[-1]}",
-                user="root",
-                extra=dict(
-                    tansiv_alias=f"tantap{ip_iface.ip.packed[-1]}",
-                    gateway=tansiv_node.address,
-                    gateway_user="root",
-                ),
-            )
+            TansivHost(str(ip_iface.ip), ip_iface.ip.packed[-1], tansiv_node.address)
             for ip_iface in ip_ifaces
         ]
     )
@@ -78,6 +88,23 @@ def generate_deployment(args) -> str:
     with open(out, "w") as f:
         f.write('<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">')
         f.write(ET.tostring(platform, encoding="unicode"))
+
+
+def start_tansiv(p: play_on):
+    p.docker_container(
+        state="started",
+        network_mode="host",
+        name="tansiv",
+        image="registry.gitlab.inria.fr/quinson/2018-vsg/tansiv:latest",
+        command="platform.xml deployment.xml",
+        volumes=["/tmp/id_rsa.pub:/root/.ssh/id_rsa.pub", "/tmp/tansiv:/srv"],
+        env={
+            "AUTOCONFIG_NET": "true",
+            "IMAGE": "image.qcow2",
+        },
+        capabilities=["NET_ADMIN"],
+        devices=["/dev/net/tun"],
+    )
 
 
 @enostask(new=True)
@@ -143,20 +170,7 @@ def deploy(args, env=None):
             display_name="copying deployment file",
         )
         # finally start the container
-        p.docker_container(
-            state="started",
-            network_mode="host",
-            name="tansiv",
-            image="registry.gitlab.inria.fr/quinson/2018-vsg/tansiv:latest",
-            command="platform.xml deployment.xml",
-            volumes=["/tmp/id_rsa.pub:/root/.ssh/id_rsa.pub", "/tmp/tansiv:/srv"],
-            env={
-                "AUTOCONFIG_NET": "true",
-                "IMAGE": "image.qcow2",
-            },
-            capabilities=["NET_ADMIN"],
-            devices=["/dev/net/tun"],
-        )
+        start_tansiv(p)
         # by default packets that needs to be forwarded by the bridge are sent to iptables
         # iptables will most likely drop them.
         # we can disabled this behaviour by bypassing iptables
@@ -223,8 +237,22 @@ def fping(args, env=None):
 @enostask()
 def flent(args, env=None):
     """Runs flent."""
-    print(args.remaining)
-    pass
+    tansiv_roles = env["tansiv_roles"]
+    hosts = tansiv_roles["all"]
+    # split the hosts
+    masters = hosts[0:2:]
+    workers = hosts[1:2:]
+    for worker in workers:
+        worker.extra.update(flent_server=masters[0].extra["tansiv_alias"])
+
+    with play_on(roles=dict(all=masters)) as p:
+        p.shell(
+            "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
+        )
+
+    with play_on(roles=dict(all=workers)) as p:
+        p.shell("flent udp_flood -p totals -l 10 -H {{ flent_server }} -o filename.png")
+        p.fetch(src="filename.png", dest="result")
 
 
 @enostask()
@@ -240,6 +268,16 @@ def destroy(args, env=None):
             p.docker_container(
                 name="tansiv", state="absent", display_name="Removing tansiv container"
             )
+
+
+@enostask()
+def restart(args, env=None):
+    roles = env["roles"]
+    with play_on(roles=roles) as p:
+        p.docker_container(
+            name="tansiv", state="absent", display_name="Removing tansiv container"
+        )
+        start_tansiv(p)
 
 
 if __name__ == "__main__":
@@ -284,7 +322,9 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------- FLENT
     parser_flent = subparsers.add_parser("flent", help="Run flent")
     parser_flent.set_defaults(func=flent)
-    parser_flent.add_argument("remaining", nargs=argparse.REMAINDER)
+    parser_flent.add_argument(
+        "remaining", nargs=argparse.REMAINDER, help="Argument to pass to flent"
+    )
     # --------------------------------------------------------------------------
 
     # ------------------------------------------------------------------ DESTROY
@@ -297,6 +337,9 @@ if __name__ == "__main__":
     parser_destroy.set_defaults(func=destroy)
     # --------------------------------------------------------------------------
 
+    # ------------------------------------------------------------------ RESTART
+    parser_destroy = subparsers.add_parser("restart", help="Restart tansiv")
+    parser_destroy.set_defaults(func=restart)
     # ---------------------------------------------------------------------- GEN
     parser_destroy = subparsers.add_parser(
         "gen", help="Generate the deployment file (wip)"
@@ -312,6 +355,7 @@ if __name__ == "__main__":
     parser_destroy.set_defaults(func=generate_deployment)
     # --------------------------------------------------------------------------
     args = parser.parse_args()
+
     try:
         args.func(args)
     except Exception as e:
