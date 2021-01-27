@@ -11,7 +11,7 @@ std::vector<simgrid::s4u::CommPtr> pending_comms;
 
 std::vector<vsg::Message*> pending_messages;
 
-static std::vector<simgrid::s4u::ActorPtr> receivers;
+static std::vector<simgrid::s4u::ActorPtr> tansiv_actors;
 
 const std::string vsg_vm_name = "vsg_vm";
 
@@ -24,8 +24,8 @@ static double compute_min_latency()
   }
   double min_latency = std::numeric_limits<double>::infinity();
 
-  for (simgrid::s4u::ActorPtr const& sender : receivers) {
-    for (simgrid::s4u::ActorPtr const& receiver : receivers) {
+  for (simgrid::s4u::ActorPtr const& sender : tansiv_actors) {
+    for (simgrid::s4u::ActorPtr const& receiver : tansiv_actors) {
       if (sender != receiver) {
         std::vector<simgrid::s4u::Link*> links;
         double latency = 0;
@@ -55,7 +55,7 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void receiver(std::vector<std::string> args)
+static void tansiv_actor(std::vector<std::string> args)
 {
 
   XBT_INFO("running receiver");
@@ -74,7 +74,7 @@ static void receiver(std::vector<std::string> args)
   // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start
   // AFTER all the registrations.
   vms_interface->register_vm(mailbox_name, args[1], args[2], fork_command);
-  receivers.push_back(simgrid::s4u::Actor::self());
+  tansiv_actors.push_back(simgrid::s4u::Actor::self());
 }
 
 static void vm_coordinator()
@@ -91,10 +91,10 @@ static void vm_coordinator()
     for (auto const& host : vms_interface->get_dead_vm_hosts()) {
 
       auto erased_section_begin =
-          std::remove_if(receivers.begin(), receivers.end(),
+          std::remove_if(tansiv_actors.begin(), tansiv_actors.end(),
                          [host](const simgrid::s4u::ActorPtr& o) { return (o->get_host()->get_name() == host); });
 
-      receivers.erase(erased_section_begin, receivers.end());
+      tansiv_actors.erase(erased_section_begin, tansiv_actors.end());
       deads = true;
     }
     if (deads)
@@ -190,7 +190,7 @@ int main(int argc, char* argv[])
 
   vms_interface = new vsg::VmsInterface();
 
-  e.register_function(vsg_vm_name, &receiver);
+  e.register_function(vsg_vm_name, &tansiv_actor);
 
   simgrid::s4u::Actor::create("vm_coordinator", e.get_all_hosts()[0], vm_coordinator);
 
