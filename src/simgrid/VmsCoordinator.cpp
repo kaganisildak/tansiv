@@ -55,14 +55,6 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void sender(simgrid::s4u::Host* src_host, simgrid::s4u::Host* dest_host, vsg::Message* m)
-{
-  int msg_size = m->size;
-  auto comm    = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size);
-  pending_comms.push_back(comm);
-  pending_messages.push_back(m);
-}
-
 static void receiver(std::vector<std::string> args)
 {
 
@@ -130,16 +122,17 @@ static void vm_coordinator()
         simgrid::s4u::this_actor::sleep_until(m->sent_time);
       }
 
-      std::string src_host = vms_interface->getHostOfVm(m->src);
-      xbt_assert(not src_host.empty(), "The VM %s tries to send a message but we do not know its PM", m->src.c_str());
+      std::string src_host_name = vms_interface->getHostOfVm(m->src);
+      xbt_assert(not src_host_name.empty(), "The VM %s tries to send a message but we do not know its PM",
+                 m->src.c_str());
 
-      std::string dest_host = vms_interface->getHostOfVm(m->dest);
-      if (not dest_host.empty()) {
-        simgrid::s4u::ActorPtr actor = simgrid::s4u::Actor::create("sender", simgrid::s4u::Host::by_name(src_host),
-                                                                   sender, simgrid::s4u::Host::by_name(src_host),
-                                                                   simgrid::s4u::Host::by_name(dest_host), m);
-        // For the simulation to end with the coordinator actor, we daemonize all the other actors.
-        actor->daemonize();
+      std::string dest_host_name = vms_interface->getHostOfVm(m->dest);
+      if (not dest_host_name.empty()) {
+        auto src_host  = simgrid::s4u::Host::by_name(src_host_name);
+        auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
+        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size);
+        pending_comms.push_back(comm);
+        pending_messages.push_back(m);
       } else {
         XBT_WARN("the VM %s tries to send a message to the unknown VM %s", m->src.c_str(), m->dest.c_str());
       }
