@@ -7,7 +7,7 @@ apt -y update
 # apt-add-repository non-free
 apt-get -y update
 
-apt -y install cloud-init wget vim git autotools-dev automake texinfo
+apt -y install cloud-init wget vim git autotools-dev automake texinfo tmux
 
 # ok we'll need netperf which isn't in buster/non-free !
 # let's get it the old way
