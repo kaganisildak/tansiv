@@ -1,0 +1,117 @@
+# Outils de test de sandbox
+
+Al-Khaser: https://github.com/LordNoteworthy/al-khaser/tree/master
+
+S'appuie en partie sur un programme plus ancien, plus maintenu apparemment :
+pafish: https://github.com/a0rtega/pafish
+
+
+# Exemples d'articles analysant les pratiques de détection de sandbox
+
+Techniques catégorisées par le MITRE :
+https://attack.mitre.org/techniques/T1497/
+
+Analyse d'un éditeur d'anti-virus :
+https://www.mcafee.com/blogs/other-blogs/mcafee-labs/evolution-of-malware-sandbox-evasion-tactics-a-retrospective-study/
+
+Plus académique :
+
+@ARTICLE{9018111,
+
+  author={D. C. {D’Elia} and E. {Coppa} and F. {Palmaro} and L. {Cavallaro}},
+
+  journal={IEEE Transactions on Information Forensics and Security},
+
+  title={On the Dissection of Evasive Malware},
+
+  year={2020},
+
+  volume={15},
+
+  number={},
+
+  pages={2750-2765},}
+
+@article{10.1145/3365001,
+        author = {Afianian, Amir and Niksefat, Salman and Sadeghiyan, Babak and Baptiste, David},
+        title = {Malware Dynamic Analysis Evasion Techniques: A Survey},
+        year = {2019},
+        issue_date = {January 2020},
+        publisher = {Association for Computing Machinery},
+        address = {New York, NY, USA},
+        volume = {52},
+        number = {6},
+        issn = {0360-0300},
+        url = {https://doi.org/10.1145/3365001},
+        doi = {10.1145/3365001},
+        journal = {ACM Comput. Surv.},
+        month = nov,
+        articleno = {126},
+        numpages = {28},
+        keywords = {anti-debugging, Malware, evasion techniques, sandbox evasion}
+}
+
+Alexei Bulazel and Bülent Yener.
+A survey on automated dynamic malware analysis evasion and counter-evasion: PC, Mobile, and Web.
+In Proceedings of the 1st Reversing and Offensive-oriented Trends Symposium, ROOTS, pages 2:1–2:21, New York, NY, USA, 2017. ACM.
+
+M. Polino, A. Continella, S. Mariani, S. D’Alessio, L. Fontana, F. Gritti, and S. Zanero.
+Measuring and defeating anti-instrumentation-equipped malware.
+In Proceedings of the 14th Intl Conference on Detection of Intrusions and Malware, and Vulnerability Assessment, pages 73–96, 2017.
+
+@inproceedings{10.1145/2046707.2046740,
+author = {Kolbitsch, Clemens and Kirda, Engin and Kruegel, Christopher},
+title = {The Power of Procrastination: Detection and Mitigation of Execution-Stalling Malicious Code},
+year = {2011},
+isbn = {9781450309486},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2046707.2046740},
+doi = {10.1145/2046707.2046740},
+abstract = {Malware continues to remain one of the most important security problems on the Internet today. Whenever an anti-malware solution becomes popular, malware authors typically react promptly and modify their programs to evade defense mechanisms. For example, recently, malware authors have increasingly started to create malicious code that can evade dynamic analysis.One recent form of evasion against dynamic analysis systems is stalling code. Stalling code is typically executed before any malicious behavior. The attacker's aim is to delay the execution of the malicious activity long enough so that an automated dynamic analysis system fails to extract the interesting malicious behavior. This paper presents the first approach to detect and mitigate malicious stalling code, and to ensure forward progress within the amount of time allocated for the analysis of a sample. Experimental results show that our system, called HASTEN, works well in practice, and that it is able to detect additional malicious behavior in real-world malware samples.},
+booktitle = {Proceedings of the 18th ACM Conference on Computer and Communications Security},
+pages = {285–296},
+numpages = {12},
+keywords = {emulation, malware analysis, evasion},
+location = {Chicago, Illinois, USA},
+series = {CCS '11}
+}
+
+# Outils d'émulation de réseau
+
+EVE - The Emulated Virtual Environment For Network, Security and DevOps Professionals
+www.eve-ng.net
+=> Plein d'appliances pour représenter des équipements réseau par des VMs
+
+Alessandro Lonardi, Graziano Pravadelli. On the Co-simulation of SystemC with QEMU and OVP Virtual Platforms. 22th IFIP/IEEE International Conference on Very Large Scale Integration - System on a Chip (VLSI-SoC 2014), Oct 2014, Playa del Carmen, Mexico. pp.110-128, ⟨10.1007/978-3-319-25279-7_7⟩. ⟨hal-01383732⟩
+
+Massimiliano D'angelo, Alberto Ferrari, Ommund Ogaard, Claudio Pinello, Alessandro Ulisse.A Simulator based on QEMU and SystemC for Robustness Testing of a Networked Linux-based FireDetection and Alarm System. Embedded Real Time Software and Systems (ERTS2012), Feb 2012,Toulouse, France. hal-02192275
+
+
+# Unsorted
+
+X. Wang, S. Zhu, D. Zhou, and Y. Yang.
+Droid-AntiRM: Taming control flow anti-analysis to support automated dynamic analysis of android malware.
+In Proceedings of the 33rd Annual Computer Security Applica- tions Conference, ACSAC 2017, pages 350–361, New York, NY, USA, 2017. ACM.
+
+Ali Davanian, Zhenxiao Qi, Yu Qu, and Heng Yin, DECAF++: Elastic Whole-System Dynamic Taint Analysis, In the 22nd International Symposium on Research in Attacks, Intrusions and Defenses (RAID), September 2019. (If you wish to cite the new optimized version of DECAF, please cite this paper)
+
+"Make it work, make it right, make it fast: building a platform-neutral whole-system dynamic binary analysis platform", Andrew Henderson, Aravind Prakash, Lok Kwong Yan, Xunchao Hu, Xujiewen Wang, Rundong Zhou, and Heng Yin, to appear in the International Symposium on Software Testing and Analysis (ISSTA'14), San Jose, CA, July 2014.(If you wish to cite DECAF, please cite this paper)
+
+@inproceedings{10.1145/1455770.1455779,
+author = {Dinaburg, Artem and Royal, Paul and Sharif, Monirul and Lee, Wenke},
+title = {Ether: Malware Analysis via Hardware Virtualization Extensions},
+year = {2008},
+isbn = {9781595938107},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/1455770.1455779},
+doi = {10.1145/1455770.1455779},
+abstract = {Malware has become the centerpiece of most security threats on the Internet. Malware analysis is an essential technology that extracts the runtime behavior of malware, and supplies signatures to detection systems and provides evidence for recovery and cleanup. The focal point in the malware analysis battle is how to detect versus how to hide a malware analyzer from malware during runtime. State-of-the-art analyzers reside in or emulate part of the guest operating system and its underlying hardware, making them easy to detect and evade. In this paper, we propose a transparent and external approach to malware analysis, which is motivated by the intuition that for a malware analyzer to be transparent, it must not induce any side-effects that are unconditionally detectable by malware. Our analyzer, Ether, is based on a novel application of hardware virtualization extensions such as Intel VT, and resides completely outside of the target OS environment. Thus, there are no in-guest software components vulnerable to detection, and there are no shortcomings that arise from incomplete or inaccurate systememulation. Our experiments are based on our study of obfuscation techniques used to create 25,000 recent malware samples. The results show that Ether remains transparent and defeats the obfuscation tools that evade existing approaches.},
+booktitle = {Proceedings of the 15th ACM Conference on Computer and Communications Security},
+pages = {51–62},
+numpages = {12},
+keywords = {emulation, virtualization, unpacking, malware analysis, dynamic analysis},
+location = {Alexandria, Virginia, USA},
+series = {CCS '08}
+}
