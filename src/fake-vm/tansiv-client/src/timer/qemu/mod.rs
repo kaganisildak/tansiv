@@ -182,8 +182,8 @@ extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void) {
     let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
     if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
         match context.at_deadline() {
-            AfterDeadline::NextDeadline(time_to_deadline) => {
-                context.timer_context.set_next_deadline(time_to_deadline);
+            AfterDeadline::NextDeadline(deadline) => {
+                context.timer_context.set_next_deadline(deadline);
             },
             AfterDeadline::EndSimulation => (),
         }
