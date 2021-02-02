@@ -1,1 +1,412 @@
-/home/mquinson/Teaching/rennes/itw/itw-sysprog/itw-sysprog.tex
+%\documentclass[10pt]{article}\usepackage[correction]{exemptty}
+\documentclass[10pt]{article}\usepackage[enonce]{exemptty}
+
+\newboolean{SHORT}
+\setboolean{SHORT}{true}
+\setboolean{SHORT}{false}
+\ifthenelse{\boolean{SHORT}}{
+  \let\Live=\comment
+}{
+  \newenvironment{Live}%
+    {\color{RoyalPurple}}%
+    {\color{black}}
+}
+
+\usepackage[dvipsnames]{xcolor}
+\usepackage{amsthm}
+\usepackage{amsmath,amssymb}
+\usepackage[normalem]{ulem} % \sout
+\selectlanguage{english}
+
+\usepackage[utf8]{inputenc}
+\graphicspath{{fig/}}
+
+\begin{document}
+\title{System programming interview}
+\TDmodule{}
+\rhead{}
+\fvset{fontsize=\normalsize}
+\maketitle
+
+\vspace{-2\baselineskip}
+\paragraph{About this document.}
+This is the preparatory material of your technical interview. The goal is to
+assess your skills, to ensure that the internship fits your abilities. Some
+questions are difficult: it is OK to not have all answers right away. Please
+take your time to work this assignment and to prepare your answers. But please
+answer personally without cheating: \textbf{you will be given similar exercises
+  during the interview} and we will compare your preparatory answers to the
+thinking that you demonstrate during the live assignments.
+
+\vspace{-.7\baselineskip}
+\paragraph{What to turn in?} You are not expected to implement anything on
+computer. It's OK to write all your answers on a sheet of paper and take
+pictures of it. For sake of readability, the best solution is probably to type
+your answer in a text document, add pictures of the sheets where you draw the
+requested schematics, and return the result as a single pdf. If the resulting
+document is over 10Mb, you should reduce the photos' resolution.
+
+\vspace{-.7\baselineskip}
+\paragraph{How and when to return your answer?} You should send your answers per
+email, at least one hour before the interview time. Remember: it's perfectly OK
+to not have all answers on your proposal. We will discuss your answers during
+the interview.
+
+\bigskip
+\Exercise Explain the similarities and differences between emulation and
+hardware-assisted virtualization. Your answer should probably not excess 15 lines.
+
+\begin{Reponse}
+1. remplir une matrice 3x3 de "quelle architecture peut tourner en VM avec quelle méthode sur quelle architecture hôte", les architectures étant x86, x86-64, et aarch32 ;
+2. décrire dans les deux méthodes ce qui permet à l'hôte d'interrompre l'exécution de la VM.
+
+\textbf{\color{red}TODO Louis: imaginer une question complémentaire à poser en live.}  
+\end{Reponse}
+
+
+\bigskip
+\noindent
+\begin{minipage}[t]{.5\linewidth}
+  \Exercise \textbf{Processes and system-level I/O.}
+
+  \Question Draw a schematic representing the situation resulting of the code on
+  the right. Processes should be represented as circles or ellipses while
+  inter-process pipes should be represented as links between the ellipses.
+
+  \Question Explain (in a few lines) what happens when this code is compiled ans
+  executed as follows. Note that \texttt{islower()} returns true if the char
+  passed as a parameter is in lower case and false if it's upper case.
+\begin{Verbatim}[gobble=2,numbers=none]
+  $ gcc -Wall -o mystery mystery.c
+  $ echo HelLo | ./mystery GooDDaY
+\end{Verbatim}
+
+\Question What are the possible display order of the following command? Think
+which of the involved syscalls induce a synchronization between the processes.
+\begin{Verbatim}[gobble=2,numbers=none]
+  $ gcc -Wall -o mystery mystery.c
+  $ echo abAB | ./mystery abAB
+\end{Verbatim}
+
+\Question What happens if the lines 24-27 are removed in this program? Why?
+\begin{Verbatim}[gobble=2,firstnumber=24]
+  // close(A[1]); 
+  // close(B[1]);
+  // wait(NULL);
+  // wait(NULL);
+\end{Verbatim}
+
+\begin{Live}
+  \Question What happens if lines 24-25 only are commented while 26-27 are
+  un-commented? Why?
+\begin{Verbatim}[gobble=2,firstnumber=24]
+  // close(A[1]); 
+  // close(B[1]);
+  wait(NULL);
+  wait(NULL);
+\end{Verbatim}
+\end{Live}
+
+\end{minipage}\hfill\begin{minipage}[t]{.4\linewidth}
+  \VerbatimInput[label=mystery.c]{2020-mystere.c}
+\end{minipage}
+
+\begin{Reponse}
+(page suivante)
+\newpage
+\noindent\textbf{$\triangleright$ Question 1:} Schéma des processus.
+
+\centerline{\includegraphics[scale=.6]{2020-schema-forks.pdf}}
+
+\noindent\textbf{$\triangleright$ Question 2:} Les grandes lignes du
+comportement.
+
+Tous les caractères lus sur l'entrée standard du père sont envoyés aux
+enfants. Les minuscules sont envoyées au premier fils au travers du tube A, et
+les majuscules sont envoyées au second fils par le tube B. Chaque enfant affiche
+les caractères qu'il reçoit en les préfixant avec son numéro (1 ou 2).
+
+Notons que c'est bien la chaîne BonJOUr qui est traitée de la sorte dans
+l'exemple, car elle est donnée au programme par son entrée standard. SaLuT, elle,
+est passée dans le \texttt{argv} du programme, qui est inutilisé dans le code.
+
+Cela affiche par exemple: \\
+\texttt{2: B\\
+1: o\\
+1: n\\
+2: J\\
+2: O\\
+2: U\\
+1: r}
+
+\bigskip\noindent\textbf{$\triangleright$ Question 3:} Les ordres possibles pour abAB.
+
+La seule certitude, c'est que $a$ est affiché avant $b$ (puisque c'est dans le
+fils 1) et que $A$ est affiché avant $B$ (puisque c'est dans le fils 2). Il n'y
+a aucune contrainte sur l'ordre relatif entre majuscules et minuscules, qui sont
+traités dans des processus séparés. Cela donne les 6 ordres possibles suivants: abAB
+aAbB aABb AabB AaBb ABab.
+
+\bigskip\noindent\textbf{$\triangleright$ Question 4:} Si on supprime les lignes 24-27.
+
+Constatons que les deux fils sont conçus pour s'arrêter dès qu'ils ont une
+erreur de lecture sur leurs tubes, c'est à dire dès qu'il n'y a plus d'écrivain.
+
+Si on commente les lignes 24 à 27, le père termine sans fermer les tubes et sans
+attendre ses fils. On devrait donc avoir des zombis, où les fils attendent qu'il
+se passe quelque chose sur les tubes. Mais en fait, les ressources d'un
+processus sont nettoyées quand il termine. 
+
+Ici, le système ferme donc les tubes restés ouvert, et change les processus fils
+en orphelins (ils sont ratachés à init). Mais dès que les tubes sont fermés, les
+nouveaux orphelins terminent suite à une lecture renvoyant 0 caractère. Cela
+termine leur exécution. Ils ne deviennent pas zombis car init appelle
+\texttt{wait(NULL)} dès que l'un de ses fils d'adoption termine.
+
+En conclusion, si on commente les lignes 24 à 27, le processus père ne fait pas
+le menage avant de terminer. Mais cela ne change pas grand chose car le système
+se charge de faire le ménage pour lui après sa fin.
+
+\bigskip\noindent\textbf{$\triangleright$ Question 5:} Si on supprime les lignes 24 et 25.
+
+Dans ce cas-là, le père attend la fin de ses fils avant de terminer. Mais ses
+fils attendent le départ du dernier écrivain sur leur tube, qui est le
+père. C'est donc une situation d'interblocage où le père attend la fin des fils,
+qui attendent la fin du père.
+
+\end{Reponse}
+
+
+\newpage\Exercise\textbf{Understanding C programs.}
+
+All programs of this exercise compile and execute correctly, with no error. Some
+\texttt{\#include} and \texttt{main} functions are omitted for concision.
+
+For each program, give their output and draw their detailed memory layout
+(including stack frames and variables location).
+
+
+\begin{minipage}[t]{.45\linewidth}
+  \begin{Verbatim}[label=file1.c]
+int i = 5;
+
+int f() {
+    static int i = 2;
+    return ++i;
+}
+
+int g() {
+    return ++i;
+}
+
+int main(void) {
+    printf("%d\n", f());
+    printf("%d\n", g());
+    printf("%d\n", f());
+    printf("%d\n", g());
+}
+  \end{Verbatim}
+  \begin{Live}
+    
+  \begin{Verbatim}[label=file5.c]
+void triple(int* a) {
+  *a = *a * 3;
+}
+int main(void) {
+  int x = 14;
+  triple(&x);
+  printf("%d", x);
+}
+  \end{Verbatim}
+  \end{Live}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{.45\linewidth}
+  \begin{Verbatim}[label=file2.c]
+char s[] = "hello";
+char* p = s + 1;
+*(++p) = *s;
+printf("%s", p-1);
+  \end{Verbatim}
+  \begin{Verbatim}[label=file3.c]
+int a[] = {4, 3, 2, 1, 0};
+int* p[2] = {&a[1], &a[2]};
+p[0] += *p[1];
+printf("%d", **p);
+  \end{Verbatim}
+  \begin{Live}    
+  \begin{Verbatim}[label=file4.c]
+int a[] = {2, 6, 3};
+int* p = &a[0];
+*(p+1) *= (*p)+1;
+printf("%d", a[1]);
+\end{Verbatim}
+\begin{Verbatim}[label=file6.c]
+int i = 42;
+int* pi = &i;
+char* pc = pi;
+*(pc++) = *(pi--);
+printf("%d", i);
+\end{Verbatim}
+  \end{Live}
+\end{minipage}
+
+\bigskip
+
+\Exercise\textbf{Programming in C.}
+
+\Question Given the declarations below, how can one access to the third stamp of the static collection?
+
+% \vspace{-.8\baselineskip}
+\noindent\begin{minipage}{.65\linewidth}
+
+\noindent
+\begin{minipage}{.5\linewidth}
+  \begin{itemize}
+  \item[\fbox{a}] \verb+collection[2]['year']+
+  \item[\fbox{b}] \verb+collection[2].year+
+  \item[\fbox{c}] \verb+collection.year[2]+
+  \end{itemize}
+\end{minipage}
+\begin{minipage}{.5\linewidth}
+  \begin{itemize}
+  \item[\fbox{d}] \verb|collection[2][2]|
+  \item[\fbox{e}] \verb|(collection+2)->year|
+  \item[\fbox{f}] \verb+collection.year+
+\end{itemize}
+\end{minipage}
+
+\end{minipage}
+\begin{minipage}{.35\linewidth}
+  \begin{Verbatim}[numbers=right, gobble=4]
+    struct stamp {
+      int price;
+      int year;
+      char description[20];
+    };
+    struct stamp collection[5];
+  \end{Verbatim}
+\end{minipage}
+
+\medskip
+
+The previous solution can store at most 5 stamps in the collection, and the
+\texttt{description} field is extremely limited. We now wish to develop a
+solution that can store an arbitrary amount of stamps, each with an arbitrary
+long description.
+
+\Question Propose a new version of the \texttt{stamp} structure to fulfill this
+wish, along with the implementation of two functions \texttt{stamp\_new()} and
+\texttt{stamp\_free()} that respectively allocate and destroy such a structure.
+The string passed as a parameter to \texttt{stamp\_new()} is of arbitrary length
+and must be copied to allow the caller to free its version.
+
+\begin{Verbatim}[numbers=none, gobble=2]
+  struct stamp* stamp_new(int price, int year, const char* desc);
+  void stamp_free(struct stamp* stamp);
+\end{Verbatim}
+
+We now want to define a type \texttt{album} that allows to store an arbitrary
+amount of stamps. The structure definition and function prototypes are given
+below.
+
+\begin{Verbatim}[gobble=2]
+  struct album {
+    ??? stamps ???; // (array of pointers) Q3
+    int size;       // Amount of stamps stored in the array
+  };
+  struct album* album_new();            // You don't need to write this
+  void album_free(struct album* album); // You don't need to write this
+
+  char* album_desc_max(struct album* album); // Q4
+  void album_add_stamp(struct album* album, int price, int year, const char* desc);//Q5
+\end{Verbatim}
+
+\vspace{-.5\baselineskip}%
+\Question Complete this structure so that the field \texttt{stamps} can be used
+as an array of which each cell is a pointer to one of the stamps stored in the
+album.
+
+The functions to create and destroy an album are supposed given: you don't have
+to write neither \texttt{album\_new()} nor \texttt{album\_free()}. Just after
+\texttt{album\_new()}, the field \texttt{size} is 0 while the field
+\texttt{stamps} does not contain any stamp.
+
+\Question Implement the function \texttt{album\_desc\_max()} which prototype is
+given at line 8. It returns the description of the stamp which price is the
+maximum over the whole album.
+
+\begin{Live}
+  
+\Question Implement the function \texttt{album\_add\_stamp()} which prototype is
+given at line 9. It creates a new stamp from its parameters, and add it to the
+album.
+
+
+\Exercise\textbf{Further programming in C.}
+Please consider the source file  \texttt{planet.c} given below.
+
+\smallskip%
+\Question How can one retrieve the radius of the second planet in the array
+\texttt{solar\_sys} (line 8)?
+
+\noindent
+\begin{minipage}{.33\linewidth}
+  \begin{itemize}
+  \item[\fbox{a}] \verb+solar_sys[1,1]+
+  \item[\fbox{b}] \verb+solar_sys[1].radius+
+  \end{itemize}  
+\end{minipage}
+\begin{minipage}{.33\linewidth}
+  \begin{itemize}
+  \item[\fbox{c}] \verb+solar_sys.radius[1]+
+  \item[\fbox{d}] \verb|solar_sys[1][1]|
+  \end{itemize}  
+\end{minipage}
+\begin{minipage}{.33\linewidth}
+  \begin{itemize}  
+  \item[\fbox{e}] \verb|*(1+&solar_sys[1].name)|
+  \item[\fbox{f}] \verb+solar_sys.radius+
+  \end{itemize}  
+\end{minipage}
+
+\smallskip%
+\Question Consider the variables \texttt{jupiter} and \texttt{planets}, defined
+respectively on lines 13 and 15. For each of the following expressions, please
+indicate which ones are invalid (compilation error). For the valid expressions,
+please give the C type of the expression.
+
+\noindent
+\begin{tabular}{|l|p{41.7mm}|l|p{42mm}|}\hline
+  \fbox{a}~\verb+&jupiter+          &&\fbox{i}~\verb+&planets+ &~\\[6pt]\hline
+  \fbox{b}~\verb+jupiter+           &&\fbox{j}~\verb+planets+           &\\[6pt]\hline
+  \fbox{c}~\verb+jupiter.name+       &&\fbox{k}~\verb+planets.name+      &\\[6pt]\hline
+  \fbox{d}~\verb+jupiter.radius+     &&\fbox{l}~\verb+planets.radius+     &\\[6pt]\hline
+%  \verb+jupiter[0].name+   &&\verb+planets[0].name+   &\\[6pt]\hline
+  \fbox{e}~\verb+jupiter[0].radius+  &&\fbox{m}~\verb+planets[0].radius+  &\\[6pt]\hline
+  \fbox{f}~\verb+jupiter->name+      &&\fbox{n}~\verb+planets->name+     &\\[6pt]\hline
+  \fbox{g}~\verb+jupiter->radius+    &&\fbox{o}~\verb+planets->radius+    &\\[6pt]\hline
+  \fbox{h}~\verb+jupiter[0]->name+   &&\fbox{p}~\verb+planets[0]->name+  &\\[6pt]\hline
+%  \verb+jupiter[0]->radius+ &&\verb+planets[0]->radius+ &~\\[6pt]\hline
+\end{tabular}
+
+\medskip%
+The loop on lines 18-20 traverses the \texttt{planets} array, that was allocated
+by the \texttt{read\_solar\_sys()} function. This array is terminated by a
+\texttt{NULL} pointer.
+
+\Question What should be written instead of the interrogation marks on line 18 for the loop to correctly traverse the array?
+
+\Question What should be written instead of the interrogation marks on line 19 to actually display the information of the \texttt{curr} planet?
+
+\Question Write the code that can free the memory allocated by  \texttt{read\_solar\_sys()}.
+
+\VerbatimInput[label=planet.c]{2020-planete.c}
+
+\end{Live}
+  
+\end{document}
+
+
+%%% Local Variables:
+%%% coding: utf-8
