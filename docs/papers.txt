@@ -96,6 +96,8 @@ In Proceedings of the 33rd Annual Computer Security Applica- tions Conference, A
 
 Ali Davanian, Zhenxiao Qi, Yu Qu, and Heng Yin, DECAF++: Elastic Whole-System Dynamic Taint Analysis, In the 22nd International Symposium on Research in Attacks, Intrusions and Defenses (RAID), September 2019. (If you wish to cite the new optimized version of DECAF, please cite this paper)
 
+https://adalogics.com/blog/Building-a-custom-malware-sandbox-with-PANDA-Part-1
+
 "Make it work, make it right, make it fast: building a platform-neutral whole-system dynamic binary analysis platform", Andrew Henderson, Aravind Prakash, Lok Kwong Yan, Xunchao Hu, Xujiewen Wang, Rundong Zhou, and Heng Yin, to appear in the International Symposium on Software Testing and Analysis (ISSTA'14), San Jose, CA, July 2014.(If you wish to cite DECAF, please cite this paper)
 
 @inproceedings{10.1145/1455770.1455779,
