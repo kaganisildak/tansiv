@@ -5,14 +5,19 @@ Al-Khaser: https://github.com/LordNoteworthy/al-khaser/tree/master
 S'appuie en partie sur un programme plus ancien, plus maintenu apparemment :
 pafish: https://github.com/a0rtega/pafish
 
+InviZzzible: https://github.com/CheckPointSW/InviZzzible
+
+Recensement daté de 2018 : https://github.com/seifreed/awesome-sandbox-evasion
+
 
 # Exemples d'articles analysant les pratiques de détection de sandbox
 
 Techniques catégorisées par le MITRE :
 https://attack.mitre.org/techniques/T1497/
 
-Analyse d'un éditeur d'anti-virus :
+Analyse d'éditeurs d'anti-virus :
 https://www.mcafee.com/blogs/other-blogs/mcafee-labs/evolution-of-malware-sandbox-evasion-tactics-a-retrospective-study/
+https://evasions.checkpoint.com/
 
 Plus académique :
 
@@ -58,6 +63,8 @@ In Proceedings of the 1st Reversing and Offensive-oriented Trends Symposium, ROO
 M. Polino, A. Continella, S. Mariani, S. D’Alessio, L. Fontana, F. Gritti, and S. Zanero.
 Measuring and defeating anti-instrumentation-equipped malware.
 In Proceedings of the 14th Intl Conference on Detection of Intrusions and Malware, and Vulnerability Assessment, pages 73–96, 2017.
+
+Christopher Kruegel. Full System Emulation: Achieving Successful Automated Dynamic Analysis of Evasive Malware. BlackHat 2014.
 
 @inproceedings{10.1145/2046707.2046740,
 author = {Kolbitsch, Clemens and Kirda, Engin and Kruegel, Christopher},
