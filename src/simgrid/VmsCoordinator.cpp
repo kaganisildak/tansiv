@@ -1,7 +1,6 @@
 #include "VmsInterface.hpp"
 #include "simgrid/s4u.hpp"
 #include <limits.h>
-#include <simgrid/kernel/resource/Model.hpp>
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
@@ -44,9 +43,10 @@ static double compute_min_latency()
 
 static double get_next_event()
 {
+  simgrid::s4u::Engine* engine = simgrid::s4u::Engine::get_instance();
   double time            = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::infinity();
-  for (simgrid::kernel::resource::Model* model : all_existing_models) {
+  for (auto model : engine->get_model_list(simgrid::kernel::resource::Model::Type::NETWORK)) {
     double model_event = time + model->next_occurring_event(time);
     if (model_event < next_event_time && model_event > time) {
       next_event_time = model_event;
