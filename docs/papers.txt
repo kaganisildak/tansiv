@@ -56,13 +56,17 @@ Plus académique :
         keywords = {anti-debugging, Malware, evasion techniques, sandbox evasion}
 }
 
+Rui Tanabe, Wataru Ueno, Kou Ishii, Katsunari Yoshioka, Tsutomu Matsumoto, Takahiro Kasama, Daisuke Inoue, Christian Rossow. Evasive Malware via Identifier Implanting. DIMVA 2018: Detection of Intrusions and Malware, and Vulnerability Assessment, June 2018, DOI: 10.1007/978-3-319-93411-2_8
 Alexei Bulazel and Bülent Yener.
+
 A survey on automated dynamic malware analysis evasion and counter-evasion: PC, Mobile, and Web.
 In Proceedings of the 1st Reversing and Offensive-oriented Trends Symposium, ROOTS, pages 2:1–2:21, New York, NY, USA, 2017. ACM.
 
 M. Polino, A. Continella, S. Mariani, S. D’Alessio, L. Fontana, F. Gritti, and S. Zanero.
 Measuring and defeating anti-instrumentation-equipped malware.
 In Proceedings of the 14th Intl Conference on Detection of Intrusions and Malware, and Vulnerability Assessment, pages 73–96, 2017.
+
+Ashish Jadhav, Deepti Vidyarthi, Hemavathy M. Evolution of evasive malwares: A survey. 2016 International Conference on Computational Techniques in Information and Communication Technologies (ICCTICT), March 2016, DOI: 10.1109/ICCTICT.2016.7514657
 
 Christopher Kruegel. Full System Emulation: Achieving Successful Automated Dynamic Analysis of Evasive Malware. BlackHat 2014.
 
@@ -96,6 +100,62 @@ Massimiliano D'angelo, Alberto Ferrari, Ommund Ogaard, Claudio Pinello, Alessand
 
 
 # Unsorted
+
+@article{article,
+author = {Carpenter, Matthew and Liston, Tom and Skoudis, Ed},
+year = {2007},
+month = {06},
+pages = {62-65},
+title = {Hiding Virtualization from Attackers and Malware},
+volume = {5},
+journal = {Security & Privacy, IEEE},
+doi = {10.1109/MSP.2007.63}
+}
+
+@article{article,
+author = {Sgandurra, Daniele and Lupu, Emil},
+year = {2016},
+month = {02},
+pages = {1-38},
+title = {Evolution of Attacks, Threat Models, and Solutions for Virtualized Systems},
+volume = {48},
+journal = {ACM Computing Surveys},
+doi = {10.1145/2856126}
+}
+
+@article{article,
+author = {Or-Meir, Ori and Nissim, Nir and Elovici, Yuval and Rokach, Lior},
+year = {2019},
+month = {09},
+pages = {1-48},
+title = {Dynamic Malware Analysis in the Modern Era—A State of the Art Survey},
+volume = {52},
+journal = {ACM Computing Surveys},
+doi = {10.1145/3329786}
+}
+
+@inproceedings{inproceedings,
+author = {Filho, Ailton and Rodríguez, Ricardo and Feitosa, Eduardo},
+year = {2020},
+month = {05},
+pages = {3-13},
+title = {Reducing the Attack Surface of Dynamic Binary Instrumentation Frameworks},
+isbn = {978-981-13-9154-5},
+doi = {10.1007/978-981-13-9155-2_1}
+}
+
+@inproceedings{inproceedings,
+author = {Hsu, Chia-Wei and Shih, Fan-Syun and Wang, Chi-Wei and Winston, S.},
+year = {2013},
+month = {06},
+pages = {80-89},
+title = {Divergence Detector: A Fine-Grained Approach to Detecting VM-Awareness Malware},
+isbn = {978-1-4799-0406-8},
+journal = {Proceedings - 7th International Conference on Software Security and Reliability, SERE 2013},
+doi = {10.1109/SERE.2013.23}
+}
+
+Kirat, D., Vigna, G., Kruegel, C.: BareCloud: bare-metal analysis-based evasive malware detection. In: Proceedings of the 23rd USENIX Security Symposium (2014)
 
 X. Wang, S. Zhu, D. Zhou, and Y. Yang.
 Droid-AntiRM: Taming control flow anti-analysis to support automated dynamic analysis of android malware.
