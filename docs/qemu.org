@@ -109,7 +109,7 @@
     + TODO: understand how/when the packet is actually read by the guest driver (when the interruption handler is called ?)
       - réponse: cpu_get_tb_cpu_state dans target/i386/cpu.h il positionne le pc en fonction de env->eip qui est positionné par do_interrupt64,
         ce qui veut dire que lorsque la traduction/exécution des tb suivant reprend elle reprendra au handler d'interruption en question (youpi !)
-
+        
 * Gestion du temps / icount mode
 
 - Dans ce mode l'horloge virtuelle s'incrémente à chaque instruction (virtuelle) executée.
@@ -118,7 +118,43 @@
   (~shift=2~ chaque opération compte pour ~2^2~ nanoseconde soit un proc émuler
   de ~1/2^2~ 250MHz)
 - en pratique
-  + Lorsque ~icount~ est utilisé TCG passe en mode mono-threadé:
-  + Anatomie de la boucle d'évaluation des instructions lorsque icount est actif:
-    - 
-
+  + Lorsque ~icount~ est utilisé TCG passe en mode mono-threadé: 
+    - top level: https://github.com/qemu/qemu/blob/v5.0.0/cpus.c#L1958-L1966
+    - exact test https://github.com/qemu/qemu/blob/v5.0.0/accel/tcg/tcg-all.c#L105-L116
+  + La fonction ~qemu_tcg_rr_cpu_thread_fn~ est la routine d'exection du vcpu thread
+    La main-loop s'éxécute de manière concurrente.
+  + ~qemu_tcg_rr_cpu_thread_fn~ pseudo code (rr = round robin)
+#+BEGIN_SRC C
+cpu = first_cpu;
+while (1) {
+  LOCK_IO_THREAD                                                                // | vcpu thread
+  handle_icount_deadline()  // check whether some timer deadlines are reached   // | vcpu thread
+  while (cpu && not cpu->exit_request) {                                        // | vcpu thread
+    UNLOCK_IO_THREAD                                                            // | 
+    prepare_icount(cpu) // set icount budget  based on next deadlines           // | vcpu+io thread
+    r = cpu_exec(cpu)                                                           // | vcpu+io thread
+    process_icount_data(cpu) // update icount based on what has been executed   // | vcpu+io thread
+    cpu = CPU_NEXT(cpu);                                                        // | vcpu+io thread
+  }                                                                             // | vcpu+io thread
+  // cpu == NULL or cpu has set its exit_request field                          // | vcpu+io thread
+  if (cpu && cpu->exit_request) {                                               // | vcpu+io thread
+    cp->exit_request=0 // reset exit condition                                  // | vcpu+io thread
+  }
+} 
+#+END_SRC
+  + Main loop pseudo code
+#+BEGIN_SRC C
+while (1) {
+UNLOCK_IO_THREAD                                                                // | 
+  timeout = min(poll_timeout, next_timer_deadline)                              // | vcpus +io thread
+  poll(timeout); // glib                                                        // | vcpus +io thread
+  LOCK_IO_THREAD
+  dispatch // glib                                                              // | io thread
+  qemu_start_warp_timer(); // sleep=on|off strategy                             // | io thread 
+  qemu_clock_run_all_timers(); // run timers                                    // | io thread
+}
+#+END_SRC
+As a consequence:
+- Timer callbacks are called in a critical session (either in the main-loop or vcpu thread context)
+- However Using icount mode this seems very unlickely that timers on
+  QEMU_CLOCK_VIRTUAL are fired from the main-loop though
