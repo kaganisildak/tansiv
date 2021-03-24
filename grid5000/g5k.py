@@ -122,7 +122,10 @@ def deploy(args, env=None):
     queue = args.queue
     docker_image = args.docker_image
     prod = en.G5kNetworkConf(
-        id="id", roles=["prod"], site=en.g5k_api_utils.get_cluster_site(cluster), type="prod"
+        id="id",
+        roles=["prod"],
+        site=en.g5k_api_utils.get_cluster_site(cluster),
+        type="prod",
     )
     conf = (
         en.G5kConf.from_settings(
@@ -304,7 +307,9 @@ if __name__ == "__main__":
     )
     parser_deploy.add_argument("--queue", help="Qeueue to use", default="default")
     parser_deploy.add_argument(
-        "--docker_image", help="Tansiv docker image to use", default=DEFAULT_DOCKER_IMAGE
+        "--docker_image",
+        help="Tansiv docker image to use",
+        default=DEFAULT_DOCKER_IMAGE,
     )
 
     parser_deploy.set_defaults(func=deploy)
