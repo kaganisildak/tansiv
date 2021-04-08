@@ -125,6 +125,8 @@ impl TimerContextInner {
         Ok(())
     }
 
+    // TODO: Currently unsafe! Assumes that start() has been called before and that stop() is never
+    // called twice. Otherwise calling stop() prematurately drops self!
     pub fn stop(self: &Pin<Arc<Self>>) {
         // Safety: TODO
         let qemu_timer = self.qemu_timer.lock().unwrap().as_mut_ptr();
