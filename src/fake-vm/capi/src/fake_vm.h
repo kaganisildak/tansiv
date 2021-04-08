@@ -10,9 +10,11 @@
 struct vsg_context;
 
 typedef void (*vsg_recv_cb)(uintptr_t recv_cb_arg);
+typedef void (*vsg_deadline_cb)(uintptr_t deadline_cb_arg, struct timespec deadline);
 
-struct vsg_context* vsg_init(int argc, const char* const argv[], int* next_arg_p, vsg_recv_cb recv_cb,
-                             uintptr_t recv_cb_arg);
+struct vsg_context* vsg_init(int argc, const char* const argv[], int* next_arg_p,
+                             vsg_recv_cb recv_cb, uintptr_t recv_cb_arg,
+                             vsg_deadline_cb, uintptr_t deadline_cb_arg);
 void vsg_cleanup(struct vsg_context* context);
 
 int vsg_start(const struct vsg_context* context, struct timespec* offset);

@@ -40,6 +40,10 @@ void recv_cb(uintptr_t arg)
   *callback_called                   = true;
 };
 
+void deadline_cb(uintptr_t arg, struct timespec deadline)
+{
+}
+
 vsg_context* init_vsg(int argc, char* argv[])
 {
   std::string src_str          = "10.0.0.1";
@@ -47,7 +51,7 @@ vsg_context* init_vsg(int argc, char* argv[])
   int vsg_argc                 = 6;
   const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-n", src_str.c_str(), "-t", "1970-01-01T00:00:00"};
   std::atomic<bool> callback_called(false);
-  vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called);
+  vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called, deadline_cb, 0);
 
   if (!context) {
     die("Unable to initialize the context", 0);

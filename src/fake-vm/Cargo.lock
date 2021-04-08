@@ -85,6 +85,7 @@ dependencies = [
  "chrono",
  "libc",
  "log",
+ "seq_lock",
  "static_assertions",
  "tansiv-client",
 ]

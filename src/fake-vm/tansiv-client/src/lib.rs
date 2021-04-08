@@ -44,6 +44,7 @@ impl From<output_msg_set::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
+pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
 
 #[derive(Debug)]
 struct Packet {
@@ -78,6 +79,8 @@ pub struct Context {
     input_queue: WaitfreeArrayQueue<Packet>,
     // No concurrency, read-only: called only by the deadline handler
     recv_callback: RecvCallback,
+    // No concurrency, read-only: called only by ::start() and the deadline handler
+    deadline_callback: DeadlineCallback,
     // Concurrency:
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
@@ -106,7 +109,7 @@ enum AfterDeadline {
 }
 
 impl Context {
-    fn new(config: &Config, recv_callback: RecvCallback) -> Result<Arc<Context>> {
+    fn new(config: &Config, recv_callback: RecvCallback, deadline_callback: DeadlineCallback) -> Result<Arc<Context>> {
         let address = config.address;
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
@@ -119,6 +122,7 @@ impl Context {
             connector: Mutex::new(connector),
             input_queue: input_queue,
             recv_callback: recv_callback,
+            deadline_callback: deadline_callback,
             timer_context: timer_context,
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
@@ -220,6 +224,10 @@ impl Context {
             (self.recv_callback)();
         }
 
+        if let AfterDeadline::NextDeadline(deadline) = after_deadline {
+            (self.deadline_callback)(deadline);
+        }
+
         deadline_handler_debug!("Context::at_deadline() after_deadline = {:?}", after_deadline);
         after_deadline
     }
@@ -285,7 +293,7 @@ impl Context {
     }
 }
 
-pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Arc<Context>>
+pub fn init<I>(args: I, recv_callback: RecvCallback, deadline_callback: DeadlineCallback) -> Result<Arc<Context>>
     where I: IntoIterator,
           I::Item: Into<std::ffi::OsString> + Clone {
     use structopt::StructOpt;
@@ -302,14 +310,14 @@ pub fn init<I>(args: I, recv_callback: RecvCallback) -> Result<Arc<Context>>
     let config = Config::from_iter_safe(args).or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     debug!("{:?}", config);
 
-    Context::new(&config, recv_callback)
+    Context::new(&config, recv_callback, deadline_callback)
 }
 
 #[cfg(any(test, feature = "test-helpers"))]
 #[macro_use]
 pub mod test_helpers {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
     use super::connector::{MsgIn, MsgOut};
     #[cfg(feature = "test-helpers")]
@@ -360,6 +368,9 @@ pub mod test_helpers {
     }
 
     pub fn dummy_recv_callback() -> () {
+    }
+
+    pub fn dummy_deadline_callback(_deadline: Duration) -> () {
     }
 
     pub const START_ACTOR_DEADLINE: Duration = Duration::from_nanos(100000);
@@ -445,6 +456,43 @@ pub mod test_helpers {
         }
     }
 
+    struct DeadlineNotifierData {
+        deadline: seq_lock::SeqLock<Duration>,
+        num_called: AtomicUsize,
+    }
+
+    #[derive(Clone)]
+    pub struct DeadlineNotifier(Arc<DeadlineNotifierData>);
+
+    impl DeadlineNotifier {
+        pub const INITIAL_DEADLINE: Duration = Duration::from_secs(0);
+
+        pub fn new() -> DeadlineNotifier {
+            DeadlineNotifier(Arc::new(DeadlineNotifierData {
+                deadline: seq_lock::SeqLock::new(Self::INITIAL_DEADLINE),
+                num_called: AtomicUsize::new(0),
+            }))
+        }
+
+        pub fn notify(&self, deadline: Duration) -> () {
+            self.0.deadline.write(|_| deadline);
+            self.0.num_called.fetch_add(1, Ordering::SeqCst);
+        }
+
+        pub fn get_callback(&self) -> crate::DeadlineCallback {
+            let cb_notifier = self.clone();
+            Box::new(move |deadline| cb_notifier.notify(deadline))
+        }
+
+        pub fn deadline(&self) -> Duration {
+            self.0.deadline.read(|d| d)
+        }
+
+        pub fn num_called(&self) -> usize {
+            self.0.num_called.load(Ordering::SeqCst)
+        }
+    }
+
     static INIT: std::sync::Once = std::sync::Once::new();
 
     pub fn init() {
@@ -458,6 +506,7 @@ pub mod test_helpers {
 mod test {
     #[allow(unused_imports)]
     use log::{error, info};
+    use std::time::Duration;
     use super::connector::Connector;
     use super::{connector::test_helpers::*, test_helpers::*};
 
@@ -466,7 +515,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        super::init(valid_args!(), Box::new(dummy_recv_callback))
+        super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         // assert_eq!(chrono::NaiveDateTime::from_timestamp(0, 0), context.0.simulation_offset);
@@ -479,7 +528,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        super::init(invalid_args!(), Box::new(dummy_recv_callback))
+        super::init(invalid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect_err("init returned a context");
 
         drop(actor);
@@ -490,8 +539,11 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", start_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let deadline_notifier = DeadlineNotifier::new();
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
+        assert_eq!(DeadlineNotifier::INITIAL_DEADLINE, deadline_notifier.deadline());
+        assert_eq!(0, deadline_notifier.num_called());
 
         let offset = context.start()
             .expect("start failed");
@@ -507,7 +559,8 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", start_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let deadline_notifier = DeadlineNotifier::new();
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -517,6 +570,7 @@ mod test {
             super::error::Error::AlreadyStarted => (),
             _ => assert!(false),
         }
+        assert_eq!(1, deadline_notifier.num_called());
 
         context.stop();
 
@@ -528,7 +582,8 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let deadline_notifier = DeadlineNotifier::new();
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -539,6 +594,9 @@ mod test {
             .expect("send failed");
 
         context.stop();
+        let num_called = deadline_notifier.num_called();
+        assert!(num_called > 0);
+        assert_eq!((num_called as u32) * RECV_ONE_MSG_ACTOR_SLICE, deadline_notifier.deadline());
 
         drop(actor);
     }
@@ -548,7 +606,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -580,7 +638,8 @@ mod test {
         let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
 
         let recv_notifier = RecvNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback())
+        let deadline_notifier = DeadlineNotifier::new();
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -595,6 +654,9 @@ mod test {
         assert_eq!(dst, remote_vsg_address!());
         assert_eq!(buffer, EXPECTED_MSG);
 
+        assert_eq!(1, deadline_notifier.num_called());
+        assert_eq!(SEND_ONE_MSG_ACTOR_DELAY, deadline_notifier.deadline());
+
         context.stop();
 
         drop(actor);
@@ -607,7 +669,8 @@ mod test {
         let actor = TestActorDesc::new("titi", |actor| send_one_delayed_msg_actor(actor, EXPECTED_MSG, slice_micros, delay_micros));
 
         let recv_notifier = RecvNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback())
+        let deadline_notifier = DeadlineNotifier::new();
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -626,6 +689,9 @@ mod test {
         let total_usec = tv.tv_sec as u64 * 1_000_000 + tv.tv_usec as u64;
         assert!(delay_micros <= total_usec, "Message received too early: before {}us instead of after {}us", total_usec, delay_micros);
         assert!(total_usec <= 10 * delay_micros, "Message received really too late: short before {}us instead of short after {}us", total_usec, delay_micros);
+
+        assert_eq!((delay_micros / slice_micros) as usize, deadline_notifier.num_called());
+        assert_eq!(Duration::from_micros(delay_micros), deadline_notifier.deadline());
 
         context.stop();
 
@@ -653,7 +719,7 @@ mod test {
         let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
 
         let recv_notifier = RecvNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback())
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -682,7 +748,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
 
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -709,7 +775,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -734,7 +800,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         let offset = context.start()
@@ -760,7 +826,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init() failed");
 
         let mut connector = context.connector.lock().unwrap();

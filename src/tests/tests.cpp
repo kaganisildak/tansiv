@@ -12,6 +12,13 @@ void recv_cb(uintptr_t arg)
   write(STDOUT_FILENO, hey, sizeof(hey));
 };
 
+void deadline_cb(uintptr_t arg, struct timespec deadline)
+{
+  // Try not to deadlock with libc's stdout
+  const char hey[] = "deadline set\n";
+  write(STDOUT_FILENO, hey, sizeof(hey));
+}
+
 void recv_cb_atomic(uintptr_t arg)
 {
   std::atomic<bool>* message_delivered = (std::atomic<bool>*)arg;
@@ -48,7 +55,7 @@ TEST_CASE("initialize the vsg client", "[vsg]")
     int argc                 = 6;
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
 
-    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, 0);
+    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -67,7 +74,7 @@ TEST_CASE("VSG receive one message", "[vsg]")
 
     int argc                 = 6;
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
+    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -91,7 +98,7 @@ TEST_CASE("VSG deliver one message", "[vsg]")
     int argc                 = 6;
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
     std::atomic<bool> message_delivered(false);
-    vsg_context* context = vsg_init(6, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered);
+    vsg_context* context = vsg_init(6, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered, deadline_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -136,7 +143,7 @@ TEST_CASE("VSG send piggyback port", "[vsg]")
 
     int argc                 = 6;
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-t", "1970-01-01T00:00:00"};
-    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
+    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);

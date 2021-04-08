@@ -12,6 +12,12 @@ void recv_cb(uintptr_t arg)
   *flag = true;
 }
 
+void deadline_cb(uintptr_t arg, struct timespec deadline)
+{
+    struct timespec *recorded_deadline = (struct timespec *)arg;
+    *recorded_deadline = deadline;
+}
+
 void die(const char* msg, int error)
 {
   fprintf(stderr, "%s", msg);
@@ -26,10 +32,11 @@ int main(int argc, const char* argv[])
   struct timespec offset;
   struct timeval time;
   int flag = false;
+  struct timespec deadline;
   unsigned char msg[] = "Foo msg";
   int res;
 
-  context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&flag);
+  context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&flag, deadline_cb, (uintptr_t)&deadline);
   if (!context)
     die("vsg_init() failed", 0);
 
