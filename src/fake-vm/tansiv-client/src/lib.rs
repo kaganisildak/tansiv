@@ -359,19 +359,22 @@ pub mod test_helpers {
     pub fn dummy_recv_callback() -> () {
     }
 
+    pub const START_ACTOR_DEADLINE: Duration = Duration::from_nanos(100000);
+
     pub fn start_actor(actor: &mut TestActor) -> TestResult<()> {
-        actor.send(MsgIn::GoToDeadline(Duration::new(0, 100000)))?;
+        actor.send(MsgIn::GoToDeadline(START_ACTOR_DEADLINE))?;
         actor.send(MsgIn::EndSimulation)
     }
+
+    pub const RECV_ONE_MSG_ACTOR_SLICE: Duration = Duration::from_micros(100);
 
     // Actor that will let the VM run until the VM explicitly stops, by either sending a packet
     // (clean stop) or just closing the connection (reported as an error without making the test
     // fail)
     pub fn recv_one_msg_actor(actor: &mut TestActor) -> TestResult<()> {
         let mut deadline = Duration::from_micros(0);
-        let slice = Duration::from_micros(100);
         loop {
-            deadline += slice;
+            deadline += RECV_ONE_MSG_ACTOR_SLICE;
             actor.send(MsgIn::GoToDeadline(deadline))?;
             let msg = actor.recv()?;
             match msg {
@@ -382,8 +385,11 @@ pub mod test_helpers {
         actor.send(MsgIn::EndSimulation)
     }
 
+    const SEND_ONE_MSG_ACTOR_DELAY_MICROS: u64 = 100;
+    pub const SEND_ONE_MSG_ACTOR_DELAY: Duration = Duration::from_micros(SEND_ONE_MSG_ACTOR_DELAY_MICROS);
+
     pub fn send_one_msg_actor(actor: &mut TestActor, msg: &[u8]) -> TestResult<()> {
-        send_one_delayed_msg_actor(actor, msg, 100, 100)
+        send_one_delayed_msg_actor(actor, msg, SEND_ONE_MSG_ACTOR_DELAY_MICROS, SEND_ONE_MSG_ACTOR_DELAY_MICROS)
     }
 
     pub fn send_one_delayed_msg_actor(actor: &mut TestActor, msg: &[u8], slice_micros: u64, delay_micros: u64) -> TestResult<()> {
