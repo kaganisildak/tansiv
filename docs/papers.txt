@@ -94,12 +94,21 @@ EVE - The Emulated Virtual Environment For Network, Security and DevOps Professi
 www.eve-ng.net
 => Plein d'appliances pour représenter des équipements réseau par des VMs
 
+J. Nutaro and O. Ozmen, "Using Simulation to Quantify the Reliability of Control Software," 2019 Winter Simulation Conference (WSC), National Harbor, MD, USA, 2019, pp. 3267-3276, doi: 10.1109/WSC40007.2019.9004839.
+
+Guillaume Delbergue, Mark Burton, Frederic Konrad, Bertrand Le Gal, Christophe Jego. QBox: an industrial solution for virtual platform simulation using QEMU and SystemC TLM-2.0. 8th European Congress on Embedded Real Time Software and Systems (ERTS 2016), Jan 2016, TOULOUSE, France. hal-01292317
+
 Alessandro Lonardi, Graziano Pravadelli. On the Co-simulation of SystemC with QEMU and OVP Virtual Platforms. 22th IFIP/IEEE International Conference on Very Large Scale Integration - System on a Chip (VLSI-SoC 2014), Oct 2014, Playa del Carmen, Mexico. pp.110-128, ⟨10.1007/978-3-319-25279-7_7⟩. ⟨hal-01383732⟩
 
 Massimiliano D'angelo, Alberto Ferrari, Ommund Ogaard, Claudio Pinello, Alessandro Ulisse.A Simulator based on QEMU and SystemC for Robustness Testing of a Networked Linux-based FireDetection and Alarm System. Embedded Real Time Software and Systems (ERTS2012), Feb 2012,Toulouse, France. hal-02192275
 
+M.-C. Chiang, T.-C. Yeh, and G.-F. Tseng, “A qemu and systemc-based cycle-accurate iss for performance estimation on soc development,”Computer-Aided Design of Integrated Circuits and Systems, IEEE Transactions on, vol. 30, no. 4, pp. 593–606, April 2011.
+
+2020/10/06 https://www.defenseworld.net/news/28014/Raytheon_Launches_Virtualized_Testing_Solution_To_Assess_Cyber_Vulnerabilities/
 
 # Unsorted
+
+2020/10/06 https://www.businessinsider.in/tech/news/malware-infiltrates-the-defenses-of-common-antivirus-softwares-like-mcafee-kaspersky-symantec-and-others/articleshow/78515377.cms
 
 @article{article,
 author = {Carpenter, Matthew and Liston, Tom and Skoudis, Ed},
