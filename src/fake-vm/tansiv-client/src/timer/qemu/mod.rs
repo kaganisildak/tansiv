@@ -93,7 +93,7 @@ impl TimerContextInner {
         unsafe { qemu_timer_sys::timer_mod(qemu_timer, timer_deadline) };
     }
 
-    pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<()> {
+    pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<Duration> {
         // TODO: Make sure ::start() is not called again before ::stop()
 
         // Count a new reference to self in qemu_timer
@@ -118,11 +118,12 @@ impl TimerContextInner {
         // - qemu_clock_get_ns() only accesses Qemu's internal data
         // - qemu_clock_get_ns() does not require locking
         let vm_time = unsafe { qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
-        *self.offset.lock().unwrap() = Duration::nanoseconds(vm_time);
+        let vm_time = Duration::nanoseconds(vm_time);
+        *self.offset.lock().unwrap() = vm_time;
 
         self.set_next_deadline(deadline);
 
-        Ok(())
+        Ok(vm_time)
     }
 
     // TODO: Currently unsafe! Assumes that start() has been called before and that stop() is never

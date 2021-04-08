@@ -13,6 +13,7 @@ use-own-logger = ["tansiv-client/use-own-logger"]
 
 [dependencies]
 tansiv-client = {version = "0.1.0", path = "../tansiv-client"}
+chrono = "0.4"
 libc = "0.2"
 log = "0.4"
 static_assertions = "0.3.1"

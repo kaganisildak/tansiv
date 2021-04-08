@@ -67,11 +67,52 @@ pub unsafe extern fn vsg_cleanup(context: *const Context) {
     }
 }
 
+/// Start the simulation and optionally return the time offset from simulation time to execution
+/// context time.
+///
+/// The simulation time is assumed to start at 0 and the execution context time anchor depends on
+/// the context type:
+/// - for a process execution context, Time 0 refers to UNIX Epoch, that is
+///   1970/01/01 00:00;
+/// - for a Qemu execution context, Time 0 is set internally in Qemu and the offset is recorded
+///   when calling vsg_start().
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// * `offset` may be `NULL` or should point to a valid memory area.
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever context is `NULL`.
+///
+/// * Fails with `libc::EALREADY` whenever start() has already been called on this context.
+///
+/// * Fails with `libc::ENOMEM` if no buffer can be allocated for vsg protocol messages.
+///
+/// * Fails with `libc::EPROTO` if an error occurs in the vsg protocol.
+///
+/// * Fails with `libc::EMSGSIZE` if message buffers were configured too short for vsg protocol
+///   messages.
+///
+/// * Fails with `libc::EIO` if any other error happens in the low-level communication functions of
+///   the vsg protocol.
 #[no_mangle]
-pub unsafe extern fn vsg_start(context: *const Context) -> c_int {
+pub unsafe extern fn vsg_start(context: *const Context, offset: *mut libc::timespec) -> c_int {
     if let Some(context) = context.as_ref() {
         match (*context).start() {
-            Ok(_) => 0,
+            Ok(o) => {
+                let num_seconds = o.num_seconds();
+                let num_subsec_nanos = (o - chrono::Duration::seconds(num_seconds)).num_nanoseconds().unwrap();
+                if let Some(offset) = offset.as_mut() {
+                    *offset = libc::timespec {
+                        tv_sec: num_seconds as libc::time_t,
+                        tv_nsec: num_subsec_nanos as libc::c_long,
+                    };
+                }
+                0
+            },
             Err(e) => match e {
                 Error::AlreadyStarted => libc::EALREADY,
                 Error::NoMemoryAvailable => libc::ENOMEM,
@@ -86,6 +127,15 @@ pub unsafe extern fn vsg_start(context: *const Context) -> c_int {
     }
 }
 
+/// Stop the simulation.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever context is `NULL`.
 #[no_mangle]
 pub unsafe extern fn vsg_stop(context: *const Context) -> c_int {
     if let Some(context) = context.as_ref() {
@@ -253,7 +303,7 @@ pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
 #[cfg(test)]
 mod test {
     use tansiv_client::test_helpers::*;
-    use libc::timeval;
+    use libc::{timespec, timeval};
     #[allow(unused_imports)]
     use log::{error, info};
     use std::ffi::CString;
@@ -497,6 +547,11 @@ mod test {
         unsafe { vsg_cleanup(std::ptr::null_mut()) }
     }
 
+    const TIMESPEC_POISON: timespec = timespec {
+        tv_sec: std::i64::MAX,
+        tv_nsec: std::i64::MAX,
+    };
+
     const TIMEVAL_POISON: timeval = timeval {
         tv_sec: std::i64::MAX,
         tv_usec: std::i64::MAX,
@@ -511,8 +566,11 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let mut offset = TIMESPEC_POISON;
+        let res: c_int = unsafe { vsg_start(context, &mut offset) };
         assert_eq!(0, res);
+        assert_eq!(0, offset.tv_sec);
+        assert_eq!(0, offset.tv_nsec);
 
         let res: c_int = unsafe { vsg_stop(context) };
         assert_eq!(0, res);
@@ -525,8 +583,27 @@ mod test {
     fn start_no_context() {
         init();
 
-        let res: c_int = unsafe { vsg_start(std::ptr::null()) };
+        let res: c_int = unsafe { vsg_start(std::ptr::null(), std::ptr::null_mut()) };
         assert_eq!(libc::EINVAL, res);
+    }
+
+    #[test]
+    fn start_no_offset() {
+        init();
+
+        let actor = TestActorDesc::new("titi", start_actor);
+        let args = valid_args!();
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
+        assert!(!context.is_null());
+
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
+        assert_eq!(0, res);
+
+        let res: c_int = unsafe { vsg_stop(context) };
+        assert_eq!(0, res);
+
+        unsafe { vsg_cleanup(context) };
+        drop(actor);
     }
 
     #[test]
@@ -546,7 +623,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let buffer = b"Foo msg";
@@ -570,7 +647,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let dst = remote_vsg_address!();
@@ -593,7 +670,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let dst = remote_vsg_address!();
@@ -621,7 +698,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let buffer = [0u8; tansiv_client::MAX_PACKET_SIZE + 1];
@@ -666,7 +743,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -704,7 +781,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -740,7 +817,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -776,7 +853,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -810,7 +887,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -846,7 +923,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -901,7 +978,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -939,7 +1016,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let mut src = local_vsg_address!();
@@ -977,7 +1054,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         recv_notifier.wait(1000);
@@ -1015,7 +1092,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier)) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         loop {
@@ -1055,7 +1132,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let mut tv = TIMEVAL_POISON;
@@ -1085,7 +1162,7 @@ mod test {
         let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0) };
         assert!(!context.is_null());
 
-        let res: c_int = unsafe { vsg_start(context) };
+        let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
         assert_eq!(0, res);
 
         let res: c_int = unsafe { vsg_gettimeofday(context, std::ptr::null_mut(), std::ptr::null_mut()) };

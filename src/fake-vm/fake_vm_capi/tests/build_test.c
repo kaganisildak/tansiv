@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 void recv_cb(uintptr_t arg)
 {
@@ -22,6 +23,7 @@ void die(const char* msg, int error)
 int main(int argc, const char* argv[])
 {
   struct vsg_context* context;
+  struct timespec offset;
   struct timeval time;
   int flag = false;
   unsigned char msg[] = "Foo msg";
@@ -31,7 +33,7 @@ int main(int argc, const char* argv[])
   if (!context)
     die("vsg_init() failed", 0);
 
-  res = vsg_start(context);
+  res = vsg_start(context, &offset);
   if (res)
     die("vsg_start() failed", res);
 

@@ -33,6 +33,9 @@ impl AdjustedTime {
 
 #[derive(Debug)]
 pub struct TimerContext {
+    // Offset from simulation time to application time
+    // Concurrency: RO
+    time_offset: Duration,
     // Object to get and adjust the local application time
     // Concurrency:
     // - read by application code
@@ -89,6 +92,8 @@ impl TimerContext {
     pub(crate) fn new(config: &crate::Config) -> Result<TimerContext> {
         use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet};
 
+        let time_offset = config.time_offset.signed_duration_since(NaiveDateTime::from_timestamp(0, 0));
+
         let application_time = AdjustedTime::new(Duration::zero());
         let simulation_time = AdjustedTime::new(Duration::zero());
 
@@ -107,6 +112,7 @@ impl TimerContext {
         let next_deadline_raw = Mutex::new(StdDuration::new(0, 0));
 
         Ok(TimerContext {
+            time_offset: time_offset,
             application_time: application_time,
             simulation_time: simulation_time,
             timer_id: timer_id,
@@ -178,13 +184,15 @@ impl TimerContext {
         Ok(())
     }
 
-    pub fn start(&self, deadline: StdDuration) -> Result<()> {
+    pub fn start(&self, deadline: StdDuration) -> Result<Duration> {
         self.stopped.store(false, Ordering::Release);
-        let res = self.thaw_time_to_deadline(None, deadline);
-        if res.is_err() {
-            self.stopped.store(true, Ordering::Release);
+        match self.thaw_time_to_deadline(None, deadline) {
+            Ok(_) => Ok(self.time_offset),
+            Err(e) => {
+                self.stopped.store(true, Ordering::Release);
+                Err(e)
+            },
         }
-        res
     }
 
     pub fn stop(&self) {

@@ -129,7 +129,7 @@ impl Context {
         Ok(context)
     }
 
-    pub fn start(&self) -> Result<()> {
+    pub fn start(&self) -> Result<chrono::Duration> {
         let mut res = Err(Error::AlreadyStarted);
 
         self.start_once.call_once(|| res = (|| {
@@ -141,7 +141,10 @@ impl Context {
             drop(connector);
             match msg {
                 // Writing Ok(...?) helps the compiler to know how to convert std::io::Error to Error
-                MsgIn::GoToDeadline(deadline) => Ok(self.timer_context.start(deadline)?),
+                MsgIn::GoToDeadline(deadline) => {
+                    (self.deadline_callback)(deadline);
+                    Ok(self.timer_context.start(deadline)?)
+                },
                 _ => Err(Error::ProtocolViolation),
             }
         })());
@@ -490,8 +493,9 @@ mod test {
         let context = super::init(valid_args!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
-        context.start()
+        let offset = context.start()
             .expect("start failed");
+        assert_eq!(chrono::Duration::zero(), offset);
 
         context.stop();
 
@@ -733,8 +737,9 @@ mod test {
         let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback))
             .expect("init failed");
 
-        context.start()
+        let offset = context.start()
             .expect("start failed");
+        assert_eq!(chrono::Duration::hours(1), offset);
 
         let tv = context.gettimeofday();
         // 10 seconds should be enough for slow machines...

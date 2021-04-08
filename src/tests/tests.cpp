@@ -51,7 +51,7 @@ TEST_CASE("initialize the vsg client", "[vsg]")
     vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, 0);
     REQUIRE(context != NULL);
 
-    int ret = vsg_start(context);
+    int ret = vsg_start(context, NULL);
     REQUIRE(ret == 0);
 
     vsg_stop(context);
@@ -70,7 +70,7 @@ TEST_CASE("VSG receive one message", "[vsg]")
     vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
     REQUIRE(context != NULL);
 
-    int ret = vsg_start(context);
+    int ret = vsg_start(context, NULL);
     REQUIRE(ret == 0);
 
     std::string msg = MESSAGE;
@@ -94,7 +94,7 @@ TEST_CASE("VSG deliver one message", "[vsg]")
     vsg_context* context = vsg_init(6, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered);
     REQUIRE(context != NULL);
 
-    int ret = vsg_start(context);
+    int ret = vsg_start(context, NULL);
     REQUIRE(ret == 0);
 
     // loop until our atomic is set to true
@@ -139,7 +139,7 @@ TEST_CASE("VSG send piggyback port", "[vsg]")
     vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0);
     REQUIRE(context != NULL);
 
-    int ret = vsg_start(context);
+    int ret = vsg_start(context, NULL);
     REQUIRE(ret == 0);
 
     in_port_t port  = 5000;

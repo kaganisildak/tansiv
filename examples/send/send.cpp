@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
     die("Unable to initialize the context", 0);
   }
 
-  int ret = vsg_start(context);
+  int ret = vsg_start(context, NULL);
   if (ret) {
     die("Unable to start the vsg client", ret);
   }
