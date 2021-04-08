@@ -9,7 +9,7 @@ void recv_cb(uintptr_t arg)
 {
   // Try not to deadlock with libc's stdout
   const char hey[] = "callback called\n";
-  write(STDOUT_FILENO, hey, sizeof(hey) - 1);
+  write(STDOUT_FILENO, hey, sizeof(hey));
 };
 
 void recv_cb_atomic(uintptr_t arg)
