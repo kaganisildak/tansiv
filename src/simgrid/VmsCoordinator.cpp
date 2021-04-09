@@ -46,7 +46,7 @@ static double get_next_event()
   simgrid::s4u::Engine* engine = simgrid::s4u::Engine::get_instance();
   double time            = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::infinity();
-  for (auto model : engine->get_model_list(simgrid::kernel::resource::Model::Type::NETWORK)) {
+  for (auto model : engine->get_all_models()) {
     double model_event = time + model->next_occurring_event(time);
     if (model_event < next_event_time && model_event > time) {
       next_event_time = model_event;
