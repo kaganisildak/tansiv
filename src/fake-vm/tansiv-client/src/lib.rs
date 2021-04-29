@@ -180,7 +180,7 @@ impl Context {
                 deadline_handler_debug!("Context::at_deadline() fixing send_time to {:?}", previous_deadline);
                 previous_deadline
             } else {
-                if send_time >= current_deadline {
+                if send_time > current_deadline {
                     // The kernel was too slow to fire the timer...
                     error!("send_time = {:?} is beyond current_deadline = {:?}! Aborting", send_time, current_deadline);
                     return AfterDeadline::EndSimulation;
