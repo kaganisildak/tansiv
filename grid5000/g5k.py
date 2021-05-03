@@ -210,6 +210,8 @@ def deploy(args, env=None):
     env["tansiv_roles"] = tansiv_roles
     env["provider"] = provider
 
+    env["args"] = args
+
 
 @en.enostask()
 def fping(args, env=None):
@@ -259,11 +261,25 @@ def flent(args, env=None):
             "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
         )
 
-    with en.play_on(roles=dict(all=workers)) as p:
-        p.shell(
-            "flent tcp_download -p totals -l 30 -H {{ flent_server }} -o filename.png"
-        )
-        p.fetch(src="filename.png", dest="result")
+    for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
+        import time
+
+        remote_dir = f"{bench}_{str(time.time_ns())}"
+        with en.play_on(roles=dict(all=workers)) as p:
+            p.file(state="directory", path=f"{remote_dir}")
+            p.shell(
+                " ".join(
+                    [
+                        f"flent {bench}",
+                        "-p totals -l 10",
+                        "-H {{ flent_server }}",
+                        "-f csv",
+                    ]
+                ),
+                chdir=remote_dir,
+            )
+            p.shell(f"tar -czf {remote_dir}.tar.gz {remote_dir}")
+            p.fetch(src=f"{remote_dir}.tar.gz", dest=f"{env.env_name}")
 
 
 @en.enostask()
