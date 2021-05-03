@@ -9,54 +9,35 @@ import tempfile
 from typing import Any, Dict, List, Optional
 import yaml
 
-# some env variable supported by the program
-ENV_QEMU = "QEMU"
-ENV_IMAGE = "IMAGE"
-ENV_AUTOCONFIG_NET = "AUTOCONFIG_NET"
-
 LOGGER = logging.getLogger(__name__)
 
 
-def from_env(key: str, default: Optional[Any] = None) -> str:
-    value = os.environ.get(key, default)
-    if value is None:
-        raise ValueError(f"Missing {key} in the environment")
-    return value
-
-
-class TansivVM(object):
-    """
-    TODO autogenerate this based on the cli
-    """
-
+class VM(object):
     def __init__(
         self,
         ip_tantap: IPv4Interface,
         ip_management: IPv4Interface,
         qemu_cmd: str,
-        qemu_image: Path(),
-        qemu_args: Optional[str] = None,
+        qemu_image: Path,
+        qemu_args: str = "",
         hostname: Optional[str] = None,
         public_key: Optional[str] = None,
         autoconfig_net: bool = False,
     ):
         self.tantap = ip_tantap
         self.management = ip_management
+
         self.qemu_cmd = qemu_cmd
         self.qemu_image = qemu_image.resolve()
         self._hostname = hostname
         self.public_key = public_key
         self.autoconfig_net = autoconfig_net
 
-        if qemu_args is None:
-            # Tansiv profile ?
-            self.qemu_args = (
-                " --icount shift=1,sleep=on"
-                " -rtc clock=vm"
-                f" -m 1g --vsg mynet0,src={ip_tantap.ip}"
-            )
-        else:
-            self.qemu_args = qemu_args
+        self.__qemu_args = qemu_args
+
+    @property
+    def qemu_args(self):
+        return self.__qemu_args + " " + "-m 2g"
 
     @property
     def tantap_id(self):
@@ -83,6 +64,10 @@ class TansivVM(object):
     @property
     def bridgename(self) -> List[str]:
         return ["tantap-br", "mantap-br"]
+
+    @property
+    def taptype(self) -> List[str]:
+        return ["tap", "tap"]
 
     @property
     def gateway(self) -> List[IPv4Interface]:
@@ -190,38 +175,38 @@ class TansivVM(object):
         )
         return qemu_image
 
+    def _br_tap_cmd(self, br: str, ip: IPv4Interface, tap: str):
+        """Create a bridge and a tap attached.
+
+        This assumes that the current process is running with the right
+        level of privilege.
+        """
+        return f"""
+                    ip link show dev {br} || ip link add name {br} type bridge
+                    ip link set {br} up
+                    (ip addr show dev {br} | grep {ip}) || ip addr add {ip} dev {br}
+                    ip link show dev {tap} || ip tuntap add {tap} mode tap
+                    ip link set {tap} master {br}
+                    ip link set {tap} up
+                    """
+
     def prepare_net(self):
         """Create the bridges, the tap if needed."""
-
-        def br_tap(br: str, ip: IPv4Interface, tap: str):
-            """Create a bridge and a tap attached.
-
-            This assumes that the current process is running with the right
-            level of privilege.
-            """
-            check_call(
-                f"""
-                       ip link show dev {br} || ip link add name {br} type bridge
-                       ip link set {br} up
-                       (ip addr show dev {br} | grep {ip}) || ip addr add {ip} dev {br}
-                       ip link show dev {tap} || ip tuntap add {tap} mode tap
-                       ip link set {tap} master {br}
-                       ip link set {tap} up
-                       """,
-                shell=True,
-            )
 
         if not self.autoconfig_net:
             return
 
-        br_tap(self.bridgename[0], self.gateway[0], self.tapname[0])
-        br_tap(
-            self.bridgename[1],
-            self.gateway[1],
-            self.tapname[1],
-        )
+        prepare_net_cmds = self.prepare_net_cmds()
+        for prepare_net_cmd in prepare_net_cmds:
+            check_call(prepare_net_cmd, shell=True)
 
-    def start(self, working_dir: Path) -> Path:
+    def prepare_net_cmds(self):
+        return [
+            self._br_tap_cmd(self.bridgename[0], self.gateway[0], self.tapname[0]),
+            self._br_tap_cmd(self.bridgename[1], self.gateway[1], self.tapname[1]),
+        ]
+
+    def start(self, working_dir: Path, stdout) -> Path:
         working_dir.mkdir(parents=True, exist_ok=True)
         # generate cloud_init
         iso = self.prepare_cloud_init(working_dir)
@@ -229,30 +214,51 @@ class TansivVM(object):
         image = self.prepare_image(working_dir)
 
         self.prepare_net()
+
         # boot
         cmd = (
             f"{self.qemu_cmd}"
             f" {self.qemu_args}"
             f" -drive file={image} "
             f" -cdrom {iso}"
-            f" -netdev tantap,id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
+            f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
             f" -device e1000,netdev=mynet0,mac={self.mac[0]}"
-            f" -netdev tap,id=mynet1,ifname={self.tapname[1]},script=no,downscript=no"
+            f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no"
             f" -device e1000,netdev=mynet1,mac={self.mac[1]}"
         )
         LOGGER.info(cmd)
-        check_call(
-            cmd,
-            shell=True,
-        )
+        check_call(cmd, shell=True, stdout=stdout)
+
+
+class TansivVM(VM):
+    @property
+    def qemu_args(self):
+        qemu_args = super().qemu_args
+        return qemu_args + " " + f"--vsg mynet0,src={self.tantap.ip}"
+
+    @property
+    def taptype(self) -> List[str]:
+        return ["tantap", "tap"]
+
+
+def terminate(*args):
+    import sys
+
+    sys.exit()
 
 
 if __name__ == "__main__":
+    import signal
+
+    signal.signal(signal.SIGINT, terminate)
+    signal.signal(signal.SIGTERM, terminate)
+
     parser = argparse.ArgumentParser(
         description="""
-Boots a VM using qemu, icount mode ...
+Boots a VM using qemu
 
 Use two nics: one for tantap the other for a regular tap (management interface).
+The tantap can be a regular tap (for baseline experiment).
 
 Assumptions:
     IP addresses are part of a /24 network whose gateway is set to the first possible IP
@@ -296,39 +302,98 @@ done
         type=str,
         help="The hostname of the virtual machine",
     )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        help="mode (tap | tantap)",
+    )
+    parser.add_argument(
+        "--out",
+        type=str,
+        help="stdout file [default to {vm.hostname}.out]",
+    )
 
-    parser.add_argument("--qemu-args", type=str, help="arguments to pass to qemu")
+    parser.add_argument(
+        "--qemu_cmd",
+        type=str,
+        help="qemu cmd to pass",
+        default=os.environ.get("QEMU", None),
+    )
+
+    parser.add_argument(
+        "--qemu_args",
+        type=str,
+        help="extra qemu args to pass (e.g.'--icount shift=1,sleep=on,align=off')",
+        default=os.environ.get("QEMU_ARGS", ""),
+    )
+
+    parser.add_argument(
+        "--autoconfig_net",
+        action="store_true",
+        help="True iff network must be autoconfigured",
+        default=os.environ.get("AUTOCONFIG_NET", False),
+    )
+
+    parser.add_argument(
+        "--qemu_image",
+        type=str,
+        help="disk image",
+        default=os.environ.get("IMAGE", None),
+    )
 
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
+
     ip_tantap = IPv4Interface(args.ip_tantap)
     ip_management = IPv4Interface(args.ip_management)
-    qemu_args = args.qemu_args
     hostname = args.hostname
 
-    # get the mandatory variables from the env
-    qemu_cmd = from_env(ENV_QEMU)
-    qemu_image = Path(from_env(ENV_IMAGE))
+    qemu_cmd = args.qemu_cmd
+    if not qemu_cmd:
+        raise ValueError("qemu_cmd must be set")
+    qemu_args = args.qemu_args
+    qemu_image = Path(args.qemu_image)
+    if not qemu_image:
+        raise ValueError("qemu_image must be set")
+    autoconfig_net = args.autoconfig_net
+
     # check the required third party software
     check_call("genisoimage --help", shell=True)
     check_call("qemu-img --help", shell=True)
-    autoconfig_net = from_env(ENV_AUTOCONFIG_NET, False)
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
 
-    vm = TansivVM(
-        ip_tantap,
-        ip_management,
-        qemu_cmd=qemu_cmd,
-        qemu_image=qemu_image,
-        qemu_args=qemu_args,
-        hostname=hostname,
-        public_key=public_key,
-        autoconfig_net=autoconfig_net,
-    )
+    if args.mode == "tantap":
+        vm = TansivVM(
+            ip_tantap,
+            ip_management,
+            qemu_cmd=qemu_cmd,
+            qemu_image=qemu_image,
+            qemu_args=qemu_args,
+            hostname=hostname,
+            public_key=public_key,
+            autoconfig_net=autoconfig_net,
+        )
+    else:
+        vm = VM(
+            ip_tantap,
+            ip_management,
+            qemu_cmd=qemu_cmd,
+            qemu_image=qemu_image,
+            qemu_args=qemu_args,
+            hostname=hostname,
+            public_key=public_key,
+            autoconfig_net=autoconfig_net,
+        )
+
+    for cmd in vm.prepare_net_cmds():
+        print(cmd)
 
     with tempfile.TemporaryDirectory() as tmp:
         LOGGER.info(f"Launching in {tmp}")
-        vm.start(working_dir=Path(tmp))
+        out = args.out
+        if not out:
+            out = f"{vm.hostname}.out"
+        vm.start(working_dir=Path(tmp), stdout=Path(out).open("w"))
