@@ -109,7 +109,7 @@
     + TODO: understand how/when the packet is actually read by the guest driver (when the interruption handler is called ?)
       - réponse: cpu_get_tb_cpu_state dans target/i386/cpu.h il positionne le pc en fonction de env->eip qui est positionné par do_interrupt64,
         ce qui veut dire que lorsque la traduction/exécution des tb suivant reprend elle reprendra au handler d'interruption en question (youpi !)
-        
+
 * Gestion du temps / icount mode
 
 - Dans ce mode l'horloge virtuelle s'incrémente à chaque instruction (virtuelle) executée.
@@ -130,7 +130,7 @@ while (1) {
   LOCK_IO_THREAD                                                                // | vcpu thread
   handle_icount_deadline()  // check whether some timer deadlines are reached   // | vcpu thread
   while (cpu && not cpu->exit_request) {                                        // | vcpu thread
-    UNLOCK_IO_THREAD                                                            // | 
+    UNLOCK_IO_THREAD                                                            // |
     prepare_icount(cpu) // set icount budget  based on next deadlines           // | vcpu+io thread
     r = cpu_exec(cpu)                                                           // | vcpu+io thread
     process_icount_data(cpu) // update icount based on what has been executed   // | vcpu+io thread
@@ -140,17 +140,17 @@ while (1) {
   if (cpu && cpu->exit_request) {                                               // | vcpu+io thread
     cp->exit_request=0 // reset exit condition                                  // | vcpu+io thread
   }
-} 
+}
 #+END_SRC
   + Main loop pseudo code
 #+BEGIN_SRC C
 while (1) {
-UNLOCK_IO_THREAD                                                                // | 
+UNLOCK_IO_THREAD                                                                // |
   timeout = min(poll_timeout, next_timer_deadline)                              // | vcpus +io thread
   poll(timeout); // glib                                                        // | vcpus +io thread
   LOCK_IO_THREAD
   dispatch // glib                                                              // | io thread
-  qemu_start_warp_timer(); // sleep=on|off strategy                             // | io thread 
+  qemu_start_warp_timer(); // sleep=on|off strategy                             // | io thread
   qemu_clock_run_all_timers(); // run timers                                    // | io thread
 }
 #+END_SRC
@@ -158,3 +158,14 @@ As a consequence:
 - Timer callbacks are called in a critical session (either in the main-loop or vcpu thread context)
 - However Using icount mode this seems very unlickely that timers on
   QEMU_CLOCK_VIRTUAL are fired from the main-loop though
+
+- Comment après un tour de boucle du vcpu on sait combien d'instruction ont été exécutées ?
+    + le budget est réparti dans `icount_decr.u16.low` + `icount_extra` (quand ça dépasse 0xFFFF)
+    + Lorsque les instructions guest sont traduites en tcg puis en instruction hote:
+    + qemu ajoute un prologue qui permettra **à l'exécution du tb**
+        - comparer la valeur de charger la valeur du budget courant `neg.icount_decr.u16.low` (modulo une bidouille avec le u32 correspondant)
+        - décrémenter cette valeur du nombre d'instructions du bloc (pas connu encore dans le code intermédiaire, donc qemu utilise un placeholder pour ça)
+        - générer un branchement (si le budget est atteint on sort == saut à un label dans le code assembleur, sinon on décrémente et tout va bien).
+    + Le prologue est ici ~gen_tb_start~: https://gitlab.inria.fr/msimonin/qemu/-/blob/1e8d4f36181b5adf21fd75cd470356b2d8a59deb/include/exec/gen-icount.h#L35-72
+    + C'est dans ~gen_tb_end~ que le nombre d'instructions exactes est connu et donc remplacer au bon endroid dans le code intermédiaire
+- la boucle principale du CPU détermine ce qu'il y a été exécuté comme cela: https://gitlab.inria.fr/msimonin/qemu/-/blob/1e8d4f36181b5adf21fd75cd470356b2d8a59deb/cpus.c#L170-178
