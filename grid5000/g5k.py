@@ -82,30 +82,15 @@ def generate_deployment(args) -> str:
         )
         ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}"))
         ET.SubElement(vm, "argument", dict(value="./boot.py"))
+        ET.SubElement(vm, "argument", dict(value=f"--mode"))
+        ET.SubElement(vm, "argument", dict(value=f"tantap"))
+        ET.SubElement(vm, "argument", dict(value=f"--autoconfig_net"))
         ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}/24"))
         ET.SubElement(vm, "argument", dict(value=f"10.0.0.{descriptor}/24"))
-
     element_tree = ElementTree(platform)
     with open(out, "w") as f:
         f.write('<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">')
         f.write(ET.tostring(platform, encoding="unicode"))
-
-
-def start_tansiv(docker_image: str, p: en.play_on):
-    p.docker_container(
-        state="started",
-        network_mode="host",
-        name="tansiv",
-        image=docker_image,
-        command="platform.xml deployment.xml",
-        volumes=["/tmp/id_rsa.pub:/root/.ssh/id_rsa.pub", "/tmp/tansiv:/srv"],
-        env={
-            "AUTOCONFIG_NET": "true",
-            "IMAGE": "image.qcow2",
-        },
-        capabilities=["NET_ADMIN"],
-        devices=["/dev/net/tun"],
-    )
 
 
 @en.enostask(new=True)
@@ -121,6 +106,7 @@ def deploy(args, env=None):
     walltime = args.walltime
     queue = args.queue
     docker_image = args.docker_image
+    qemu_args = args.qemu_args
     prod = en.G5kNetworkConf(
         id="id",
         roles=["prod"],
@@ -176,7 +162,25 @@ def deploy(args, env=None):
             display_name="copying deployment file",
         )
         # finally start the container
-        start_tansiv(docker_image, p)
+        environment = {
+            "AUTOCONFIG_NET": "true",
+            "IMAGE": "image.qcow2",
+        }
+        if qemu_args is not None:
+            environment.update(QEMU_ARGS=qemu_args)
+
+        p.docker_container(
+            state="started",
+            network_mode="host",
+            name="tansiv",
+            image=docker_image,
+            command="platform.xml deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug",
+            volumes=["/tmp/id_rsa.pub:/root/.ssh/id_rsa.pub", "/tmp/tansiv:/srv"],
+            env=environment,
+            capabilities=["NET_ADMIN"],
+            devices=["/dev/net/tun"],
+        )
+
         # by default packets that needs to be forwarded by the bridge are sent to iptables
         # iptables will most likely drop them.
         # we can disabled this behaviour by bypassing iptables
@@ -224,9 +228,8 @@ def fping(args, env=None):
     ]
     print(hostnames)
     result = en.run_command(
-        f'fping -q -C 10 -s -e {" ".join(hostnames)}',
+        f'fping -q -C 30 -s -e {" ".join(hostnames)}',
         roles=tansiv_roles,
-        on_error_continue=True,
     )
 
     # displayng the output (the result datastructure is a bit painful to parse...ask enoslib maintainer)
@@ -257,7 +260,9 @@ def flent(args, env=None):
         )
 
     with en.play_on(roles=dict(all=workers)) as p:
-        p.shell("flent udp_flood -p totals -l 10 -H {{ flent_server }} -o filename.png")
+        p.shell(
+            "flent tcp_download -p totals -l 30 -H {{ flent_server }} -o filename.png"
+        )
         p.fetch(src="filename.png", dest="result")
 
 
@@ -311,6 +316,7 @@ if __name__ == "__main__":
         help="Tansiv docker image to use",
         default=DEFAULT_DOCKER_IMAGE,
     )
+    parser_deploy.add_argument("--qemu_args", help="Some qemu_args")
 
     parser_deploy.set_defaults(func=deploy)
     # --------------------------------------------------------------------------

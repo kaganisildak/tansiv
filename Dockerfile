@@ -1,25 +1,27 @@
 # tansiv in docker :)
 FROM simgrid/unstable:latest
 
+ENV LD_PRELOAD ""
+
 WORKDIR /app
 COPY . /app
 
 RUN apt-get update
 RUN apt-get install -y build-essential \
-      libboost-dev \
-      cmake \
-      libcppunit-dev \
-      libglib2.0-dev \
-      clang \
-      libclang-dev \
-      curl \
-      git \
-      pkg-config \
-      libglib2.0-dev \
-      libpixman-1-dev \
-      flex \
-      bison \
-      genisoimage
+    libboost-dev \
+    cmake \
+    libcppunit-dev \
+    libglib2.0-dev \
+    clang \
+    libclang-dev \
+    curl \
+    git \
+    pkg-config \
+    libglib2.0-dev \
+    libpixman-1-dev \
+    flex \
+    bison \
+    genisoimage
 
 # a cup of rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
