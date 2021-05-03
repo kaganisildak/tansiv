@@ -21,7 +21,8 @@ RUN apt-get install -y build-essential \
     libpixman-1-dev \
     flex \
     bison \
-    genisoimage
+    genisoimage \
+    iproute2
 
 # a cup of rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
@@ -37,13 +38,14 @@ RUN cmake .. && make && make DESTDIR=/opt/tansiv install
 # WORKDIR /app/src/fake-vm
 # RUN make && make test
 
+
 # run some tests about the c/c++ part
 WORKDIR /app/build
 RUN ./tests --list-test-names-only | xargs -d "\n" -n1  ./tests
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN make -j  && make install
+RUN ./configure --target-list=x86_64-softmmu && make -j  && make install
 
 # make some room
 RUN rm -rf /app
