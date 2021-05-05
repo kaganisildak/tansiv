@@ -377,8 +377,6 @@ def flent(args, env=None):
             "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
         )
 
-    result_dir = env.env_name / "result"
-
     for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
 
         remote_dir = f"{bench}_{str(time.time_ns())}"
