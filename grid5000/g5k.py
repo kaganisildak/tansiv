@@ -1,11 +1,85 @@
+"""
+Tansiv experimentation logic on G5K.
+
+Currently different tasks are implemented
+
+Deploy
+------
+
+- reserve a single node on G5K
+- boot some VMs using :
+    - tansiv
+        - fork/exec some VMs and put simgrid as a bridge between them
+    - notansiv
+        - fork/exec some VMs and put a regular bridge in-between
+- Fill some datastructure to record the current configuration
+
+Emulate
+-------
+
+- Emulate some network latencies between the VMs
+    + internally (qdisc inside the VMs are modified)
+    + externally (WiP -- qdisc modification are set outside the VM / on the host bridge)
+
+Flent
+-----
+
+- Run some flent generic benchmark and gather results
+
+Fping
+-----
+
+- Run an fping and gather the results
+
+
+Examples:
+
+.. code-block:: python
+
+    # deploy
+    python g5k.py --env tantap_icount deploy \
+        inputs/nova_cluster.xml inputs/deployment_2.xml \
+        --cluster ecotype  \
+        --docker_image registry.gitlab.inria.fr/msimonin/2018-vsg/tansiv:d8fa9110e5d8fcd936a0497fe6dee2b2a09337a2  \
+        --walltime=05:00:00 \
+        --mode=tantap
+
+    # benchmark it
+    python g5k.py flent
+"""
+
 import argparse
 import logging
-from ipaddress import IPv4Interface
-from pathlib import Path
 import time
 import traceback
+from ipaddress import IPv4Interface
+from pathlib import Path
 
 import enoslib as en
+from enoslib.objects import DefaultNetwork
+from enoslib.service.emul.netem import (
+    NetemInConstraint,
+    NetemInOutSource,
+    NetemOutConstraint,
+)
+
+
+class TantapNetwork(DefaultNetwork):
+    pass
+
+
+class MantapNetwork(DefaultNetwork):
+    pass
+
+
+# Our two networks
+## one network to communicate using through a tantap or a tap
+TANTAP_NETWORK = TantapNetwork("192.168.120.0/24")
+# Management network (using a tap)
+MANTAP_NETWORK = MantapNetwork("10.0.0.0/24")
+
+# indexed them (EnOSlib style)
+NETWORKS = dict(tantap=[TANTAP_NETWORK], mantap=[MANTAP_NETWORK])
 
 
 class TansivHost(en.Host):
@@ -78,6 +152,7 @@ def generate_deployment(args) -> str:
             "actor",
             dict(host=f"nova-{i}.lyon.grid5000.fr", function="vsg_vm"),
         )
+        # FIXME: duplication ahead :( use EnOSlib networks here
         ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}"))
         ET.SubElement(vm, "argument", dict(value="./boot.py"))
         ET.SubElement(vm, "argument", dict(value=f"--mode"))
@@ -236,12 +311,21 @@ def deploy(args, env=None):
             sysctl_set="yes",
         )
 
+    # This is specific to tantap
     tansiv_roles = build_tansiv_roles(Path(deployment), roles["tansiv"][0])
+
+    # FIXME: handle number > 2 for tap mode
 
     # waiting for the tansiv vms to show up
     en.wait_for(roles=tansiv_roles)
+    tansiv_networks = NETWORKS
+    tansiv_roles = en.sync_info(tansiv_roles, tansiv_networks)
+
+    # basically we end up with a tuple tansiv_roles, tansiv_networks
+    # so what we get above is a EnOSlib's Tansiv Provider
     env["roles"] = roles
     env["tansiv_roles"] = tansiv_roles
+    env["tansiv_networks"] = tansiv_networks
     env["args"] = args
 
 
@@ -293,26 +377,30 @@ def flent(args, env=None):
             "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
         )
 
-    result_dir = env["result_dir"]
+    result_dir = env.env_name / "result"
+
     for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
-        import time
 
         remote_dir = f"{bench}_{str(time.time_ns())}"
         with en.play_on(roles=dict(all=workers)) as p:
             p.file(state="directory", path=f"{remote_dir}")
+            # recording the "real" time
+            start = time.time()
             p.shell(
                 " ".join(
                     [
                         f"flent {bench}",
-                        "-p totals -l 10",
+                        "-p totals -l 30",
                         "-H {{ flent_server }}",
                         "-f csv",
                     ]
                 ),
                 chdir=remote_dir,
             )
+            end = time.time()
             p.shell(f"tar -czf {remote_dir}.tar.gz {remote_dir}")
             p.fetch(src=f"{remote_dir}.tar.gz", dest=f"{env.env_name}")
+            (env.env_name / f"timing_{bench}").write_text(str(end - start))
 
 
 @en.enostask()
@@ -330,6 +418,43 @@ def destroy(args, env=None):
             )
 
 
+@en.enostask()
+def vm_emulate(args, env=None):
+    """Emulate the network condition.
+
+    The emulation is internal to the VMs: the qdisc of the internal interfaces are modified.
+
+    Homogeneous constraints for now.
+    Note that we have options to set heterogeneous constraints in EnOSlib as well.
+    """
+    options = args.options
+    tansiv_roles = env["tansiv_roles"]
+    tansiv_networks = env["tansiv_networks"]
+    netem = en.Netem().add_constraints(
+        options,
+        hosts=tansiv_roles["all"],
+        symetric=True,
+        networks=tansiv_networks["tantap"],
+    )
+    netem.deploy()
+
+
+@en.enostask()
+def host_emulate(args, env=None):
+    """Emulate the network condition.
+
+    The emulation is external to the VMs: the qdisc of the bridge
+    is modified on the host machine.
+    (WiP)
+    """
+    options = args.options
+    roles = env["roles"]
+    cout = NetemOutConstraint("mantap-br", options)
+    cin = NetemInConstraint("mantap-br", options)
+    source = NetemInOutSource(roles["tansiv"][0], constraints=set([cin, cout]))
+    en.netem([source])
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
@@ -339,6 +464,8 @@ if __name__ == "__main__":
     from constants import *
 
     parser = argparse.ArgumentParser(description="Tansiv experimentation engine")
+    parser.add_argument("--env", help="env directory to use")
+
     # FIXME
 
     # ------------------------------------------------------------------- DEPLOY
@@ -373,10 +500,6 @@ if __name__ == "__main__":
     parser_deploy.add_argument(
         "--mode", help="Mode of operation (tap|tantap)", default="tantap"
     )
-    parser_deploy.add_argument(
-        "--env", help="env directory to use (intercepter by EnOSlib)"
-    )
-
     parser_deploy.set_defaults(func=deploy)
     # --------------------------------------------------------------------------
 
@@ -392,6 +515,20 @@ if __name__ == "__main__":
         "remaining", nargs=argparse.REMAINDER, help="Argument to pass to flent"
     )
     # --------------------------------------------------------------------------
+
+    # ------------------------------------------------------------------ VM_EMULATE
+    parser_emulate = subparsers.add_parser("vm_emulate", help="emulate")
+    parser_emulate.set_defaults(func=vm_emulate)
+    parser_emulate.add_argument(
+        "options", help="The options to pass to our (Simple)Netem (e.g 'delay 10ms')"
+    )
+
+    # ------------------------------------------------------------------ HOST_EMULATE
+    parser_emulate = subparsers.add_parser("host_emulate", help="emulate")
+    parser_emulate.set_defaults(func=host_emulate)
+    parser_emulate.add_argument(
+        "options", help="The options to pass to our (Simple)Netem (e.g 'delay 10ms')"
+    )
 
     # ------------------------------------------------------------------ DESTROY
     parser_destroy = subparsers.add_parser("destroy", help="Destroy the deployment")
@@ -420,7 +557,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     try:
-        args.func(args)
+        args.func(args, env=args.env)
     except Exception as e:
         parser.print_help()
         print(e)
