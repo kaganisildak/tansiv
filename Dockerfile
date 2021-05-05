@@ -1,8 +1,6 @@
 # tansiv in docker :)
 FROM simgrid/unstable:latest
 
-ENV LD_PRELOAD ""
-
 WORKDIR /app
 COPY . /app
 
