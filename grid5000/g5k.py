@@ -2,12 +2,10 @@ import argparse
 import logging
 from ipaddress import IPv4Interface
 from pathlib import Path
+import time
 import traceback
 
 import enoslib as en
-
-
-DEFAULT_DOCKER_IMAGE = "registry.gitlab.inria.fr/quinson/2018-vsg/tansiv:latest"
 
 
 class TansivHost(en.Host):
@@ -85,6 +83,8 @@ def generate_deployment(args) -> str:
         ET.SubElement(vm, "argument", dict(value=f"--mode"))
         ET.SubElement(vm, "argument", dict(value=f"tantap"))
         ET.SubElement(vm, "argument", dict(value=f"--autoconfig_net"))
+        ET.SubElement(vm, "argument", dict(value=f"--out"))
+        ET.SubElement(vm, "argument", dict(value=f"tantap/vm-{descriptor}.out"))
         ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}/24"))
         ET.SubElement(vm, "argument", dict(value=f"10.0.0.{descriptor}/24"))
     element_tree = ElementTree(platform)
@@ -107,6 +107,8 @@ def deploy(args, env=None):
     queue = args.queue
     docker_image = args.docker_image
     qemu_args = args.qemu_args
+    mode = args.mode
+
     prod = en.G5kNetworkConf(
         id="id",
         roles=["prod"],
@@ -161,6 +163,18 @@ def deploy(args, env=None):
             dest="/tmp/tansiv/boot.py",
             display_name="copying deployment file",
         )
+        # we also need the notansiv wrapper (baseline tests)
+        p.synchronize(
+            src="notansiv.py",
+            dest="/tmp/tansiv/notansiv.py",
+            display_name="copying deployment file",
+        )
+        # we also need the constants
+        p.synchronize(
+            src="constants.py",
+            dest="/tmp/tansiv/constants.py",
+            display_name="copying deployment file",
+        )
         # finally start the container
         environment = {
             "AUTOCONFIG_NET": "true",
@@ -169,16 +183,36 @@ def deploy(args, env=None):
         if qemu_args is not None:
             environment.update(QEMU_ARGS=qemu_args)
 
+        if mode == "tantap":
+            # tantap case
+            # - QEMU is set in the env (Dockerfile)
+            # - QEMU_ARGS is set in the env
+            # - IMAGE us set in the env
+            kwargs = dict(
+                command="platform.xml deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug"
+            )
+        elif mode == "tap":
+            # tap case
+            # - QEMU is set in the env (Dockerfile)
+            # - QEMU_ARGS is set in the env
+            # - IMAGE is passed using the env
+            kwargs = dict(
+                command="/srv/notansiv.py --boot_cmd=/srv/boot.py", entrypoint="python3"
+            )
+        else:
+            # FIXME could be handle earlier using a enum...
+            raise ValueError(f"Unknown mode of operation {mode}")
+
         p.docker_container(
             state="started",
             network_mode="host",
             name="tansiv",
             image=docker_image,
-            command="platform.xml deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug",
             volumes=["/tmp/id_rsa.pub:/root/.ssh/id_rsa.pub", "/tmp/tansiv:/srv"],
             env=environment,
             capabilities=["NET_ADMIN"],
             devices=["/dev/net/tun"],
+            **kwargs,
         )
 
         # by default packets that needs to be forwarded by the bridge are sent to iptables
@@ -208,8 +242,6 @@ def deploy(args, env=None):
     en.wait_for(roles=tansiv_roles)
     env["roles"] = roles
     env["tansiv_roles"] = tansiv_roles
-    env["provider"] = provider
-
     env["args"] = args
 
 
@@ -261,6 +293,7 @@ def flent(args, env=None):
             "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
         )
 
+    result_dir = env["result_dir"]
     for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
         import time
 
@@ -300,6 +333,11 @@ def destroy(args, env=None):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
+    import sys
+
+    sys.path.append(".")
+    from constants import *
+
     parser = argparse.ArgumentParser(description="Tansiv experimentation engine")
     # FIXME
 
@@ -307,10 +345,6 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(help="deploy")
     parser_deploy = subparsers.add_parser(
         "deploy", help="Deploy tansiv and the associated VMs"
-    )
-    parser_deploy.add_argument(
-        "image",
-        help="Base image to use (qcow2)",
     )
     parser_deploy.add_argument(
         "platform",
@@ -332,7 +366,16 @@ if __name__ == "__main__":
         help="Tansiv docker image to use",
         default=DEFAULT_DOCKER_IMAGE,
     )
-    parser_deploy.add_argument("--qemu_args", help="Some qemu_args")
+    parser_deploy.add_argument(
+        "--image", help="Base image to use (qcow2)", default=QEMU_IMAGE
+    )
+    parser_deploy.add_argument("--qemu_args", help="Some qemu_args", default=QEMU_ARGS)
+    parser_deploy.add_argument(
+        "--mode", help="Mode of operation (tap|tantap)", default="tantap"
+    )
+    parser_deploy.add_argument(
+        "--env", help="env directory to use (intercepter by EnOSlib)"
+    )
 
     parser_deploy.set_defaults(func=deploy)
     # --------------------------------------------------------------------------

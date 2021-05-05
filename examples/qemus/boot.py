@@ -302,11 +302,7 @@ done
         type=str,
         help="The hostname of the virtual machine",
     )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        help="mode (tap | tantap)",
-    )
+    parser.add_argument("--mode", type=str, help="mode (tap | tantap)", default="tap")
     parser.add_argument(
         "--out",
         type=str,
@@ -396,4 +392,6 @@ done
         out = args.out
         if not out:
             out = f"{vm.hostname}.out"
+        # gracefully handle the output directory
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
         vm.start(working_dir=Path(tmp), stdout=Path(out).open("w"))

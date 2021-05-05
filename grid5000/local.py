@@ -13,15 +13,36 @@ import enoslib as en
 from g5k import TansivHost
 
 N = 2
-VM1 = ip_interface("10.0.0.11/24")
-VM2 = ip_interface("10.0.0.12/24")
-VMS = [VM1, VM2]
 
 
 class ExpEnv(object):
-    """Context manager that boots n vm."""
+    """Context manager that boots n vm.
 
-    def __init__(self, qemu_cmd, qemu_image, qemu_args, result_dir, number: int = 2):
+    The intent is to use it as a drop-in replacement of the tansiv process
+    to test stuffs without Tansiv in the picture.
+    So this will fork/exec as many VMs as needed using a call to the boot.py
+    wrapper (the same as tansiv uses).  These VMs will thus use a regular
+    bridged tap to communicate.
+
+    Args:
+        qemu_cmd: the path to the qemu executable
+        qemu_image: the disk image to use (e.g. a qcow2 image)
+        qemu_args: some qemu args to use (-icount sleep=off,shift=0 sounds reasonnable)
+        result_dir: put some logs (each vm stdout) in this directory
+        boot_cmd: the path to the boot.py executable that will boot the vms.
+        number: number of VMs to boot
+    """
+
+    def __init__(
+        self,
+        qemu_cmd: str,
+        qemu_image: str,
+        qemu_args: str,
+        result_dir: str,
+        boot_cmd: str = "../examples/qemus/boot.py",
+        number: int = 2,
+    ):
+        self.boot_cmd = boot_cmd
         self.qemu_cmd = qemu_cmd
         self.qemu_image = qemu_image
         self.qemu_args = qemu_args
@@ -30,7 +51,7 @@ class ExpEnv(object):
         self.child_pids = []
 
     def __enter__(self):
-        # fork exec 2 vms
+        # fork exec some VMs
         for i in range(self.number):
             pid = os.fork()
             descriptor = 10 + i
@@ -43,7 +64,7 @@ class ExpEnv(object):
                     f"{sys.executable}",
                     [
                         sys.executable,
-                        "../examples/qemus/boot.py",
+                        self.boot_cmd,
                         tantap_ip,
                         management_ip,
                         "--qemu_cmd",
@@ -57,7 +78,6 @@ class ExpEnv(object):
                     ],
                     env,
                 )
-
             self.child_pids.append(pid)
         tansiv_hosts = []
         for i in range(self.number):
@@ -74,49 +94,6 @@ class ExpEnv(object):
         import signal
 
         os.killpg(os.getpgrp(), signal.SIGTERM)
-
-
-def flent(tansiv_roles, result_dir=Path("result"), bench: str = "tcp_download"):
-    hosts = tansiv_roles["all"]
-    # split the hosts
-    masters = hosts[0:2:]
-    workers = hosts[1:2:]
-    vm_time = defaultdict(list)
-    host_time = defaultdict(list)
-    for machine in hosts:
-        machine.extra.update(flent_server=masters[0].extra["tansiv_alias"])
-
-    with en.play_on(roles=dict(all=masters)) as p:
-        p.shell(
-            "(tmux ls | grep netserver ) ||tmux new-session -s netserver -d 'netserver -D'"
-        )
-
-    with en.play_on(roles=dict(all=workers)) as p:
-        p.shell(
-            (
-                f"flent {bench}"
-                + " -p totals -l 30 -H {{ flent_server }} "
-                + f"-o {bench}.png"
-            )
-        )
-        p.fetch(src=f"{bench}.png", dest=str(result_dir))
-
-    return {bench: dict(vm_time=vm_time, host_time=host_time)}
-
-
-def stress(tansiv_roles, args):
-
-    vm_time = defaultdict(list)
-    host_time = defaultdict(list)
-    with en.play_on(roles=tansiv_roles) as p:
-        p.shell(f"stress {args}")
-
-    return {args: dict(vm_time=vm_time, host_time=host_time)}
-
-
-def dump_steps(result_dir: Path, args: str, stepŝ: Dict):
-    with (result_dir / "check_timers.json").open("w") as f:
-        json.dump(dict(qemu_args=args, results=steps), f)
 
 
 if __name__ == "__main__":
@@ -142,21 +119,4 @@ if __name__ == "__main__":
             number=2,
         ) as tansiv_roles:
             steps = dict()
-
-            for stress_cmd in [
-                "--cpu 1 --timeout 30s",
-                #             "--io 1 --timeout 30s",
-                "--hdd 1 --timeout 30s",
-            ]:
-                steps.update(stress(tansiv_roles, stress_cmd))
-                print(steps)
-                dump_steps(result_dir, qemu_args, steps)
-                time.sleep(30)
-
-            for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
-                steps.update(flent(tansiv_roles, result_dir, bench=bench))
-                # wait some time (time as measured on the host system)
-                dump_steps(result_dir, qemu_args, steps)
-                time.sleep(30)
-
             time.sleep(60)
