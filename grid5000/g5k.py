@@ -49,6 +49,7 @@ Examples:
 """
 
 import argparse
+import json
 import logging
 import time
 import traceback
@@ -56,6 +57,7 @@ from ipaddress import IPv4Interface
 from pathlib import Path
 
 import enoslib as en
+from enoslib.api import gather_facts
 from enoslib.objects import DefaultNetwork
 from enoslib.service.emul.netem import (
     NetemInConstraint,
@@ -74,7 +76,7 @@ class MantapNetwork(DefaultNetwork):
 
 # Our two networks
 ## one network to communicate using through a tantap or a tap
-TANTAP_NETWORK = TantapNetwork("192.168.120.0/24")
+TANTAP_NETWORK = TantapNetwork("192.168.1.0/24")
 # Management network (using a tap)
 MANTAP_NETWORK = MantapNetwork("10.0.0.0/24")
 
@@ -82,9 +84,9 @@ MANTAP_NETWORK = MantapNetwork("10.0.0.0/24")
 NETWORKS = dict(tantap=[TANTAP_NETWORK], mantap=[MANTAP_NETWORK])
 
 
-class TansivHost(en.Host):
+class G5kTansivHost(en.Host):
     """
-    A TansivHost is an EnOSlib Host but requires an extra jump to access it
+    A TansivHost is an EnOSlib Host but requires an extra ssh jump to access it
 
     local_machine --ssh1--> g5k machine --ssh2--> tansiv host
     ssh1 also requires a jump through the access machine but that should be
@@ -125,7 +127,7 @@ def build_tansiv_roles(deployment: Path, tansiv_node: en.Host) -> en.Roles:
     )
     tansiv_roles = dict(
         all=[
-            TansivHost(str(ip_iface.ip), ip_iface.ip.packed[-1], tansiv_node.address)
+            G5kTansivHost(str(ip_iface.ip), ip_iface.ip.packed[-1], tansiv_node.address)
             for ip_iface in ip_ifaces
         ]
     )
@@ -133,7 +135,7 @@ def build_tansiv_roles(deployment: Path, tansiv_node: en.Host) -> en.Roles:
     return tansiv_roles
 
 
-def generate_deployment(args) -> str:
+def generate_deployment(args, env=None) -> str:
     """Generate a deployment file with size vms.
 
     Many things remain hardcoded (e.g physical host to map the processes).
@@ -145,7 +147,7 @@ def generate_deployment(args) -> str:
 
     platform = ET.Element("platform", dict(version="4.1"))
     for i in range(1, size + 1):
-        # we start at 10.0.0.10/192.168.120.10
+        # we start at 10.0.0.10/192.168.1.10
         descriptor = 9 + i
         vm = ET.SubElement(
             platform,
@@ -153,14 +155,14 @@ def generate_deployment(args) -> str:
             dict(host=f"nova-{i}.lyon.grid5000.fr", function="vsg_vm"),
         )
         # FIXME: duplication ahead :( use EnOSlib networks here
-        ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}"))
+        ET.SubElement(vm, "argument", dict(value=f"192.168.1.{descriptor}"))
         ET.SubElement(vm, "argument", dict(value="./boot.py"))
         ET.SubElement(vm, "argument", dict(value=f"--mode"))
         ET.SubElement(vm, "argument", dict(value=f"tantap"))
         ET.SubElement(vm, "argument", dict(value=f"--autoconfig_net"))
         ET.SubElement(vm, "argument", dict(value=f"--out"))
         ET.SubElement(vm, "argument", dict(value=f"tantap/vm-{descriptor}.out"))
-        ET.SubElement(vm, "argument", dict(value=f"192.168.120.{descriptor}/24"))
+        ET.SubElement(vm, "argument", dict(value=f"192.168.1.{descriptor}/24"))
         ET.SubElement(vm, "argument", dict(value=f"10.0.0.{descriptor}/24"))
     element_tree = ElementTree(platform)
     with open(out, "w") as f:
@@ -220,7 +222,9 @@ def deploy(args, env=None):
         # assumes that the qcow2 image is there
         p.file(path="/tmp/tansiv", state="directory")
         p.synchronize(
-            src=image, dest="/tmp/tansiv/image.qcow2", display_name="copying base image"
+            src=str(image),
+            dest="/tmp/tansiv/image.qcow2",
+            display_name="copying base image",
         )
         p.synchronize(
             src=platform,
@@ -380,10 +384,10 @@ def flent(args, env=None):
     for bench in ["tcp_download", "tcp_upload", "udp_flood"]:
 
         remote_dir = f"{bench}_{str(time.time_ns())}"
+        start = time.time()
         with en.play_on(roles=dict(all=workers)) as p:
             p.file(state="directory", path=f"{remote_dir}")
             # recording the "real" time
-            start = time.time()
             p.shell(
                 " ".join(
                     [
@@ -395,10 +399,12 @@ def flent(args, env=None):
                 ),
                 chdir=remote_dir,
             )
-            end = time.time()
+        end = time.time()
+        # some results
+        (env.env_name / f"timing_{remote_dir}").write_text(str(end - start))
+        with en.play_on(roles=dict(all=workers)) as p:
             p.shell(f"tar -czf {remote_dir}.tar.gz {remote_dir}")
             p.fetch(src=f"{remote_dir}.tar.gz", dest=f"{env.env_name}")
-            (env.env_name / f"timing_{bench}").write_text(str(end - start))
 
 
 @en.enostask()
@@ -428,6 +434,7 @@ def vm_emulate(args, env=None):
     options = args.options
     tansiv_roles = env["tansiv_roles"]
     tansiv_networks = env["tansiv_networks"]
+
     netem = en.Netem().add_constraints(
         options,
         hosts=tansiv_roles["all"],
@@ -447,10 +454,27 @@ def host_emulate(args, env=None):
     """
     options = args.options
     roles = env["roles"]
-    cout = NetemOutConstraint("mantap-br", options)
-    cin = NetemInConstraint("mantap-br", options)
+    cout = NetemOutConstraint("tantap-br", options)
+    cin = NetemInConstraint("tantap-br", options)
     source = NetemInOutSource(roles["tansiv"][0], constraints=set([cin, cout]))
     en.netem([source])
+
+
+@en.enostask()
+def dump(args, env=None):
+    """Dump some environmental informations."""
+    # First on the host machine
+    roles = env["roles"]
+    host = dict(
+        docker_ps=en.run_command("docker ps", roles=roles),
+        docker_inspect=en.run_command("docker inspect tansiv", roles=roles),
+        ps_qemu=en.run_command("ps aux | grep qemu", roles=roles),
+        qdisc=en.run_command("tc qdisc", roles=roles),
+    )
+    tansiv_roles = env["tansiv_roles"]
+    vms = dict(qdisc=en.run_command("tc qdisc", roles=tansiv_roles))
+    dump = dict(host=host, vms=vms)
+    (env.env_name / "dump").write_text(json.dumps(dump))
 
 
 if __name__ == "__main__":
@@ -464,8 +488,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tansiv experimentation engine")
     parser.add_argument("--env", help="env directory to use")
 
-    # FIXME
-
+    # deploy --env <required> [--cluster ...] tansiv
+    # deploy --env <required> [--cluster ... ] notansiv
     # ------------------------------------------------------------------- DEPLOY
     subparsers = parser.add_subparsers(help="deploy")
     parser_deploy = subparsers.add_parser(
@@ -485,7 +509,7 @@ if __name__ == "__main__":
     parser_deploy.add_argument(
         "--walltime", help="Walltime for the reservation", default="02:00:00"
     )
-    parser_deploy.add_argument("--queue", help="Qeueue to use", default="default")
+    parser_deploy.add_argument("--queue", help="Queue to use", default="default")
     parser_deploy.add_argument(
         "--docker_image",
         help="Tansiv docker image to use",
@@ -527,6 +551,10 @@ if __name__ == "__main__":
     parser_emulate.add_argument(
         "options", help="The options to pass to our (Simple)Netem (e.g 'delay 10ms')"
     )
+
+    # ------------------------------------------------------------------ DUMP
+    parser_dump = subparsers.add_parser("dump", help="Dump some infos")
+    parser_dump.set_defaults(func=dump)
 
     # ------------------------------------------------------------------ DESTROY
     parser_destroy = subparsers.add_parser("destroy", help="Destroy the deployment")
