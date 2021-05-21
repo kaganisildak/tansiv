@@ -61,11 +61,6 @@ configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
 configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
 add_dependencies(gettimeofday fake-vm)
 
-# Qemus
-configure_file(examples/qemus/boot.py examples/qemus/boot.py COPYONLY)
-configure_file(examples/qemus/deployment.xml examples/qemus/deployment.xml COPYONLY)
-configure_file(examples/qemus/nova_cluster.xml examples/qemus/nova_cluster.xml COPYONLY)
-
 # Unit tests
 add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
 target_include_directories(tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
