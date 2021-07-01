@@ -39,22 +39,22 @@ answer personally without cheating: \textbf{you will be given similar exercises
 thinking that you demonstrate during the live assignments.
 
 \vspace{-.7\baselineskip}
-\paragraph{What to turn in?} You are not expected to implement anything on
-computer. It's OK to write all your answers on a sheet of paper and take
-pictures of it. For sake of readability, the best solution is probably to type
-your answer in a text document, add pictures of the sheets where you draw the
-requested schematics, and return the result as a single pdf. If the resulting
-document is over 10Mb, you should reduce the photos' resolution.
+\paragraph{What to turn in?} You are not expected to actually implement code on
+computer. It's OK to answer manually sheets of paper and return pictures.
+For the sake of readability, the best solution is probably to type your answer
+in a text document, add pictures of sheets on which you draw the requested
+schematics, and return the result as a single pdf. If the resulting document is
+over 10Mb, you should reduce the photos' resolution.
 
 \vspace{-.7\baselineskip}
-\paragraph{How and when to return your answer?} You should send your answers per
-email, at least one hour before the interview time. Remember: it's perfectly OK
+\paragraph{How and when to return your answer?} You should send your answers \textbf{per
+email, at least one hour before the interview} time. Remember: it's perfectly OK
 to not have all answers on your proposal. We will discuss your answers during
 the interview.
 
 \bigskip
 \Exercise Explain the similarities and differences between emulation and
-hardware-assisted virtualization. Your answer should probably not excess 15 lines.
+hardware-assisted virtualization. Your answer should probably not exceed 15 lines.
 
 \begin{Reponse}
 1. remplir une matrice 3x3 de "quelle architecture peut tourner en VM avec quelle méthode sur quelle architecture hôte", les architectures étant x86, x86-64, et aarch32 ;
@@ -81,7 +81,7 @@ hardware-assisted virtualization. Your answer should probably not excess 15 line
   $ echo HelLo | ./mystery GooDDaY
 \end{Verbatim}
 
-\Question What are the possible display order of the following command? Think
+\Question What are the possible display orders of the following command? Think
 which of the involved syscalls induce a synchronization between the processes.
 \begin{Verbatim}[gobble=2,numbers=none]
   $ gcc -Wall -o mystery mystery.c
@@ -332,14 +332,14 @@ to write neither \texttt{album\_new()} nor \texttt{album\_free()}. Just after
 \texttt{album\_new()}, the field \texttt{size} is 0 while the field
 \texttt{stamps} does not contain any stamp.
 
-\Question Implement the function \texttt{album\_desc\_max()} which prototype is
+\Question Implement the function \texttt{album\_desc\_max()} whose prototype is
 given at line 8. It returns the description of the stamp which price is the
 maximum over the whole album.
 
 \begin{Live}
   
 \Question Implement the function \texttt{album\_add\_stamp()} which prototype is
-given at line 9. It creates a new stamp from its parameters, and add it to the
+given at line 9. It creates a new stamp from its parameters, and adds it to the
 album.
 
 
