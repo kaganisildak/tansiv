@@ -187,7 +187,14 @@ int main(int argc, char* argv[])
   simgrid::s4u::Engine e(&argc, argv);
 
   e.load_platform(argv[1]);
-
+  // Mark the upload links in the cluster as serial. This won't work when we use something else than clusters.
+  for (auto l : e.get_all_links()) {
+     auto name = l.get_name();
+     char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
+     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern)))
+       l.set_concurrency_limit(1);
+  }
+   
   vms_interface = new vsg::VmsInterface();
 
   e.register_function(vsg_vm_name, &tansiv_actor);
