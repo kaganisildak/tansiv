@@ -81,12 +81,10 @@ docker:
       if [[ -n "${CI_JOB_TOKEN}" ]]
       then
         docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-        export DOCKER_IMAGE=${CI_REGISTRY_IMAGE}/tansiv:${CI_COMMIT_SHORT_SHA}
-        export DOCKER_IMAGE_LATEST=${CI_REGISTRY_IMAGE}/tansiv:latest
-        docker build -t ${DOCKER_IMAGE} .
+        DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
+        DOCKER_IMAGE="${CI_REGISTRY_IMAGE}/tansiv-${CI_COMMIT_BRANCH}:latest"
+        docker build -t "$DOCKER_IMAGE" --label "$DOCKER_LABEL" .
         docker push ${DOCKER_IMAGE}
-        docker tag ${DOCKER_IMAGE} ${DOCKER_IMAGE_LATEST}
-        docker push ${DOCKER_IMAGE_LATEST}
       else
         export DOCKER_IMAGE=tansiv:latest
         docker build -t ${DOCKER_IMAGE} .
