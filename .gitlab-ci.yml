@@ -102,7 +102,20 @@ persistent-docker:
   script:
     - |
       docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-      DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
       DOCKER_IMAGE="${CI_REGISTRY_IMAGE}/tansiv:${CI_COMMIT_TAG}"
-      docker build -t "$DOCKER_IMAGE" --label "$DOCKER_LABEL" .
+      FOUND=
+      for branch in $(git branch --contains ${CI_COMMIT_SHORT_SHA}); do
+        image=${CI_REGISTRY_IMAGE}/tansiv-${branch}:latest
+        docker pull ${image}
+        short_sha=$(docker image inspect --format='{{index .Config.Labels "tansiv-commit-id"}}' ${image})
+        if [ "$short_sha" = $CI_COMMIT_SHORT_SHA" ]; then
+          docker tag ${image} ${DOCKER_IMAGE}
+          FOUND=y
+          break
+        fi
+      done
+      if [ -z "$FOUND" ]; then
+        DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
+        docker build -t "$DOCKER_IMAGE" --label "$DOCKER_LABEL" .
+      fi
       docker push ${DOCKER_IMAGE}
