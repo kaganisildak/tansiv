@@ -81,4 +81,13 @@ int vsg_at_deadline_send(int);
 // TODO(msimonin): why don't we have time here ?
 int vsg_deliver_send(int, struct vsg_deliver_packet, const uint8_t*);
 
+/*
+ * Low-level functions
+ * Send and receive full messages even if interrupted by signals
+ *
+ * @return 0 on success, -1 on failure with errno set accordingly (errno == EPIPE on EOF)
+ */
+int vsg_protocol_send(int fd, const void *buf, size_t len);
+int vsg_protocol_recv(int fd, void *buf, size_t len);
+
 #endif

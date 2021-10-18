@@ -1,6 +1,7 @@
 #include "vsg.h"
 #include "log.h"
 #include <arpa/inet.h>
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdbool.h>
@@ -64,6 +65,44 @@ void vsg_upg_port(void* buf, int length, in_port_t* port, uint8_t** payload)
   *payload      = (_buf + 2);
 }
 
+int vsg_protocol_send(int fd, const void *buf, size_t len)
+{
+  size_t curlen = len;
+  ssize_t count;
+
+  do {
+    count = send(fd, buf + (len - curlen), curlen, 0);
+    if (count > 0) {
+      curlen -= count;
+    } else if (count < 0 && errno != EINTR) {
+      return -1;
+    }
+  } while (curlen > 0);
+
+  return 0;
+}
+
+int vsg_protocol_recv(int fd, void *buf, size_t len)
+{
+  size_t curlen = len;
+  ssize_t count;
+
+  do {
+    count = recv(fd, buf + (len - curlen), curlen, MSG_WAITALL);
+    if (count > 0) {
+      curlen -= count;
+    } else if (count == 0 && curlen > 0) {
+      /* The peer closed the socket prematurately. */
+      errno = EPIPE;
+      return -1;
+    } else if (count < 0 && errno != EINTR) {
+      return -1;
+    }
+  } while (curlen > 0);
+
+  return 0;
+}
+
 /*
  * VSG_AT_DEADLINE related functions
  */
@@ -72,13 +111,13 @@ int vsg_at_deadline_send(int fd)
 {
   log_debug("VSG_AT_DEADLINE send");
   enum vsg_msg_out_type at_deadline = AtDeadline;
-  return send(fd, &at_deadline, sizeof(at_deadline), 0);
+  return vsg_protocol_send(fd, &at_deadline, sizeof(at_deadline));
 }
 
 int vsg_at_deadline_recv(int fd, struct vsg_time* deadline)
 {
   log_debug("VSG_GOTO_DEADLINE recv");
-  int ret = recv(fd, deadline, sizeof(struct vsg_time), MSG_WAITALL);
+  int ret = vsg_protocol_recv(fd, deadline, sizeof(struct vsg_time));
   // TODO(msimonin): this can be verbose, I really need to add a logger
   // printf("VSG] -- deadline = %d.%d\n", deadline->seconds,
   // deadline->useconds);
@@ -95,15 +134,15 @@ int vsg_deliver_send(int fd, struct vsg_deliver_packet deliver_packet, const uin
   struct vsg_packet packet          = deliver_packet.packet;
   enum vsg_msg_in_type deliver_flag = DeliverPacket;
   int ret                           = 0;
-  ret                               = send(fd, &deliver_flag, sizeof(deliver_flag), 0);
+  ret                               = vsg_protocol_send(fd, &deliver_flag, sizeof(deliver_flag));
   if (ret < 0)
     return -1;
 
-  ret = send(fd, &deliver_packet, sizeof(deliver_packet), 0);
+  ret = vsg_protocol_send(fd, &deliver_packet, sizeof(deliver_packet));
   if (ret < 0)
     return -1;
 
-  ret = send(fd, message, packet.size, 0);
+  ret = vsg_protocol_send(fd, message, packet.size);
   if (ret < 0)
     return -1;
   return 0;
