@@ -46,6 +46,8 @@ build:
     - make test
     - cd ${PROJECT_DIR}/build
     - make
+    # Outside of Rust tests, Rust panics are bugs
+    - export RUST_BACKTRACE=1
     # NOTE(msimonin): as long as https://gitlab.inria.fr/quinson/2018-vsg/-/issues/5 is around
     # we run our tests isolated in different process.
     # This is far from ideal since reports will be spread in the output of each process

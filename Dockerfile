@@ -36,6 +36,8 @@ RUN cmake .. && make && make DESTDIR=/opt/tansiv install
 # WORKDIR /app/src/fake-vm
 # RUN make && make test
 
+# Outside of Rust tests, Rust panics are bugs
+ENV RUST_BACKTRACE=1
 
 # run some tests about the c/c++ part
 WORKDIR /app/build
