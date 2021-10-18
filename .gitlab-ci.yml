@@ -108,7 +108,7 @@ persistent-docker:
         image=${CI_REGISTRY_IMAGE}/tansiv-${branch}:latest
         docker pull ${image}
         short_sha=$(docker image inspect --format='{{index .Config.Labels "tansiv-commit-id"}}' ${image})
-        if [ "$short_sha" = $CI_COMMIT_SHORT_SHA" ]; then
+        if [ "$short_sha" = "$CI_COMMIT_SHORT_SHA" ]; then
           docker tag ${image} ${DOCKER_IMAGE}
           FOUND=y
           break
