@@ -217,7 +217,7 @@ void send_deliver_pg_port(int client_socket)
 
   // deliver sequence
   uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-  vsg_packet packet                        = {.size = sizeof(buf)};
+  vsg_packet packet                        = {.size = (uint32_t) sizeof(buf)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
   ret = vsg_deliver_send(client_socket, deliver_packet, buf);
   REQUIRE(0 == ret);
