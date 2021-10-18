@@ -84,16 +84,21 @@ ScenarioRunner::~ScenarioRunner()
 
 static void init_sequence(int client_socket)
 {
+  int ret;
+
   vsg_msg_in_type msg = vsg_msg_in_type::GoToDeadline;
-  int ret             = send(client_socket, &msg, sizeof(uint32_t), 0);
+  ret                 = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
+  REQUIRE(0 == ret);
   vsg_time t          = {0, 200};
-  send(client_socket, &t, sizeof(vsg_time), 0);
+  ret                 = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
+  REQUIRE(0 == ret);
 }
 
 static void end_sequence(int client_socket)
 {
   vsg_msg_in_type msg = vsg_msg_in_type::EndSimulation;
-  send(client_socket, &msg, sizeof(uint32_t), 0);
+  int ret = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
+  REQUIRE(0 == ret);
 }
 
 /*
@@ -122,17 +127,21 @@ void simple(int client_socket)
  */
 void recv_one(int client_socket)
 {
+  int ret;
+
   printf("Entering recv_one scenario\n");
   init_sequence(client_socket);
 
   // first, check the type of message
   vsg_msg_out_type msg_type;
-  recv(client_socket, &msg_type, sizeof(vsg_msg_out_type), MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
+  REQUIRE(0 == ret);
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
 
   // second, check the send time and size
   vsg_send_packet send_packet = {0};
-  recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
+  REQUIRE(0 == ret);
 
   // test the received addresses
   in_addr_t src_expected = inet_addr(SRC);
@@ -143,7 +152,8 @@ void recv_one(int client_socket)
 
   // finally get the payload
   uint8_t buf[send_packet.packet.size];
-  recv(client_socket, buf, send_packet.packet.size, MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, buf, send_packet.packet.size);
+  REQUIRE(0 == ret);
 
   std::string expected = MESSAGE;
   std::string actual   = std::string((char*)buf);
@@ -170,7 +180,8 @@ void deliver_one(int client_socket)
   std::string data      = MESSAGE;
   vsg_packet packet     = {.size = (uint32_t)data.length() + 1, .src = inet_addr(SRC), .dst = inet_addr(DEST)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
+  int ret = vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
+  REQUIRE(0 == ret);
   printf("Leaving deliver_one scenario\n");
 
   end_sequence(client_socket);
@@ -186,24 +197,30 @@ void deliver_one(int client_socket)
  */
 void send_deliver_pg_port(int client_socket)
 {
+  int ret;
+
   printf("Entering send_deliver_pg_port scenario\n");
   init_sequence(client_socket);
 
   // receive send_packet
   vsg_msg_out_type msg_type;
-  recv(client_socket, &msg_type, sizeof(vsg_msg_out_type), MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
+  REQUIRE(0 == ret);
   vsg_send_packet send_packet = {0};
-  recv(client_socket, &send_packet, sizeof(vsg_send_packet), MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
+  REQUIRE(0 == ret);
   // here the payload contains the port
   // we just pass it back to the app with a deliver message
   uint8_t buf[send_packet.packet.size];
-  recv(client_socket, buf, send_packet.packet.size, MSG_WAITALL);
+  ret = vsg_protocol_recv(client_socket, buf, send_packet.packet.size);
+  REQUIRE(0 == ret);
 
   // deliver sequence
   uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
   vsg_packet packet                        = {.size = sizeof(buf)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  vsg_deliver_send(client_socket, deliver_packet, buf);
+  ret = vsg_deliver_send(client_socket, deliver_packet, buf);
+  REQUIRE(0 == ret);
 
   end_sequence(client_socket);
   printf("Leaving send_deliver_pg_port scenario\n");

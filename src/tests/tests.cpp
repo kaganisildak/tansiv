@@ -82,7 +82,8 @@ TEST_CASE("VSG receive one message", "[vsg]")
 
     std::string msg = MESSAGE;
     in_addr_t dst   = inet_addr(DEST);
-    vsg_send(context, dst, msg.length() + 1, (uint8_t*)msg.c_str());
+    ret = vsg_send(context, dst, msg.length() + 1, (uint8_t*)msg.c_str());
+    REQUIRE(ret == 0);
 
     vsg_stop(context);
     vsg_cleanup(context);
@@ -117,7 +118,8 @@ TEST_CASE("VSG deliver one message", "[vsg]")
     uint32_t src, dst;
     uint8_t* buffer = (uint8_t*)malloc(strlen(MESSAGE) + 1);
     // Test the received message
-    vsg_recv(context, &src, &dst, &msg_len, buffer);
+    ret = vsg_recv(context, &src, &dst, &msg_len, buffer);
+    REQUIRE(0 == ret);
 
     // test the received message
     // -- size read
@@ -159,7 +161,8 @@ TEST_CASE("VSG send piggyback port", "[vsg]")
     vsg_pg_port(port, (uint8_t*)msg.c_str(), msg.length() + 1, payload);
 
     // fire!
-    vsg_send(context, dst, payload_length, payload);
+    ret = vsg_send(context, dst, payload_length, payload);
+    REQUIRE(ret == 0);
 
     // loop until some message arrives
     // this shouldn't take long ...
