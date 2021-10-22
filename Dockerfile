@@ -29,7 +29,7 @@ WORKDIR /app/build
 RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
 
 # run some tests about the rust part
-WORKDIR /app/src/fake-vm
+WORKDIR /app/src/client
 RUN make && make test
 
 # Outside of Rust tests, Rust panics are bugs

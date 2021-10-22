@@ -5,7 +5,7 @@ use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "libfake-vm", raw(setting = "structopt::clap::AppSettings::NoBinaryName"))]
+#[structopt(name = "libtansiv-client", raw(setting = "structopt::clap::AppSettings::NoBinaryName"))]
 pub(crate) struct Config {
     /// Server socket address of the actor (only UNIX sockets supported)
     #[structopt(short = "a", long = "actor", parse(from_os_str))]

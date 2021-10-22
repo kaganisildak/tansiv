@@ -31,7 +31,7 @@ Il y a des tests à différents niveau:
 
 Cette fois Simgrid est impliqué.
 
-- `send`: échange d'un message entre deux processus (utilise l'implémentation sur process de fake-vm)
+- `send`: échange d'un message entre deux processus (utilise l'implémentation sur process tanproc)
 
 ```
 ./tansiv   examples/send/nova_cluster.xml examples/send/deployment.xml --log=vm_interface.threshold:debug --log=vm_coordinator.threshold:debug

@@ -1,5 +1,5 @@
-#ifndef __FAKE_VM_H__
-#define __FAKE_VM_H__
+#ifndef __TANSIV_CLIENT_H__
+#define __TANSIV_CLIENT_H__
 
 #include <stdint.h>
 #include <sys/time.h>
@@ -25,4 +25,4 @@ int vsg_send(const struct vsg_context* context, uint32_t dest, uint32_t msglen, 
 int vsg_recv(const struct vsg_context* context, uint32_t* src, uint32_t* dest, uint32_t* msglen, uint8_t* msg);
 int vsg_poll(const struct vsg_context* context);
 
-#endif /* __FAKE_VM_H__ */
+#endif /* __TANSIV_CLIENT_H__ */

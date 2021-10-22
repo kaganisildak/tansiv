@@ -6,7 +6,7 @@
         "/usr/include/glib-2.0",
         "/usr/lib/x86_64-linux-gnu/glib-2.0/include/",
         "${workspaceFolder}/**",
-        "${workspaceFolder}/src/fake-vm/capi/src/*",
+        "${workspaceFolder}/src/client/capi/src/*",
         "${workspaceFolder}/src/vsg/*",
         "${workspaceFolder}/src/**",
         "/opt/simgrid/**"

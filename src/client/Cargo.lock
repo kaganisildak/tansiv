@@ -191,20 +191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fake_vm"
-version = "0.1.0"
-dependencies = [
- "tansiv-client",
-]
-
-[[package]]
-name = "fake_vm_capi"
-version = "0.1.0"
-dependencies = [
- "capi",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,6 +466,20 @@ dependencies = [
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "unicode-xid 0.1.0",
+]
+
+[[package]]
+name = "tanproc"
+version = "0.1.0"
+dependencies = [
+ "tansiv-client",
+]
+
+[[package]]
+name = "tanproc_capi"
+version = "0.1.0"
+dependencies = [
+ "capi",
 ]
 
 [[package]]

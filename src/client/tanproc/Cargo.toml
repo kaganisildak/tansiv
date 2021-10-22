@@ -1,5 +1,5 @@
 [package]
-name = "fake_vm"
+name = "tanproc"
 version = "0.1.0"
 authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
 edition = "2018"

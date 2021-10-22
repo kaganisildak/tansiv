@@ -1,4 +1,4 @@
-LIB_CRATES := fake_vm_capi tanqemu_capi
+LIB_CRATES := tanproc_capi tanqemu_capi
 
 CARGO := cargo
 CARGO_ENV ?=
@@ -21,7 +21,7 @@ else
 endif
 OUT_DIR := $(TOP_DIR)/target/$(PROFILE)
 
-TEST_DIRS := $(TOP_DIR)/fake_vm_capi/tests
+TEST_DIRS := $(TOP_DIR)/tanproc_capi/tests
 
 DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include
@@ -50,6 +50,6 @@ $(TEST_DIRS):
 install: build
 	install -d -m 755 $(DEST_LIB_DIR)
 	install -d -m 755 $(DEST_INC_DIR)
-	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libfake_vm.a
+	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanproc.a
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanqemu.a
-	install -m 0644 -t $(DEST_INC_DIR) $(TOP_DIR)/capi/src/fake_vm.h
+	install -m 0644 -t $(DEST_INC_DIR) $(TOP_DIR)/capi/src/tansiv-client.h
