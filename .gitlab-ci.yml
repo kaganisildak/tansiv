@@ -84,8 +84,8 @@ docker:
         DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
         if [ -n "$CI_COMMIT_BRANCH" ]; then
           BRANCH=$CI_COMMIT_BRANCH
-        elif [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then
-          BRANCH=$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+        elif [ -n "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" ]; then
+          BRANCH=$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
         else
           echo "Unhandled case for publishing Docker image. External pull request?"
           exit 1
