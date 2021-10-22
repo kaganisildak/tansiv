@@ -16,55 +16,10 @@ workflow:
     - when: always
 
 stages:
-  - build
   - publish
 
 # unstable, yeah !
 image: simgrid/unstable:latest
-
-build:
-  stage: build
-  rules:
-    - if: $CI_COMMIT_TAG != null
-      when: never
-    - when: always
-  tags:
-    - large
-  script:
-    #
-    # Some missing build tools
-    #
-    - export PROJECT_DIR=$(pwd)
-    - apt-get update
-    - apt-get install -y curl git build-essential pkg-config libboost-dev cmake libcppunit-dev libglib2.0-dev clang libclang-dev libpixman-1-dev flex bison
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
-    - sh rustup-init -y --profile minimal --default-toolchain $RUST_VERSION
-    - export PATH=$HOME/.cargo/bin:$PATH
-    - mkdir -p build
-    # build test
-    - cd build
-    - cmake .. && make config-host.h
-    # fake-vm tests
-    - cd ${PROJECT_DIR}/src/fake-vm
-    - make build
-    - make test
-    - cd ${PROJECT_DIR}/build
-    - make
-    # Outside of Rust tests, Rust panics are bugs
-    - export RUST_BACKTRACE=1
-    # NOTE(msimonin): as long as https://gitlab.inria.fr/quinson/2018-vsg/-/issues/5 is around
-    # we run our tests isolated in different process.
-    # This is far from ideal since reports will be spread in the output of each process
-    # But at least catch2 lets use specify this easily...
-    # But ...
-    #   for some reason this fails: ./tests --list-test-names-only | xargs -d "\n" -n 1 ./tests
-    #   grrr!
-    - ./tests "VSG receive one message"
-    - ./tests "VSG deliver one message"
-    - ./tests "VSG send piggyback port"
-    - ./tests "piggyback port"
-  # for now
-  allow_failure: true
 
 docker:
   image: docker:latest
