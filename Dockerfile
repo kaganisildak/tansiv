@@ -10,6 +10,7 @@ RUN apt-get install -y build-essential \
     cmake \
     libcppunit-dev \
     libglib2.0-dev \
+    cargo \
     clang \
     libclang-dev \
     curl \
@@ -21,11 +22,6 @@ RUN apt-get install -y build-essential \
     bison \
     genisoimage \
     iproute2
-
-# a cup of rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup-init
-RUN sh rustup-init -y --profile minimal --default-toolchain 1.46.0
-ENV PATH=/root/.cargo/bin:$PATH
 
 RUN cargo --help
 
