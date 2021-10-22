@@ -26,7 +26,7 @@ RUN apt-get install -y build-essential \
 RUN cargo --help
 
 WORKDIR /app/build
-RUN cmake .. && make && make DESTDIR=/opt/tansiv install
+RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
 
 # run some tests about the rust part
 # WORKDIR /app/src/fake-vm
