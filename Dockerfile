@@ -54,5 +54,3 @@ RUN mkdir -p /root/.ssh
 RUN ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
 
 WORKDIR /srv
-
-ENTRYPOINT ["tansiv"]
