@@ -46,8 +46,7 @@ RUN ./configure --target-list=x86_64-softmmu && make -j  && make install
 # make some room
 RUN rm -rf /app
 
-ENV PATH=/opt/tansiv/usr/local/bin:$PATH
-ENV QEMU=/usr/local/bin/qemu-system-x86_64
+ENV PATH=/opt/tansiv/bin:$PATH
 
 # create an ssh key (not really usefull, we'd want our local key to be pushed
 # inside the vm anyway)
