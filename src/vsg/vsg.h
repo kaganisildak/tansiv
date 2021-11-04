@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CONNECTION_SOCKET_NAME "/tmp/simgrid_connection_socket"
+#define CONNECTION_SOCKET_NAME "/tmp/tansiv_connection_socket"
 
 /* Messages types */
 /*
