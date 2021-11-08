@@ -1,5 +1,5 @@
-#include "scenario.hpp"
 #include "catch.hpp"
+#include "scenario.hpp"
 
 #include <csignal>
 #include <cstdio>
@@ -89,15 +89,15 @@ static void init_sequence(int client_socket)
   vsg_msg_in_type msg = vsg_msg_in_type::GoToDeadline;
   ret                 = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
   REQUIRE(0 == ret);
-  vsg_time t          = {0, 200};
-  ret                 = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
+  vsg_time t = {0, 200};
+  ret        = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
   REQUIRE(0 == ret);
 }
 
 static void end_sequence(int client_socket)
 {
   vsg_msg_in_type msg = vsg_msg_in_type::EndSimulation;
-  int ret = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
+  int ret             = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
   REQUIRE(0 == ret);
 }
 
@@ -132,15 +132,21 @@ void recv_one(int client_socket)
   printf("Entering recv_one scenario\n");
   init_sequence(client_socket);
 
-  // first, check the type of message
   vsg_msg_out_type msg_type;
-  ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
-  REQUIRE(0 == ret);
+  do {
+    // AtDeadline msgs can arrive before getting the first SendPacket
+    // https://gitlab.inria.fr/tansiv/tansiv/-/issues/20
+    // so we loop until we get somethiing different than AtDeadline
+    // and this message must be a SendPacket
+    ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
+    REQUIRE(0 == ret);
+  } while (msg_type == vsg_msg_out_type::AtDeadline);
+
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
 
   // second, check the send time and size
   vsg_send_packet send_packet = {0};
-  ret = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
+  ret                         = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
   REQUIRE(0 == ret);
 
   // test the received addresses
@@ -180,7 +186,7 @@ void deliver_one(int client_socket)
   std::string data      = MESSAGE;
   vsg_packet packet     = {.size = (uint32_t)data.length() + 1, .src = inet_addr(SRC), .dst = inet_addr(DEST)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  int ret = vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
+  int ret                                  = vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
   REQUIRE(0 == ret);
   printf("Leaving deliver_one scenario\n");
 
@@ -207,7 +213,7 @@ void send_deliver_pg_port(int client_socket)
   ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
   REQUIRE(0 == ret);
   vsg_send_packet send_packet = {0};
-  ret = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
+  ret                         = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
   REQUIRE(0 == ret);
   // here the payload contains the port
   // we just pass it back to the app with a deliver message
@@ -217,9 +223,9 @@ void send_deliver_pg_port(int client_socket)
 
   // deliver sequence
   uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-  vsg_packet packet                        = {.size = (uint32_t) sizeof(buf)};
+  vsg_packet packet                        = {.size = (uint32_t)sizeof(buf)};
   struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  ret = vsg_deliver_send(client_socket, deliver_packet, buf);
+  ret                                      = vsg_deliver_send(client_socket, deliver_packet, buf);
   REQUIRE(0 == ret);
 
   end_sequence(client_socket);
