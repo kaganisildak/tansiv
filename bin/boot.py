@@ -172,7 +172,7 @@ class VM(object):
     def prepare_image(self, working_dir: Path) -> Path:
         qemu_image = (working_dir / "image.qcow2").resolve()
         check_call(
-            f"qemu-img create -f qcow2 -o backing_file={self.qemu_image} {qemu_image}",
+            f"qemu-img create -f qcow2 -F qcow2 -o backing_file={self.qemu_image} {qemu_image}",
             shell=True,
         )
         return qemu_image
