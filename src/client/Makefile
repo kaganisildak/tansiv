@@ -9,7 +9,7 @@ PREFIX ?= /usr/local
 TOP_DIR := $(shell pwd)
 
 QEMU_SRC ?= $(TOP_DIR)/../qemu
-QEMU_BUILD ?= $(TOP_DIR)/../qemu
+QEMU_BUILD ?= $(TOP_DIR)/../qemu/build
 
 CARGO_ENV += QEMU_SRC=$(QEMU_SRC) QEMU_BUILD=$(QEMU_BUILD)
 
