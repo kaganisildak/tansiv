@@ -1,6 +1,7 @@
 #include "VmsInterface.hpp"
 #include <algorithm>
 #include <arpa/inet.h>
+#include <limits>
 #include <signal.h>
 #include <unistd.h>
 #include <xbt/log.hpp>

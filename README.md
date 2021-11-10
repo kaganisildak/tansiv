@@ -9,10 +9,8 @@ elles sont observées en regardant comment le temps avance.
 ```
 mkdir build
 cd build
-cmake .. && make
+cmake  -DCMAKE_INSTALL_PREFIX=/opt/tansiv ..  && make && make install
 ```
-TODO c'est pas tout à fait ça :( (voir la chaîne de build dans le ci ou l'image docker).
-
 
 # Tests unitaires
 
@@ -54,12 +52,18 @@ cd examples/qemus
 Goal: having a single line command to run
 - a tansiv system (several QEMUs + simgrid)
 - a non tansiv system (only QEMUs + linux bridge)
+- an environment with all the deps
 
+## Build
+
+```
+docker build -t tansiv:latest .
+```
 
 ## No Tansiv
 
 ```bash
-docker run  --device /dev/net/tun --cap-add NET_ADMIN -v $(pwd)/tools/packer:/srv/packer -ti tansiv:latest notansiv.py --qemu_cmd qemu-system-x86_64 --qemu_mem 1g --qemu_image packer/packer-debian-10-x86_64-qemu/debian-10-x86_64.qcow2 --autoconfig_net
+ docker run  --device /dev/net/tun --cap-add NET_ADMIN -v $(pwd)/tools/packer:/srv/packer -ti tansiv:latest notansiv.py --qemu_cmd qemu-system-x86_64 --qemu_mem 1g --qemu_image /srv/packer//packer-debian-11.1.0-x86_64-qemu/debian-11.1.0-x86_64.qcow2 --autoconfig_net
 ```
 
 ## Tansiv

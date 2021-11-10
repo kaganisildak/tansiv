@@ -15,8 +15,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/tools/cmake/")
 # order of linked library is important !
 # https://stackoverflow.com/questions/45135/why-does-the-order-in-which-libraries-are-linked-sometimes-cause-errors-in-gcc
-set(TANPROC_LIBS /opt/tansiv-client/lib/libtanproc.a dl rt pthread)
-set(TANSIVCLIENT_INCLUDE_DIR /opt/tansiv-client/include)
+set(TANPROC_LIBS ${CMAKE_INSTALL_PREFIX}/lib/libtanproc.a dl rt pthread)
+set(TANSIVCLIENT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(VSG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/vsg/)
 
 # Search for SimGrid
@@ -25,11 +25,13 @@ find_package(SimGrid REQUIRED)
 include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${VSG_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
-add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu && make -j config-host.h WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu)
+# as part of 6.1.0 the file is generated at configure phase
+# TODO: use prefix
+add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu)
 # tansiv-client client libs tanproc and tanqemu (Rust implementation exporting a C API)
 # installed in /opt/tansiv-client
 # compiled in RELEASE mode (I've got the power !)
-add_custom_target(tansiv-clients ALL COMMAND make PREFIX=/opt/tansiv-client RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client)
+add_custom_target(tansiv-clients ALL COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client)
 add_dependencies(tansiv-clients config-host.h)
 
 # build the qemu base image
@@ -74,4 +76,4 @@ install(FILES src/vsg/vsg.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
 install(PROGRAMS bin/boot.py DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")
-install(CODE "execute_process(COMMAND make PREFIX=/opt/tansiv-client RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client )")
+install(CODE "execute_process(COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client )")

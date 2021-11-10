@@ -16,6 +16,7 @@ RUN apt-get install -y build-essential \
     curl \
     git \
     pkg-config \
+    ninja-build \
     libglib2.0-dev \
     libpixman-1-dev \
     flex \
@@ -41,7 +42,7 @@ RUN ./tests --list-test-names-only | xargs -d "\n" -n1  ./tests
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN ./configure --target-list=x86_64-softmmu && make -j  && make install
+RUN ./configure --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install
 
 # make some room
 RUN rm -rf /app
