@@ -44,8 +44,8 @@ static double compute_min_latency()
 static double get_next_event()
 {
   simgrid::s4u::Engine* engine = simgrid::s4u::Engine::get_instance();
-  double time                  = simgrid::s4u::Engine::get_clock();
-  double next_event_time       = std::numeric_limits<double>::infinity();
+  double time            = simgrid::s4u::Engine::get_clock();
+  double next_event_time = std::numeric_limits<double>::infinity();
   for (auto model : engine->get_all_models()) {
     double model_event = time + model->next_occurring_event(time);
     if (model_event < next_event_time && model_event > time) {
@@ -187,7 +187,16 @@ int main(int argc, char* argv[])
   simgrid::s4u::Engine e(&argc, argv);
 
   e.load_platform(argv[1]);
-
+  // Mark the upload links in the cluster as serial. This won't work when we use something else than clusters.
+  for (auto l : e.get_all_links()) {
+     auto name = l->get_name();
+     const char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
+     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern))) {
+       XBT_INFO("Setting link '%s' as serial", name.c_str());
+       l->set_concurrency_limit(1);
+     }
+  }
+   
   vms_interface = new vsg::VmsInterface();
 
   e.register_function(vsg_vm_name, &tansiv_actor);
