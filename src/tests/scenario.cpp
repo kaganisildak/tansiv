@@ -78,7 +78,7 @@ ScenarioRunner::~ScenarioRunner()
   /* Report an error. */
   if (WIFEXITED(status) && WEXITSTATUS(status) > 0) {
     printf("status=%d\n", WEXITSTATUS(status));
-    // FIXME, do something
+    exit(1);
   }
 }
 
