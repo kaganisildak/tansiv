@@ -342,6 +342,12 @@ done
         default=os.environ.get("IMAGE", None),
     )
 
+    parser.add_argument(
+        "--base_working_dir",
+        type=str,
+        help="base directory where the working dir will be stored",
+    )
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
@@ -395,11 +401,16 @@ done
     for cmd in vm.prepare_net_cmds():
         print(cmd)
 
+
+    # base_working_dir allows to gather in a predefined place all the working dirs.
+    base_working_dir = args.base_working_dir
+    if base_working_dir is not None:
+        Path(base_working_dir).mkdir(exist_ok=True, parents=True)
     # Use a "temporary" directory as working dir where the VM can store
     # some files (dump filter, stdout ...)
     # we actually want this to persist for debugging purpose
     # that's why it's "temporary"
-    tmp = tempfile.TemporaryDirectory(prefix=f"{vm.hostname}_")
+    tmp = tempfile.TemporaryDirectory(prefix=f"{vm.hostname}_", dir=args.base_working_dir)
     LOGGER.info(f"Launching in {tmp.name}")
     vm.start(working_dir=Path(tmp.name))
 
