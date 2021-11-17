@@ -56,9 +56,7 @@ def notansiv(
             "--qemu_args",
             _qemu_args,
             "--mode",
-            "tap",
-            "--out",
-            str(result_dir / f"vm-{descriptor}.out"),
+            "tap"
         ]
         if autoconfig_net:
             arguments.append("--autoconfig_net")

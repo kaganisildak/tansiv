@@ -21,8 +21,6 @@
     <argument value="1g"/>
     <argument value="--qemu_args"/>
     <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
-    <argument value="--out"/>
-    <argument value="tansiv_output/vm-10.out"/>
     <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
     <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.10/24"/> <!-- management -->
@@ -42,8 +40,6 @@
     <argument value="--qemu_args"/>
     <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm -object filter-dump,id=f1,netdev=mynet0,file=dump.dat"/>
     <!-- <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/> -->
-    <argument value="--out"/>
-    <argument value="tansiv_output/vm-11.out"/>
     <argument value="--autoconfig_net"/>
     <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.11/24"/> <!-- management -->
