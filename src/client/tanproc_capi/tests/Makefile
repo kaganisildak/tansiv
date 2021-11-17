@@ -17,4 +17,4 @@ test: $(TARGET_BUILD_TESTS) $(TARGET_RUN_TESTS)
 	for test in $(TARGET_RUN_TESTS); do $$test || { echo "test $$test failed!"; exit 1; }; done
 
 $(TARGET_BUILD_TESTS) $(TARGET_RUN_TESTS): $(OUT_DIR)/%: %.c ../../capi/src/tansiv-client.h $(OUT_DIR)/libtanproc.a
-	gcc -Wall -o $@ -I../../capi/src -L$(OUT_DIR) $< -ltanproc -lpthread -ldl -lrt
+	gcc -Wall -o $@ -I../../capi/src -L$(OUT_DIR) $< -ltanproc -lpthread -ldl -lrt -lm
