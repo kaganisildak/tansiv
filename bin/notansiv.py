@@ -31,15 +31,11 @@ def notansiv(
     qemu_args: str,
     boot_cmd: str,
     autoconfig_net: bool,
-    result_dir: Path,
+    base_working_dir: Path,
     number: int,
-    qemu_args_0: str,
 ):
     global child_pids
     for i in range(number):
-        _qemu_args = qemu_args
-        if i == 0:
-            _qemu_args += " " + qemu_args_0
         pid = os.fork()
         descriptor = 10 + i
         tantap_ip = f"192.168.1.{descriptor}/24"
@@ -54,11 +50,11 @@ def notansiv(
             "--qemu_image",
             qemu_image,
             "--qemu_args",
-            _qemu_args,
+            qemu_args,
+            "--base_working_dir",
+            base_working_dir,
             "--mode",
-            "tap",
-            "--out",
-            str(result_dir / f"vm-{descriptor}.out"),
+            "tap"
         ]
         if autoconfig_net:
             arguments.append("--autoconfig_net")
@@ -112,38 +108,29 @@ def main():
         default="boot.py",
     )
     parser.add_argument(
-        "--result_dir", help="path to the result_dir", default="notansiv_output"
+        "--base_working_dir", help="base directory where the working dir will be stored. Default to /tmp.", default="/tmp"
     )
 
     # Specific options
     parser.add_argument("--number", type=int, help="number of vms to start", default=2)
-    parser.add_argument(
-        "--qemu_args_0",
-        type=str,
-        help="add some more arges on the first vm only",
-        default="",
-    )
 
     args = parser.parse_args()
     qemu_cmd = args.qemu_cmd
     qemu_image = args.qemu_image
     qemu_args = args.qemu_args
-    qemu_args_0 = args.qemu_args_0
     boot_cmd = args.boot_cmd
     autoconfig_net = args.autoconfig_net
-    result_dir = Path(args.result_dir)
     number = int(args.number)
+    base_working_dir = args.base_working_dir
 
-    result_dir.mkdir(parents=True, exist_ok=True)
     child_pids = notansiv(
         qemu_cmd,
         qemu_image,
         qemu_args,
         boot_cmd,
         autoconfig_net,
-        result_dir,
+        base_working_dir,
         number,
-        qemu_args_0,
     )
 
     for child_pid in child_pids:

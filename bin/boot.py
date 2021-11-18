@@ -208,7 +208,7 @@ class VM(object):
             self._br_tap_cmd(self.bridgename[1], self.gateway[1], self.tapname[1]),
         ]
 
-    def start(self, working_dir: Path, stdout) -> Path:
+    def start(self, working_dir: Path) -> Path:
         working_dir.mkdir(parents=True, exist_ok=True)
         # generate cloud_init
         iso = self.prepare_cloud_init(working_dir)
@@ -229,8 +229,9 @@ class VM(object):
             f" -device e1000,netdev=mynet1,mac={self.mac[1]}"
             f" -gdb tcp::{1234 + self.management_id},server,nowait"
         )
+        stdout = (working_dir / "out").open("w")
         LOGGER.info(cmd)
-        check_call(cmd, shell=True, stdout=stdout)
+        check_call(cmd, shell=True, stdout=stdout, cwd=working_dir)
 
 
 class TansivVM(VM):
@@ -307,12 +308,6 @@ done
     )
     parser.add_argument("--mode", type=str, help="mode (tap | tantap)", default="tap")
     parser.add_argument(
-        "--out",
-        type=str,
-        help="stdout file [default to {vm.hostname}.out]",
-    )
-
-    parser.add_argument(
         "--qemu_cmd",
         type=str,
         help="qemu cmd to pass",
@@ -345,6 +340,12 @@ done
         type=str,
         help="disk image",
         default=os.environ.get("IMAGE", None),
+    )
+
+    parser.add_argument(
+        "--base_working_dir",
+        type=str,
+        help="base directory where the working dir will be stored",
     )
 
     logging.basicConfig(level=logging.DEBUG)
@@ -400,14 +401,18 @@ done
     for cmd in vm.prepare_net_cmds():
         print(cmd)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        LOGGER.info(f"Launching in {tmp}")
-        out = args.out
-        if not out:
-            out = f"{vm.hostname}.out"
-        # gracefully handle the output directory
-        Path(out).parent.mkdir(parents=True, exist_ok=True)
-        vm.start(working_dir=Path(tmp), stdout=Path(out).open("w"))
+
+    # base_working_dir allows to gather in a predefined place all the working dirs.
+    base_working_dir = args.base_working_dir
+    if base_working_dir is not None:
+        Path(base_working_dir).mkdir(exist_ok=True, parents=True)
+    # Use a "temporary" directory as working dir where the VM can store
+    # some files (dump filter, stdout ...)
+    # we actually want this to persist for debugging purpose
+    # that's why it's "temporary"
+    tmp = tempfile.TemporaryDirectory(prefix=f"{vm.hostname}_", dir=args.base_working_dir)
+    LOGGER.info(f"Launching in {tmp.name}")
+    vm.start(working_dir=Path(tmp.name))
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ WORKDIR /app/src/qemu
 RUN ./configure --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install
 
 # make some room
-RUN rm -rf /app
+# RUN rm -rf /app
 
 ENV PATH=/opt/tansiv/bin:$PATH
 
