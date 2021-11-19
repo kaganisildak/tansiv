@@ -36,7 +36,7 @@ docker:
       if [[ -n "${CI_JOB_TOKEN}" ]]
       then
         docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-        DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
+        DOCKER_LABEL="tansiv-commit-id=${CI_COMMIT_SHORT_SHA}"
         if [ -n "$CI_COMMIT_BRANCH" ]; then
           BRANCH=$CI_COMMIT_BRANCH
         elif [ -n "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" ]; then
@@ -88,7 +88,7 @@ persistent-docker:
       done
       if [ -z "$FOUND" ]; then
         echo 'No re-use opportunity detected. Building fresh image...'
-        DOCKER_LABEL="tansiv-commit-id⁼${CI_COMMIT_SHORT_SHA}"
+        DOCKER_LABEL="tansiv-commit-id=${CI_COMMIT_SHORT_SHA}"
         docker build -t "$DOCKER_IMAGE" --label "$DOCKER_LABEL" .
       fi
       docker push ${DOCKER_IMAGE}
