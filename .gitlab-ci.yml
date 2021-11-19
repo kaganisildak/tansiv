@@ -69,9 +69,12 @@ persistent-docker:
       docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
       DOCKER_IMAGE="${CI_REGISTRY_IMAGE}/tansiv:${CI_COMMIT_TAG}"
       FOUND=
-      branches=$(git for-each-ref --format='%(refname:lstrip=2)' refs/heads --contains ${CI_COMMIT_SHORT_SHA})
+      branches=$(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin --contains ${CI_COMMIT_SHORT_SHA})
       echo "Candidate branches to re-use latest image from: $branches"
       for branch in $branches; do
+        if [ "$branch" = 'HEAD' ]; then
+          continue
+        fi
         image=${CI_REGISTRY_IMAGE}/tansiv-${branch}:latest
         echo "Trying image '$image'..."
         docker pull ${image}
