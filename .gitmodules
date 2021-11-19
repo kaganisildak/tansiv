@@ -1,5 +1,5 @@
 [submodule "src/crossbeam"]
-	path = src/crossbeam
+	path = src/rust-deps/crossbeam
 	url = https://gitlab.inria.fr/lrilling/crossbeam.git
 	branch = dev/waitfree
 [submodule "src/qemu"]

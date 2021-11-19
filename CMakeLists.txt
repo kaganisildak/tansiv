@@ -43,11 +43,11 @@ target_compile_options(vsg PUBLIC -DLOG_USE_COLOR)
 target_link_libraries(vsg PUBLIC m)
 
 # Tansiv (coordinator of the simulation)
-add_executable(tansiv src/simgrid/VmsInterface.cpp src/simgrid/VmsCoordinator.cpp)
+add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp)
 target_link_libraries(tansiv ${SimGrid_LIBRARY} ${TANPROC_LIBS} vsg)
 target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 
-# Example with tanproc and simgrid
+# Example with tanproc and tansiv
 add_executable(send examples/send/send.cpp)
 set_target_properties(send PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/send)
 target_link_libraries(send PUBLIC ${TANPROC_LIBS} vsg)
