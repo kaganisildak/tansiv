@@ -208,13 +208,22 @@ void send_deliver_pg_port(int client_socket)
   printf("Entering send_deliver_pg_port scenario\n");
   init_sequence(client_socket);
 
-  // receive send_packet
+  // wait for send_packet
   vsg_msg_out_type msg_type;
-  ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
-  REQUIRE(0 == ret);
+  do {
+    // AtDeadline msgs can arrive before getting the first SendPacket
+    // https://gitlab.inria.fr/tansiv/tansiv/-/issues/20
+    // so we loop until we get somethiing different than AtDeadline
+    // and this message must be a SendPacket
+    ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
+    REQUIRE(0 == ret);
+  } while (msg_type == vsg_msg_out_type::AtDeadline);
+
+  REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
   vsg_send_packet send_packet = {0};
   ret                         = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
   REQUIRE(0 == ret);
+
   // here the payload contains the port
   // we just pass it back to the app with a deliver message
   uint8_t buf[send_packet.packet.size];
