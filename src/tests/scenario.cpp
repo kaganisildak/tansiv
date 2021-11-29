@@ -75,11 +75,11 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     exit(0);
   } else if (pid > 0) {
     // Parent: close now unused fds
+    close(connection_socket);
     close(life_pipe[0]);
     // sets the attributes
     printf("I'm your father (my child=%d)\n", pid);
     this->child_pid = pid;
-    this->vsg_fd    = connection_socket;
     this->life_pipe_fd = life_pipe[1];
   } else {
     exit(1);
@@ -88,8 +88,6 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
 
 ScenarioRunner::~ScenarioRunner()
 {
-  printf("Closing the socket %d\n", this->vsg_fd);
-  close(this->vsg_fd);
   /* Terminate child. */
   printf("Terminating %d \n", this->child_pid);
   pid_t pid = this->child_pid;

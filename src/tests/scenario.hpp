@@ -29,7 +29,6 @@ public:
   void finalize();
 
   pid_t child_pid;
-  int vsg_fd;
   int life_pipe_fd;
 };
 
