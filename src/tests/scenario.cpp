@@ -30,12 +30,14 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
 
   if (bind(connection_socket, (sockaddr*)(&address), sizeof(address)) != 0) {
     std::perror("unable to bind connection socket");
+    exit(1);
   }
   // Start queueing incoming connections otherwise there might be a race
   // condition where vsg_init is called before the server side socket is
   // listening.
   if (listen(connection_socket, 1) != 0) {
     std::perror("unable to listen on connection socket");
+    exit(1);
   }
   printf("Actor is now ready to listen to connections\n");
 
@@ -49,8 +51,10 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     unsigned int len              = sizeof(vm_address);
     printf("\tWaiting connections\n");
     int client_socket = accept(connection_socket, (sockaddr*)(&vm_address), &len);
-    if (client_socket < 0)
+    if (client_socket < 0) {
       std::perror("unable to accept connection on socket");
+      exit(1);
+    }
     printf("\tClient connection accepted\n");
     // run it
     (*the_scenario)(client_socket);
