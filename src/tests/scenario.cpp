@@ -15,7 +15,7 @@ using namespace std;
 void sigquit(int signum)
 {
   // gracefully leave
-  exit(0);
+  _exit(0);
 }
 
 ScenarioRunner::ScenarioRunner(scenario* the_scenario)
