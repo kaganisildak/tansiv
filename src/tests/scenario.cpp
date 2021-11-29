@@ -41,11 +41,21 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
   }
   printf("Actor is now ready to listen to connections\n");
 
+  int life_pipe[2];
+  if (pipe(life_pipe) != 0) {
+    std::perror("unable to create life_pipe\n");
+    exit(1);
+  }
+
   pid_t pid = fork();
   if (pid == 0) {
     // Adding a signal to leave the child gracefully
     // when the test ends
     signal(SIGQUIT, sigquit);
+    // Close the write end of life_pipe, so that read returns EOF when
+    // the parent dies.
+    close(life_pipe[1]);
+
     // child process: we continue the actor execution
     struct sockaddr_un vm_address = {0};
     unsigned int len              = sizeof(vm_address);
@@ -58,11 +68,19 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     printf("\tClient connection accepted\n");
     // run it
     (*the_scenario)(client_socket);
+
+    // Wait for the parent to (abnormally) exit or (normally) terminate us by SIGQUIT
+    char dummy;
+    read(life_pipe[0], &dummy, 1);
+    exit(0);
   } else if (pid > 0) {
+    // Parent: close now unused fds
+    close(life_pipe[0]);
     // sets the attributes
     printf("I'm your father (my child=%d)\n", pid);
     this->child_pid = pid;
     this->vsg_fd    = connection_socket;
+    this->life_pipe_fd = life_pipe[1];
   } else {
     exit(1);
   }
@@ -78,6 +96,9 @@ ScenarioRunner::~ScenarioRunner()
   kill(pid, SIGQUIT);
   int status;
   waitpid(pid, &status, 0);
+
+  /* Not mandatory to terminate child but avoids fd leaks */
+  close(this->life_pipe_fd);
 
   /* Report an error. */
   if (WIFEXITED(status) && WEXITSTATUS(status) > 0) {
