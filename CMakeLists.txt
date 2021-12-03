@@ -55,14 +55,6 @@ configure_file(examples/send/deployment.xml examples/send/deployment.xml)
 configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
 add_dependencies(send tansiv-clients)
 
-# Benchs
-add_executable(gettimeofday examples/benchs/gettimeofday.cpp)
-set_target_properties(gettimeofday PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/benchs)
-target_link_libraries(gettimeofday PUBLIC ${TANPROC_LIBS} vsg)
-configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
-configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
-add_dependencies(gettimeofday tansiv-clients)
-
 # Unit tests
 add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
 target_include_directories(tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)

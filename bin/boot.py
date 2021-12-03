@@ -235,10 +235,23 @@ class VM(object):
 
 
 class TansivVM(VM):
+    def __init__(
+        self,
+        socket_name: str,
+        *args,
+        **kwargs
+    ):
+        self.socket_name = socket_name
+        super().__init__(*args, **kwargs)
+
     @property
     def qemu_args(self):
         qemu_args = super().qemu_args
-        return qemu_args + " " + f"--vsg mynet0,src={self.tantap.ip}"
+        return (
+            qemu_args
+            + " "
+            + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip}"
+        )
 
     @property
     def taptype(self) -> List[str]:
@@ -288,6 +301,12 @@ do
 done
 """,
         formatter_class=argparse.RawTextHelpFormatter,
+    )
+
+    parser.add_argument(
+        "socket_name",
+        type=str,
+        help="The (unix) socket name to use for commicating with Tansiv",
     )
 
     parser.add_argument(
@@ -352,6 +371,8 @@ done
 
     args = parser.parse_args()
 
+    socket_name = args.socket_name
+
     ip_tantap = IPv4Interface(args.ip_tantap)
     ip_management = IPv4Interface(args.ip_management)
     hostname = args.hostname
@@ -375,6 +396,7 @@ done
 
     if args.mode == "tantap":
         vm = TansivVM(
+            socket_name,
             ip_tantap,
             ip_management,
             qemu_cmd=qemu_cmd,
@@ -401,7 +423,6 @@ done
     for cmd in vm.prepare_net_cmds():
         print(cmd)
 
-
     # base_working_dir allows to gather in a predefined place all the working dirs.
     base_working_dir = args.base_working_dir
     if base_working_dir is not None:
@@ -410,7 +431,9 @@ done
     # some files (dump filter, stdout ...)
     # we actually want this to persist for debugging purpose
     # that's why it's "temporary"
-    tmp = tempfile.TemporaryDirectory(prefix=f"{vm.hostname}_", dir=args.base_working_dir)
+    tmp = tempfile.TemporaryDirectory(
+        prefix=f"{vm.hostname}_", dir=args.base_working_dir
+    )
     LOGGER.info(f"Launching in {tmp.name}")
     vm.start(working_dir=Path(tmp.name))
 

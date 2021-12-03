@@ -5,8 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CONNECTION_SOCKET_NAME "/tmp/tansiv_connection_socket"
-
 /* Messages types */
 /*
  * Communication over the network:
@@ -87,7 +85,7 @@ int vsg_deliver_send(int, struct vsg_deliver_packet, const uint8_t*);
  *
  * @return 0 on success, -1 on failure with errno set accordingly (errno == EPIPE on EOF)
  */
-int vsg_protocol_send(int fd, const void *buf, size_t len);
-int vsg_protocol_recv(int fd, void *buf, size_t len);
+int vsg_protocol_send(int fd, const void* buf, size_t len);
+int vsg_protocol_recv(int fd, void* buf, size_t len);
 
 #endif

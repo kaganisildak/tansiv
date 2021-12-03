@@ -36,15 +36,19 @@ void recv_cb(uintptr_t arg)
   *callback_called                   = true;
 };
 
-void deadline_cb(uintptr_t arg, struct timespec deadline)
-{
-}
+void deadline_cb(uintptr_t arg, struct timespec deadline) {}
 
 int main(int argc, char* argv[])
 {
   // initialization phase
-  int dest_id = std::atoi(argv[1]);
-  int src_id  = 1 - dest_id;
+  if (argc < 2) {
+    printf("Usage: send socket_name dest_id \n");
+  }
+  char* socket_name = argv[1];
+  int dest_id       = std::atoi(argv[2]);
+  printf("socket_name=%s\n", socket_name);
+  printf("dest_id=%d\n", dest_id);
+  int src_id = 1 - dest_id;
   char dest_str[INET_ADDRSTRLEN];
   make_addr(dest_str, dest_id);
   char src_str[INET_ADDRSTRLEN];
@@ -52,7 +56,7 @@ int main(int argc, char* argv[])
   uint32_t dest                = inet_addr(dest_str);
   uint32_t src                 = inet_addr(src_str);
   int vsg_argc                 = 6;
-  const char* const vsg_argv[] = {"-a", CONNECTION_SOCKET_NAME, "-n", src_str, "-t", "1970-01-01T00:00:00"};
+  const char* const vsg_argv[] = {"-a", socket_name, "-n", src_str, "-t", "1970-01-01T00:00:00"};
   std::atomic<bool> callback_called(false);
   vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called, deadline_cb, 0);
 

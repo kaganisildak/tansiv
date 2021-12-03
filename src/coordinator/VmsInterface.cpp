@@ -43,18 +43,20 @@ double vmToSimgridTime(vsg_time vm_time)
   return vm_time.seconds + (vm_time.useconds * 1e-6);
 }
 
-VmsInterface::VmsInterface(bool stop_at_any_stop)
+VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_stop)
 {
-  a_vm_stopped            = false;
-  simulate_until_any_stop = stop_at_any_stop;
+  a_vm_stopped              = false;
+  simulate_until_any_stop   = stop_at_any_stop;
+  socket_name               = connection_socket_name;
+  const char* c_socket_name = socket_name.c_str();
 
-  remove(CONNECTION_SOCKET_NAME);
+  remove(c_socket_name);
   connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
   XBT_INFO("socket created");
 
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
-  strcpy(address.sun_path, CONNECTION_SOCKET_NAME);
+  strcpy(address.sun_path, c_socket_name);
 
   if (bind(connection_socket, (sockaddr*)(&address), sizeof(address)) != 0) {
     std::perror("unable to bind connection socket");
@@ -83,14 +85,19 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
   vm_deployments[vm_name] = host_name;
 
   std::vector<char*> command;
+  // we inject the socket name as the first parameter
+  // we thus have a convention here for the program launched by tansiv
+  // they must handle the first parameter as the socket name.
   std::string exec_line = file;
   for (auto const& arg : argv) {
     command.emplace_back(const_cast<char*>(arg.c_str()));
     exec_line += " " + arg;
   }
   command.push_back(nullptr);
+  auto it = command.begin();
+  command.insert(it + 1, (char*)socket_name.c_str());
 
-  XBT_INFO("fork and exec of [%s]", exec_line.c_str());
+  // XBT_INFO("fork and exec of [%s]", exec_line.c_str());
 
   switch (fork()) {
     case -1:
@@ -100,6 +107,7 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
     case 0:
       end_simulation(false, false);
 
+      // inject the socket name as the first parameter
       if (execvp(file.c_str(), command.data()) != 0) {
         std::perror("unable to launch VM");
         end_simulation();
@@ -129,7 +137,7 @@ void VmsInterface::end_simulation(bool must_unlink, bool must_exit)
   XBT_VERB("vm sockets are down");
 
   if (must_unlink)
-    unlink(CONNECTION_SOCKET_NAME);
+    unlink(socket_name.c_str());
 
   if (must_exit) {
     exit(666);
@@ -184,7 +192,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
         struct vsg_send_packet send_packet = {0};
         // we first get the message size
         recv(vm_socket, &send_packet, sizeof(send_packet), MSG_WAITALL);
-        // then we get the message itself and we split
+        // then we get the message itself and we spli
         //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
         //   - and the data transfer, that correspond to the data actually send through the (simulated) network
         // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
