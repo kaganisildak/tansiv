@@ -15,7 +15,7 @@ using namespace std;
 void sigquit(int signum)
 {
   // gracefully leave
-  exit(0);
+  _exit(0);
 }
 
 ScenarioRunner::ScenarioRunner(scenario* the_scenario)
@@ -30,35 +30,57 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
 
   if (bind(connection_socket, (sockaddr*)(&address), sizeof(address)) != 0) {
     std::perror("unable to bind connection socket");
+    exit(1);
   }
   // Start queueing incoming connections otherwise there might be a race
   // condition where vsg_init is called before the server side socket is
   // listening.
   if (listen(connection_socket, 1) != 0) {
     std::perror("unable to listen on connection socket");
+    exit(1);
   }
   printf("Actor is now ready to listen to connections\n");
+
+  int life_pipe[2];
+  if (pipe(life_pipe) != 0) {
+    std::perror("unable to create life_pipe\n");
+    exit(1);
+  }
 
   pid_t pid = fork();
   if (pid == 0) {
     // Adding a signal to leave the child gracefully
     // when the test ends
     signal(SIGQUIT, sigquit);
+    // Close the write end of life_pipe, so that read returns EOF when
+    // the parent dies.
+    close(life_pipe[1]);
+
     // child process: we continue the actor execution
     struct sockaddr_un vm_address = {0};
     unsigned int len              = sizeof(vm_address);
     printf("\tWaiting connections\n");
     int client_socket = accept(connection_socket, (sockaddr*)(&vm_address), &len);
-    if (client_socket < 0)
+    if (client_socket < 0) {
       std::perror("unable to accept connection on socket");
+      exit(1);
+    }
     printf("\tClient connection accepted\n");
     // run it
     (*the_scenario)(client_socket);
+
+    // Wait for the parent to (abnormally) exit or (normally) terminate us by SIGQUIT
+    char dummy;
+    read(life_pipe[0], &dummy, 1);
+    exit(0);
   } else if (pid > 0) {
+    // Parent: close now unused fds
+    close(connection_socket);
+    close(life_pipe[0]);
     // sets the attributes
     printf("I'm your father (my child=%d)\n", pid);
     this->child_pid = pid;
-    this->vsg_fd    = connection_socket;
+    this->life_pipe_fd = life_pipe[1];
   } else {
     exit(1);
   }
@@ -66,14 +88,15 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
 
 ScenarioRunner::~ScenarioRunner()
 {
-  printf("Closing the socket %d\n", this->vsg_fd);
-  close(this->vsg_fd);
   /* Terminate child. */
   printf("Terminating %d \n", this->child_pid);
   pid_t pid = this->child_pid;
   kill(pid, SIGQUIT);
   int status;
   waitpid(pid, &status, 0);
+
+  /* Not mandatory to terminate child but avoids fd leaks */
+  close(this->life_pipe_fd);
 
   /* Report an error. */
   if (WIFEXITED(status) && WEXITSTATUS(status) > 0) {
@@ -82,7 +105,8 @@ ScenarioRunner::~ScenarioRunner()
   }
 }
 
-static void init_sequence(int client_socket)
+// Hard-coded time slice of 200 microseconds
+static void send_go_to_deadline(int client_socket)
 {
   int ret;
 
@@ -92,6 +116,11 @@ static void init_sequence(int client_socket)
   vsg_time t = {0, 200};
   ret        = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
   REQUIRE(0 == ret);
+}
+
+static void init_sequence(int client_socket)
+{
+  send_go_to_deadline(client_socket);
 }
 
 static void end_sequence(int client_socket)
@@ -140,6 +169,7 @@ void recv_one(int client_socket)
     // and this message must be a SendPacket
     ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
     REQUIRE(0 == ret);
+    send_go_to_deadline(client_socket);
   } while (msg_type == vsg_msg_out_type::AtDeadline);
 
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
@@ -217,6 +247,7 @@ void send_deliver_pg_port(int client_socket)
     // and this message must be a SendPacket
     ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
     REQUIRE(0 == ret);
+    send_go_to_deadline(client_socket);
   } while (msg_type == vsg_msg_out_type::AtDeadline);
 
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
