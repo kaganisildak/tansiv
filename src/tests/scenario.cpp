@@ -82,7 +82,8 @@ ScenarioRunner::~ScenarioRunner()
   }
 }
 
-static void init_sequence(int client_socket)
+// Hard-coded time slice of 200 microseconds
+static void send_go_to_deadline(int client_socket)
 {
   int ret;
 
@@ -92,6 +93,11 @@ static void init_sequence(int client_socket)
   vsg_time t = {0, 200};
   ret        = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
   REQUIRE(0 == ret);
+}
+
+static void init_sequence(int client_socket)
+{
+  send_go_to_deadline(client_socket);
 }
 
 static void end_sequence(int client_socket)
@@ -140,6 +146,7 @@ void recv_one(int client_socket)
     // and this message must be a SendPacket
     ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
     REQUIRE(0 == ret);
+    send_go_to_deadline(client_socket);
   } while (msg_type == vsg_msg_out_type::AtDeadline);
 
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
@@ -217,6 +224,7 @@ void send_deliver_pg_port(int client_socket)
     // and this message must be a SendPacket
     ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
     REQUIRE(0 == ret);
+    send_go_to_deadline(client_socket);
   } while (msg_type == vsg_msg_out_type::AtDeadline);
 
   REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
