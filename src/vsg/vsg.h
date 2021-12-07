@@ -57,7 +57,7 @@ void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
 /*
  * Decoding function
  */
-int vsg_decode_src_dst(struct vsg_send_packet, char* src_addr, char* dst_addr);
+int vsg_decode_src_dst(struct vsg_send_packet, char*, char*);
 
 /*
  * Receive order from vsg
@@ -85,7 +85,7 @@ int vsg_deliver_send(int, struct vsg_deliver_packet, const uint8_t*);
  *
  * @return 0 on success, -1 on failure with errno set accordingly (errno == EPIPE on EOF)
  */
-int vsg_protocol_send(int fd, const void* buf, size_t len);
-int vsg_protocol_recv(int fd, void* buf, size_t len);
+int vsg_protocol_send(int, const void*, size_t);
+int vsg_protocol_recv(int, void*, size_t);
 
 #endif
