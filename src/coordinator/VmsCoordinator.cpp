@@ -2,6 +2,11 @@
 #include "simgrid/s4u.hpp"
 #include <limits.h>
 
+// Default socket name
+// - can be overriden using the --socket_name flag of the commandline
+// - the socket name is pushed to the client as their first argument
+#define DEFAULT_SOCKET_NAME "/tmp/simgrid_connection_socket"
+
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
 vsg::VmsInterface* vms_interface;
@@ -167,24 +172,48 @@ static void vm_coordinator()
   XBT_INFO("end of simulation");
 }
 
-double parse_args_force(int argc, char* argv[])
+int lookup_args(std::string argname, int argc, char* argv[])
 {
   for (int i = 1; i < argc; ++i) {
-    if (std::string(argv[i]) == "--force") {
-      return std::stod(argv[i + 1]);
+    if (std::string(argv[i]) == argname) {
+      return i + 1;
     }
   }
   return -1;
+}
+
+double lookup_args_double(std::string argname, double default_value, int argc, char* argv[])
+{
+  std::string outvalue;
+  int idx = lookup_args(argname, argc, argv);
+  // handle errors
+  if (idx == -1) {
+    return default_value;
+  }
+  return std::stod(argv[idx]);
+}
+
+std::string lookup_args_str(std::string argname, std::string default_value, int argc, char* argv[])
+{
+  int idx = lookup_args(argname, argc, argv);
+  // handle errors
+  if (idx == -1) {
+    return default_value;
+  }
+  return std::string(argv[idx]);
 }
 
 int main(int argc, char* argv[])
 {
   xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
 
-  force_min_latency = parse_args_force(argc, argv);
-  XBT_DEBUG("Forcing the minimum latency to %f", force_min_latency);
+  force_min_latency       = lookup_args_double("--force", -1, argc, argv);
+  std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
 
   simgrid::s4u::Engine e(&argc, argv);
+
+  XBT_DEBUG("Forcing the minimum latency to %f\n", force_min_latency);
+  XBT_DEBUG("Using %s as socket name\n", socket_name.c_str());
 
   e.load_platform(argv[1]);
   // Mark the upload links in the cluster as serial. This won't work when we use something else than clusters.
@@ -196,8 +225,8 @@ int main(int argc, char* argv[])
        l->set_concurrency_limit(1);
      }
   }
-   
-  vms_interface = new vsg::VmsInterface();
+
+  vms_interface = new vsg::VmsInterface(socket_name);
 
   e.register_function(vsg_vm_name, &tansiv_actor);
 

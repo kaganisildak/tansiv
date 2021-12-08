@@ -40,6 +40,17 @@ ENV RUST_BACKTRACE=1
 WORKDIR /app/build
 RUN ./tests --list-test-names-only | xargs -d "\n" -n1  ./tests
 
+# run some functionnals ...
+WORKDIR /app/build
+RUN make send
+WORKDIR /app/build/examples/send
+RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from"
+
+WORKDIR /app/build
+RUN make gettimeofday
+WORKDIR /app/build/examples/benchs
+RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
+
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
 RUN ./configure --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install

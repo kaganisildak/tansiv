@@ -20,4 +20,4 @@ static_assertions = "0.3.1"
 
 [dev-dependencies]
 tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["test-helpers"]}
-seq_lock = {version = "0.1.0", path = "../../seq_lock"}
+seq_lock = {version = "0.1.0", path = "../../rust-deps/seq_lock"}

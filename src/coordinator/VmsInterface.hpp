@@ -31,7 +31,7 @@ public:
 class VmsInterface {
 
 public:
-  VmsInterface(bool stop_condition = false);
+  VmsInterface(std::string connection_socket_name, bool stop_condition = false);
   ~VmsInterface();
   bool vmActive();
   std::vector<Message*> goTo(double deadline);
@@ -46,6 +46,7 @@ private:
   bool a_vm_stopped;
   bool simulate_until_any_stop;
 
+  std::string socket_name;
   int connection_socket;
 
   std::unordered_map<std::string, int> vm_sockets;

@@ -34,10 +34,7 @@ in_port_t recv_pg(const struct vsg_context* context)
   uint32_t payload_len = sizeof(payload);
   uint32_t src, dst;
   int ret = vsg_recv(context, &src, &dst, &payload_len, payload);
-  if (ret) {
-    // Return 0 as an error port number
-    return 0;
-  }
+  REQUIRE(0 == ret);
 
   // un-piggyback
   in_port_t recv_port;
@@ -166,11 +163,14 @@ TEST_CASE("VSG send piggyback port", "[vsg]")
 
     // loop until some message arrives
     // this shouldn't take long ...
-    for (int i = 0; i < 3; i++) {
+    int i;
+    for (i = 0; i < 3; i++) {
       if (vsg_poll(context) == 0)
         break;
       sleep(1);
     }
+    // check that a message has arrived
+    REQUIRE(i < 3);
 
     // test the receive port
     REQUIRE(port == recv_pg(context));

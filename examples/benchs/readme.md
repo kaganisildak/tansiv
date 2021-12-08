@@ -1,6 +1,6 @@
 small bench:
 ```bash
-for i in {1..20}; do for i in 1 0.5 0.1 0.05 0.01; do  echo "$i, $(./tansiv examples/benchs/nova_cluster.xml examples/benchs/deployment.xml --force $i)" >> gettimeofday.csv ; done; done
+for i in {1..20}; do for i in 1 0.5 0.1 0.05 0.01; do  echo "$i, $(./tansiv examples/benchs/nova_cluster.xml examples/benchs/deployment.xml --socket_name gettimeofday.sock --force $i)" >> gettimeofday.csv ; done; done
 ```
 
 ```python
