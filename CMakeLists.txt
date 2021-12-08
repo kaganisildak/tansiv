@@ -65,7 +65,6 @@ add_dependencies(gettimeofday tansiv-clients)
 
 # Unit tests
 add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
-target_include_directories(tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 target_link_libraries(tests PUBLIC ${TANPROC_LIBS} vsg ${SimGrid_LIBRARY})
 
 add_dependencies(tests tansiv-clients)
