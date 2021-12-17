@@ -31,34 +31,6 @@ struct InnerBufferPool {
     buffer_busy: Vec<AtomicBool>,
 }
 
-impl InnerBufferPool {
-    fn buffer_bounds(&self, buffer: &InnerBuffer) -> std::ops::Range<usize> {
-        let buffer_start = self.buffer_size * buffer.index;
-        let buffer_end = buffer_start + buffer.size;
-        buffer_start..buffer_end
-    }
-
-    fn buffer_as_slice<'a, 'b, 'c>(&'a self, buffer: &'b InnerBuffer) -> &'c [u8]
-        where 'a: 'c, 'b: 'c {
-        let range = self.buffer_bounds(buffer);
-        // TODO: Use slice::chunks()
-        unsafe {
-            let inner = self.buffers.get().as_ref().unwrap();
-            &inner[range]
-        }
-    }
-
-    fn buffer_as_mut_slice<'a, 'b, 'c>(&'a self, buffer: &'b mut InnerBuffer) -> &'c mut [u8]
-        where 'a: 'c, 'b: 'c {
-        let range = self.buffer_bounds(buffer);
-        // TODO: Use slice::chunks_mut()
-        unsafe {
-            let inner = self.buffers.get().as_mut().unwrap();
-            &mut inner[range]
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct BufferPool(Arc<InnerBufferPool>);
 
@@ -111,6 +83,44 @@ struct InnerBuffer {
     size: usize,
 }
 
+impl InnerBuffer {
+    fn buffer_bounds(&self, pool: &BufferPool) -> std::ops::Range<usize> {
+        let buffer_start = pool.0.buffer_size * self.index;
+        let buffer_end = buffer_start + self.size;
+        buffer_start..buffer_end
+    }
+
+    fn buffer_as_slice<'a, 'b, 'c>(&'a self, pool: &'b BufferPool) -> &'c [u8]
+        where 'a: 'c, 'b: 'c {
+        let range = self.buffer_bounds(pool);
+        // Safety:
+        // - Self / Buffer is only created by BufferPool::allocate_buffer()
+        // - Self / Buffer is not Clone (and not Copy)
+        // - ::index and ::size are never modified
+        // - ranges returned by ::buffer_bounds() are disjoint as soon as ::index differ
+        // TODO: Use slice::chunks()
+        unsafe {
+            let inner = pool.0.buffers.get().as_ref().unwrap();
+            &inner[range]
+        }
+    }
+
+    fn buffer_as_mut_slice<'a, 'b, 'c>(&'a mut self, pool: &'b BufferPool) -> &'c mut [u8]
+        where 'a: 'c, 'b: 'c {
+        let range = self.buffer_bounds(pool);
+        // Safety:
+        // - Self / Buffer is only created by BufferPool::allocate_buffer()
+        // - Self / Buffer is not Clone (and not Copy)
+        // - ::index and ::size are never modified
+        // - ranges returned by ::buffer_bounds() are disjoint as soon as ::index differ
+        // TODO: Use slice::chunks_mut()
+        unsafe {
+            let inner = pool.0.buffers.get().as_mut().unwrap();
+            &mut inner[range]
+        }
+    }
+}
+
 // Does not implement Clone. It would be unsafe since cloning would mean allocating the buffer
 // space twice.
 #[derive(Debug)]
@@ -142,14 +152,14 @@ impl Deref for Buffer {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        self.pool.0.buffer_as_slice(&self.inner)
+        self.inner.buffer_as_slice(&self.pool)
     }
 }
 
 impl DerefMut for Buffer {
     fn deref_mut(&mut self) -> &mut [u8] {
-        let pool = &self.pool.0;
+        let pool = &self.pool;
         let inner = &mut self.inner;
-        pool.buffer_as_mut_slice(inner)
+        inner.buffer_as_mut_slice(pool)
     }
 }
