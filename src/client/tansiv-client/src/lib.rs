@@ -1,4 +1,5 @@
 use buffer_pool::{Buffer, BufferPool};
+use bytes_buffer::BytesBuffer;
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
 pub use error::Error;
@@ -14,6 +15,7 @@ use waitfree_array_queue::WaitfreeArrayQueue;
 pub const MAX_PACKET_SIZE: usize = 2048;
 
 mod buffer_pool;
+mod bytes_buffer;
 mod config;
 mod connector;
 #[macro_use]
@@ -50,11 +52,11 @@ pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
 struct Packet {
     src: libc::in_addr_t,
     dst: libc::in_addr_t,
-    payload: Buffer,
+    payload: Buffer<BytesBuffer>,
 }
 
 impl Packet {
-    fn new(src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer) -> Packet {
+    fn new(src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer<BytesBuffer>) -> Packet {
         Packet {
             src: src,
             dst: dst,
@@ -89,7 +91,7 @@ pub struct Context {
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
     // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
-    output_buffer_pool: BufferPool,
+    output_buffer_pool: BufferPool<BytesBuffer>,
     outgoing_messages: OutputMsgSet,
     // Concurrency: none
     // Prevents application from starting twice
@@ -407,7 +409,7 @@ pub mod test_helpers {
     }
 
     pub fn send_one_delayed_msg_actor(actor: &mut TestActor, msg: &[u8], slice_micros: u64, delay_micros: u64) -> TestResult<()> {
-        let buffer_pool = crate::BufferPool::new(msg.len(), 1);
+        let buffer_pool = crate::BufferPool::<crate::bytes_buffer::BytesBuffer>::new(msg.len(), 1);
         let mut buffer = TestActor::check(buffer_pool.allocate_buffer(msg.len()), "Buffer allocation failed")?;
         (&mut buffer).copy_from_slice(msg);
 

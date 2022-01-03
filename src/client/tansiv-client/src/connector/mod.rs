@@ -1,6 +1,7 @@
 use binser::{Endianness, FromBytes, FromStream, SizedAsBytes, ToBytes, ToStream, ValidAsBytes, Validate};
 use binser_derive::{FromLe, IntoLe, ValidAsBytes, Validate};
 use crate::buffer_pool::{Buffer, BufferPool};
+use crate::bytes_buffer::BytesBuffer;
 use static_assertions::const_assert;
 use std::convert::TryFrom;
 use std::fmt;
@@ -182,7 +183,7 @@ impl ToBytes for MsgOutType {
 
 // Crate-level interface
 
-fn allocate_buffer(buffer_pool: &BufferPool, size: usize) -> Result<Buffer> {
+fn allocate_buffer(buffer_pool: &BufferPool<BytesBuffer>, size: usize) -> Result<Buffer<BytesBuffer>> {
     buffer_pool.allocate_buffer(size).map_err(|e| match e {
         crate::buffer_pool::Error::SizeTooBig => Error::new(ErrorKind::InvalidData, "Packet size too big"),
         e => Error::new(ErrorKind::Other, e),
@@ -191,7 +192,7 @@ fn allocate_buffer(buffer_pool: &BufferPool, size: usize) -> Result<Buffer> {
 
 #[derive(Debug)]
 pub enum MsgIn {
-    DeliverPacket(u32, u32, Buffer),
+    DeliverPacket(u32, u32, Buffer<BytesBuffer>),
     GoToDeadline(Duration),
     EndSimulation,
 }
@@ -213,7 +214,7 @@ impl MsgIn {
         usize::max(MsgInType::NUM_BYTES, max_msg_in_second_buf_size)
     }
 
-    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgIn> {
+    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool<BytesBuffer>, src_endianness: Endianness) -> Result<MsgIn> {
         let msg_type = MsgInType::from_stream(reader, scratch_buffer, src_endianness)?;
         match msg_type {
             MsgInType::DeliverPacket => {
@@ -284,7 +285,7 @@ impl MsgIn {
 
 pub enum MsgOut {
     AtDeadline,
-    SendPacket(Duration, u32 , u32, Buffer),
+    SendPacket(Duration, u32 , u32, Buffer<BytesBuffer>),
 }
 
 impl MsgOut {
@@ -324,7 +325,7 @@ impl MsgOut {
     }
 
     #[cfg(any(test, feature = "test-helpers"))]
-    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool, src_endianness: Endianness) -> Result<MsgOut> {
+    fn recv<'a, 'b>(reader: &mut impl Read, scratch_buffer: &'a mut [u8], buffer_pool: &'b BufferPool<BytesBuffer>, src_endianness: Endianness) -> Result<MsgOut> {
         let msg_type = MsgOutType::from_stream(reader, scratch_buffer, src_endianness)?;
         match msg_type {
             MsgOutType::AtDeadline => Ok(MsgOut::AtDeadline),

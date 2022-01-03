@@ -1,4 +1,5 @@
 use crate::buffer_pool::BufferPool;
+use crate::bytes_buffer::BytesBuffer;
 use std::io::Result;
 use std::os::unix::net::UnixStream;
 use super::{Connector, Endianness, MsgIn, MsgOut};
@@ -13,7 +14,7 @@ pub(crate) struct UnixConnector {
     // - allocated and filled by the deadline handler,
     // - kept around and freed by application code.
     // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
-    input_buffer_pool: BufferPool,
+    input_buffer_pool: BufferPool<BytesBuffer>,
 }
 
 impl Connector for UnixConnector {
@@ -51,6 +52,7 @@ impl Connector for UnixConnector {
 pub mod test_helpers {
     use binser::Endianness;
     use crate::buffer_pool::BufferPool;
+    use crate::bytes_buffer::BytesBuffer;
     use crate::connector::{MsgIn, MsgOut};
     use log::{error, info};
     use std::fmt;
@@ -178,7 +180,7 @@ pub mod test_helpers {
     pub struct TestActor {
         client: UnixStream,
         scratch_buffer: Vec<u8>,
-        input_buffer_pool: BufferPool,
+        input_buffer_pool: BufferPool<BytesBuffer>,
     }
 
     impl TestActor {
@@ -643,7 +645,7 @@ mod test {
 
     fn make_ref_send_packet() -> MsgOut {
         let msg = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEF";
-        let mut buffer = BufferPool::new(msg.len(), 1).allocate_buffer(msg.len()).expect("allocate_buffer failed");
+        let mut buffer = BufferPool::<BytesBuffer>::new(msg.len(), 1).allocate_buffer(msg.len()).expect("allocate_buffer failed");
         buffer.copy_from_slice(msg);
 
         MsgOut::SendPacket(Duration::new(3, 200), 0, 1, buffer)

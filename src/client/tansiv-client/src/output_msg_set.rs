@@ -1,4 +1,5 @@
 use crate::buffer_pool::Buffer;
+use crate::bytes_buffer::BytesBuffer;
 use libc;
 use std::cell::UnsafeCell;
 use std::fmt;
@@ -8,7 +9,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub enum Error {
     NoSlotAvailable {
-        buffer: Buffer,
+        buffer: Buffer<BytesBuffer>,
     },
 }
 
@@ -30,7 +31,7 @@ struct OutputMsg {
     send_time: Duration,
     src: libc::in_addr_t,
     dst: libc::in_addr_t,
-    payload: Buffer,
+    payload: Buffer<BytesBuffer>,
 }
 
 #[derive(Debug)]
@@ -46,9 +47,9 @@ pub struct OutputMsgDrain<'a> {
 }
 
 impl<'a> Iterator for OutputMsgDrain<'a> {
-    type Item = (Duration, libc::in_addr_t, libc::in_addr_t, Buffer);
+    type Item = (Duration, libc::in_addr_t, libc::in_addr_t, Buffer<BytesBuffer>);
 
-    fn next<'b>(&'b mut self) -> Option<(Duration, libc::in_addr_t, libc::in_addr_t, Buffer)> {
+    fn next<'b>(&'b mut self) -> Option<(Duration, libc::in_addr_t, libc::in_addr_t, Buffer<BytesBuffer>)> {
         let msg_set = self.msg_set;
         let num_slots = msg_set.slots.len();
         let next_index = self.index;
@@ -81,7 +82,7 @@ impl OutputMsgSet {
         }
     }
 
-    pub fn insert(&self, send_time: Duration, src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer) -> Result<()> {
+    pub fn insert(&self, send_time: Duration, src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer<BytesBuffer>) -> Result<()> {
         for (idx, slot) in self.slot_busy.iter().enumerate() {
             if !slot.swap(true, Ordering::AcqRel) {
                 let output_msg = OutputMsg {
