@@ -43,6 +43,10 @@ def notansiv(
         env = {k: v for k, v in os.environ.items()}
         arguments = [
             boot_cmd,
+            # unused but we need to align with the requirement
+            # that the first param is the socket name
+            # (injected by tansiv in case of a ts)
+            "socket_unused",
             tantap_ip,
             management_ip,
             "--qemu_cmd",
