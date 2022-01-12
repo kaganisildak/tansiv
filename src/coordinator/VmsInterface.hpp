@@ -12,11 +12,13 @@ namespace vsg {
 
 class Message {
 public:
-  Message(vsg_send_packet send_packet, uint8_t* payload);
+  Message(vsg_send_packet send_packet, uint8_t* payload, uint64_t my_id);
   Message(const Message& other);
   Message(Message&& other);
   Message& operator=(Message&& other);
   ~Message();
+  std::string toString();
+
   double sent_time;
   vsg_send_packet send_packet;
   // decoded attribute
@@ -26,6 +28,8 @@ public:
   uint32_t size;
   // this will be dynamically allocated according to size
   uint8_t* data;
+  // internal id
+  uint64_t my_id;
 };
 
 class VmsInterface {
@@ -52,6 +56,8 @@ private:
   std::unordered_map<std::string, int> vm_sockets;
   std::vector<std::string> vm_sockets_trash;
   std::unordered_map<std::string, std::string> vm_deployments; // VM_name |-> host name
+
+  uint64_t msgs_count;
 
   void close_vm_socket(std::string vm_name);
 };

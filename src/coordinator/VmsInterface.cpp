@@ -49,6 +49,7 @@ VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_
   simulate_until_any_stop   = stop_at_any_stop;
   socket_name               = connection_socket_name;
   const char* c_socket_name = socket_name.c_str();
+  msgs_count                = 0;
 
   remove(c_socket_name);
   connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
@@ -205,15 +206,13 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
         char dst_addr[INET_ADDRSTRLEN];
         char src_addr[INET_ADDRSTRLEN];
         vsg_decode_src_dst(send_packet, src_addr, dst_addr);
-        XBT_INFO("got the message [%s] (size %lu) from VM [%s](=ip(%s)) to VM [%d](=ip(%s)) with timestamp [%d.%06d]",
-                 data, sizeof(data), vm_name.c_str(), src_addr, send_packet.packet.dst, dst_addr,
-                 send_packet.send_time.seconds, send_packet.send_time.useconds);
-
-        Message* m = new Message(send_packet, data);
+        Message* m = new Message(send_packet, data, msgs_count);
         // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
         //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
 
         messages.push_back(m);
+        XBT_INFO("SendPacket: %s \n", m->toString().c_str());
+        msgs_count ++;
       } else {
         XBT_ERROR("unknown message received from VM %s : %lu", vm_name.c_str(), vm_flag);
         end_simulation();
@@ -262,17 +261,17 @@ void VmsInterface::deliverMessage(Message* m)
     struct vsg_deliver_packet deliver_packet = {.packet = m->send_packet.packet};
     vsg_deliver_send(socket, deliver_packet, m->data);
 
-    XBT_VERB("message from vm %s delivered to vm %s size=%u", m->src.c_str(), m->dest.c_str(),
-             m->send_packet.packet.size);
-  } else {
+    XBT_INFO("DeliverPacket %s", m->toString().c_str());
+
+    } else {
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m->src.c_str(),
              m->dest.c_str());
   }
   delete m;
 }
 
-Message::Message(vsg_send_packet send_packet, uint8_t* payload)
-    : send_packet(send_packet), size(send_packet.packet.size)
+Message::Message(vsg_send_packet send_packet, uint8_t* payload, uint64_t my_id)
+    : send_packet(send_packet), size(send_packet.packet.size), my_id(my_id)
 {
   // -- compute sent time the sent_time
   this->sent_time = vmToSimgridTime(send_packet.send_time);
@@ -288,7 +287,7 @@ Message::Message(vsg_send_packet send_packet, uint8_t* payload)
   // printf("Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
 };
 
-Message::Message(const Message& other) : Message(other.send_packet, other.data)
+Message::Message(const Message& other) : Message(other.send_packet, other.data, other.my_id)
 {
   // printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
 }
@@ -325,4 +324,13 @@ Message::~Message()
   }
 }
 
+std::string Message::toString() {
+  return "[m-" + std::to_string(my_id) + "]"
+               + "src=" + src
+               + ", dest=" + dest
+               + ", size=" + std::to_string(size)
+               + ", sent_time=" + std::to_string(sent_time);
+}
+
 } // namespace vsg
+
