@@ -29,16 +29,10 @@ RUN cargo --help
 WORKDIR /app/build
 RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
 
-# run some tests about the rust part
-WORKDIR /app/src/client
-RUN make && make test
-
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1
-
-# run some tests about the c/c++ part
-WORKDIR /app/build
-RUN ./tests --list-test-names-only | xargs -d "\n" -n1  ./tests
+# This will run the tansiv tests and the client tests
+RUN make run-tests
 
 # run some functionnals ...
 WORKDIR /app/build
