@@ -20,7 +20,7 @@ make && make install
 # some apps to validate the bouzin
 # since we have ssh ready on the management interface, we could also install
 # some apps on the fly
-apt -y install taktuk fping iperf flent python3-matplotlib python3-setuptools
+apt -y install taktuk fping iperf flent python3-matplotlib python3-setuptools redis-server
 
 mkdir -p /home/tansiv/.ssh
 ssh-keygen -t rsa -f /home/tansiv/.ssh/id_rsa -P ''
