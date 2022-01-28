@@ -100,18 +100,19 @@ unsafe impl<T: InnerBuffer> Sync for BufferPool<T> {}
 
 pub trait InnerBuffer: Sized {
     type Array: fmt::Debug;
+    type Content: ?Sized;
 
     fn calloc(buffer_size: usize, num_buffers: usize) -> Self::Array;
     fn new(index: usize, size: usize) -> Self;
 
-    fn as_slice<'a, 'b, 'c>(&'a self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c [u8]
+    fn get<'a, 'b, 'c>(&'a self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c Self::Content
         where 'a: 'c, 'b: 'c;
-    fn as_mut_slice<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut [u8]
+    fn get_mut<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut Self::Content
         where 'a: 'c, 'b: 'c;
 }
 
 pub trait InnerBufferDisplay: InnerBuffer {
-    fn display(&self, content: &[u8], f: &mut fmt::Formatter) -> fmt::Result;
+    fn display(&self, content: &Self::Content, f: &mut fmt::Formatter) -> fmt::Result;
 }
 
 // Does not implement Clone. It would be unsafe since cloning would mean allocating the buffer
@@ -132,18 +133,18 @@ impl<T: InnerBuffer> Drop for Buffer<T> {
 }
 
 impl<T: InnerBuffer> Deref for Buffer<T> {
-    type Target = [u8];
+    type Target = T::Content;
 
-    fn deref(&self) -> &[u8] {
-        self.inner.as_slice(&self.pool.inner, self.index)
+    fn deref(&self) -> &Self::Target {
+        self.inner.get(&self.pool.inner, self.index)
     }
 }
 
 impl<T: InnerBuffer> DerefMut for Buffer<T> {
-    fn deref_mut(&mut self) -> &mut [u8] {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
         let pool = &self.pool.inner;
         let inner = &mut self.inner;
-        inner.as_mut_slice(pool, self.index)
+        inner.get_mut(pool, self.index)
     }
 }
 

@@ -17,6 +17,7 @@ impl BytesBuffer {
 
 impl InnerBuffer for BytesBuffer {
     type Array = UnsafeCell<Vec<u8>>;
+    type Content = [u8];
 
     fn calloc(buffer_size: usize, num_buffers: usize) -> Self::Array {
         let mut buffers: Vec<u8> = Vec::with_capacity(buffer_size * num_buffers);
@@ -30,7 +31,7 @@ impl InnerBuffer for BytesBuffer {
         }
     }
 
-    fn as_slice<'a, 'b, 'c>(&'a self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c [u8]
+    fn get<'a, 'b, 'c>(&'a self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c [u8]
         where 'a: 'c, 'b: 'c {
         let range = self.buffer_bounds(pool, index);
         // Safety:
@@ -46,7 +47,7 @@ impl InnerBuffer for BytesBuffer {
         }
     }
 
-    fn as_mut_slice<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut [u8]
+    fn get_mut<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut [u8]
         where 'a: 'c, 'b: 'c {
         let range = self.buffer_bounds(pool, index);
         // Safety:
