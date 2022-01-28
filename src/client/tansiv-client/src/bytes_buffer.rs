@@ -1,5 +1,6 @@
-use crate::buffer_pool::{InnerBuffer, InnerBufferPool};
+use crate::buffer_pool::{InnerBuffer, InnerBufferDisplay, InnerBufferPool};
 use std::cell::UnsafeCell;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct BytesBuffer {
@@ -59,5 +60,15 @@ impl InnerBuffer for BytesBuffer {
             let inner = pool.buffers().get().as_mut().unwrap();
             &mut inner[range]
         }
+    }
+}
+
+impl InnerBufferDisplay for BytesBuffer {
+    fn display(&self, content: &[u8], f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} / \"", content)?;
+        for b in content {
+            write!(f, "{}", char::from(*b))?;
+        }
+        write!(f, "\"")
     }
 }

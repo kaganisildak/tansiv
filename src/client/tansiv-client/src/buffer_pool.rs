@@ -110,6 +110,10 @@ pub trait InnerBuffer: Sized {
         where 'a: 'c, 'b: 'c;
 }
 
+pub trait InnerBufferDisplay: InnerBuffer {
+    fn display(&self, content: &[u8], f: &mut fmt::Formatter) -> fmt::Result;
+}
+
 // Does not implement Clone. It would be unsafe since cloning would mean allocating the buffer
 // space twice.
 #[derive(Debug)]
@@ -117,17 +121,6 @@ pub struct Buffer<T: InnerBuffer> {
     pool: BufferPool<T>,
     index: usize,
     inner: T,
-}
-
-impl<T: InnerBuffer> fmt::Display for Buffer<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let bytes = self.deref();
-        write!(f, "{:?} / \"", bytes)?;
-        for b in bytes {
-            write!(f, "{}", char::from(*b))?;
-        }
-        write!(f, "\"")
-    }
 }
 
 impl<T: InnerBuffer> Drop for Buffer<T> {
@@ -151,5 +144,11 @@ impl<T: InnerBuffer> DerefMut for Buffer<T> {
         let pool = &self.pool.inner;
         let inner = &mut self.inner;
         inner.as_mut_slice(pool, self.index)
+    }
+}
+
+impl<T: InnerBufferDisplay> fmt::Display for Buffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.inner.display(self.deref(), f)
     }
 }
