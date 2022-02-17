@@ -59,6 +59,10 @@ pub mod test_helpers {
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
 
+    /// Actor uses this special exit code
+    /// when an assertion failed in the testing logic
+    static ACTOR_FAILURE_EXIT_CODE: i32 = 123;
+
     #[derive(Debug)]
     pub struct Error {
         error: crate::error::Error,
@@ -85,32 +89,37 @@ pub mod test_helpers {
 
     pub type TestResult<T> = std::result::Result<T, Error>;
 
+
     // Application-side API
     pub struct TestActorDesc {
         socket_path: PathBuf,
-        pid: nix::unistd::Pid,
+        // Set to None in wait to indicate that the child is gone forever
+        pid: Option<nix::unistd::Pid>,
     }
 
     // Application-side API
     impl TestActorDesc {
         pub fn new<P: AsRef<Path> + std::fmt::Debug, F>(path: P, actor_fn: F) -> TestActorDesc
             where F: FnOnce(&mut TestActor) -> TestResult<()> {
-            use nix::unistd::{fork, ForkResult};
+            use nix::unistd::{close, fork, ForkResult, pipe, write};
 
             Self::remove_file_if_present(&path).expect(&format!("Server socket path '{:?}' is busy", &path));
             let server = UnixListener::bind(&path).expect(&format!("Could not create server socket '{:?}'", &path));
             let fork_res = fork().expect("Forking server failed");
             match fork_res {
                 ForkResult::Child => {
-                    TestActor::run(server, actor_fn);
+                   let exit_code = match TestActor::run(server, actor_fn) {
+                        Err(_) => ACTOR_FAILURE_EXIT_CODE,
+                        _ => 0
+                    };
                     // The server socket is deleted when TestActorDesc is dropped
                     // std::fs::remove_file(&path).expect(&format!("Server socket '{:?}' could not be removed", &path));
-                    std::process::exit(0)
+                    std::process::exit(exit_code)
                 },
                 ForkResult::Parent { child: child_pid, .. } => {
                     TestActorDesc {
                         socket_path: path.as_ref().to_path_buf(),
-                        pid: child_pid,
+                        pid: Some(child_pid),
                     }
                 },
             }
@@ -122,18 +131,45 @@ pub mod test_helpers {
                 _ => Err(e),
             })
         }
+
+        /// Wait the actor to terminate
+        ///
+        /// NOTE(msimonin): This isn't idempotent (will return an Err the second time)
+        pub fn wait(&mut self) ->  Result<i32, ()> {
+            use nix::sys::wait::{waitpid, WaitStatus};
+
+            match self.pid {
+                // the child actor is already gone
+                None => Err(()),
+                // wait for it
+                Some(pid) => {
+                    match waitpid(pid, None).unwrap() {
+                        WaitStatus::Exited(_, status) => {
+                            self.pid = None;
+                            Ok(status)
+                        }
+                        _ => Err(())
+                    }
+                }
+            }
+        }
+
     }
 
     impl Drop for TestActorDesc {
         fn drop(&mut self) {
             use nix::sys::signal::{kill, Signal};
-            use nix::sys::wait::{waitpid, WaitPidFlag};
-
+            use nix::sys::wait::{waitpid};
             Self::remove_file_if_present(&self.socket_path).expect(&format!("Server socket '{:?}' could not be removed", &self.socket_path));
-            #[allow(unused_must_use)] {
-                kill(self.pid, Signal::SIGTERM);
-                // Not required for concurrency but avoids interleaving traces
-                waitpid(self.pid, Some(WaitPidFlag::WEXITED));
+            match self.pid {
+                None => (),
+                Some(pid) => {
+                    #[allow(unused_must_use)] {
+                        kill(pid, Signal::SIGTERM);
+                        // Not required for concurrency but avoids interleaving traces
+                        waitpid(pid, None);
+                    }
+                }
             }
         }
     }
@@ -159,7 +195,7 @@ pub mod test_helpers {
             }
         }
 
-        fn run<F>(server: UnixListener, actor_fn: F) -> ()
+        fn run<F>(server: UnixListener, actor_fn: F) -> TestResult<()>
             where F: FnOnce(&mut TestActor) -> TestResult<()> {
             info!("Server listening at address {:?}", server);
 
@@ -169,8 +205,12 @@ pub mod test_helpers {
 
                     info!("New client: {:?}", address);
                     match actor_fn(&mut actor) {
-                        Err(e) => error!("Actor failed: {:?}", e),
-                        _ => {
+                        Err(e) => {
+                            error!("Actor failed: {:?}", e);
+                            // send back the error
+                            Err(e)
+                        }
+                        Ok(_) => {
                             // Just drain until the VM ends, do not make it fail when sending messages
                             if actor.client.shutdown(std::net::Shutdown::Write).is_err() {
                                 error!("Shutdown failed")
@@ -178,10 +218,15 @@ pub mod test_helpers {
                                 for _ in actor.client.bytes() {
                                 }
                             }
+                            // send back the success
+                            Ok(())
                         },
                     }
                 },
-                Err(e) => error!("Failed to accept connection: {:?}", e),
+                Err(e) => {
+                    error!("Failed to accept connection: {:?}", e);
+                    Err(Error::new(crate::error::Error::from(e), "Failed to accept connection"))
+                },
             }
         }
 
@@ -238,32 +283,38 @@ mod test {
     use std::os::unix::net::UnixStream;
     use structopt::StructOpt;
     use super::test_helpers::*;
+    use crate::test_helpers::init;
 
     #[test]
     fn valid_server_path() {
-        let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
+        init();
+        let mut actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::new(&config);
         assert!(connector.is_ok());
         assert_eq!(connector.unwrap().scratch_buffer.len(), usize::max(MsgIn::max_header_size(), MsgOut::max_header_size()));
 
-        drop(actor);
+        // actor must finish gracefully its exection here
+        let status = actor.wait().unwrap();
+        assert_eq!(0, status, "Actor process reported an error");
     }
 
     #[test]
     fn invalid_server_path() {
+        init();
+
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-amust not exist", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
 
         assert!(UnixConnector::new(&config).is_err());
-
-        drop(actor);
     }
 
     #[test]
     fn valid_input_buffer_size() {
         use std::ops::DerefMut;
+
+        init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
@@ -274,20 +325,25 @@ mod test {
         let mut input_buffer = connector.input_buffer_pool.allocate_buffer(crate::MAX_PACKET_SIZE).unwrap();
         assert_eq!(input_buffer.deref_mut().len(), crate::MAX_PACKET_SIZE);
 
-        drop(actor);
     }
 
     fn run_client_and_actor<C, A>(client_fn: C, actor_fn: A)
         where C: FnOnce(UnixConnector) -> (),
               A: FnOnce(&mut TestActor) -> TestResult<()>,
               A: Send + 'static {
-        let actor = TestActorDesc::new("titi", actor_fn);
+        init();
+
+        let mut actor = TestActorDesc::new("titi", actor_fn);
         let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
         let connector = UnixConnector::new(&config).unwrap();
 
         client_fn(connector);
 
-        drop(actor);
+        // we let the actor terminates its execution by waiting for it
+        // if all the tests in the actor process pass its exit code is 0
+        // so we check the exit code here
+        let status = actor.wait().unwrap();
+        assert_eq!(0, status, "Actor process reported an error");
     }
 
     fn send_partial_msg_type(actor: &mut TestActor) -> TestResult<()> {

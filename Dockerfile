@@ -32,7 +32,9 @@ RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1
 # This will run the tansiv tests and the client tests
-RUN make run-tests
+# nocapture allows for displaying log message of children actor in the tansiv-client tests
+# see https://gitlab.inria.fr/tansiv/tansiv/-/merge_requests/23
+RUN TEST_FLAGS="--nocapture" make run-tests
 
 # run some functionnals ...
 WORKDIR /app/build
