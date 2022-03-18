@@ -74,12 +74,14 @@ impl<T: InnerBuffer> BufferPool<T> {
         if size <= pool.buffer_size {
             for (idx, slot) in pool.buffer_busy.iter().enumerate() {
                 if !slot.swap(true, Ordering::AcqRel) {
-                    // TODO: Zero fill
-                    return Ok(Buffer {
+                    let mut buffer = Buffer {
                         pool: (*self).clone(),
                         index: idx,
                         inner: T::new(idx, size),
-                    });
+                    };
+                    // reset buffer internal states before serving it to the application
+                    buffer.inner.reset(pool, idx);
+                    return Ok(buffer);
                 }
             }
             Err(NoBufferAvailable)
@@ -109,6 +111,8 @@ pub trait InnerBuffer: Sized {
         where 'a: 'c, 'b: 'c;
     fn get_mut<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut Self::Content
         where 'a: 'c, 'b: 'c;
+
+    fn reset<'a, 'b>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) where 'a: 'b;
 }
 
 pub trait InnerBufferDisplay: InnerBuffer {

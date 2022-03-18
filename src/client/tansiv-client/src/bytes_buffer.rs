@@ -15,6 +15,7 @@ impl BytesBuffer {
     }
 }
 
+
 impl InnerBuffer for BytesBuffer {
     type Array = UnsafeCell<Vec<u8>>;
     type Content = [u8];
@@ -62,6 +63,11 @@ impl InnerBuffer for BytesBuffer {
             &mut inner[range]
         }
     }
+
+    fn reset<'a, 'b>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) where 'a: 'b {
+        self.get_mut(pool, index).fill(0u8);
+    }
+
 }
 
 impl InnerBufferDisplay for BytesBuffer {
