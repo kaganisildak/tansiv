@@ -1,0 +1,66 @@
+/*
+* Packet schema for the tansiv protocol (control plane only)
+*
+* https://google.github.io/flatbuffers/
+*
+* We choose to go with variable length message (The various type of message are encoded using an union type).
+* - Sender needs to prefix with the size the messages
+*   https://google.github.io/flatbuffers/class_flat_buffers_1_1_flat_buffer_builder.html#a425ab2bd13a0e4331a7190ec2d17c3b2
+*
+* - Receiver needs to read the first 4 bytes (uint32) to gain knowlegdge of the size of the buffer
+*   casting the content to the right message type is possible after inspecting the content type.
+*
+* Extra refs:
+*  - (hidden doc ?) https://google.github.io/flatbuffers/md__cpp_usage.html
+*     + There's a note about buffer ownership
+*
+*/
+namespace tansiv;
+
+struct Time {
+    seconds: uint64;
+    useconds: uint64;
+}
+
+struct PacketMeta {
+  src: uint32;
+  dst: uint32;
+}
+
+union FromTansiv {GotoDeadline, DeliverPacket, EndSimulation}
+union ToTansiv {AtDeadline, SendPacket}
+
+// There have been some thought on replacing these tables by structs as this
+// will avoid to deal with Optional fields in the generated code (e.g
+// Option<...> in Rust requires unwrapping).
+// Unfortunately there are several caveats when using structs over tables:
+// - flatbuffer doesn't support empty struct (and will probably never support it)
+//   https://github.com/google/flatbuffers/issues/4122
+// -  only tables can be union elements in the generated(ndlr rust) language
+// -  structs may contain only scalar or struct fields (not a [u8] payload field)
+table AtDeadline {}
+
+table EndSimulation {}
+
+table GotoDeadline {
+    time: Time;
+}
+
+table SendPacket {
+    metadata: PacketMeta;
+    time: Time;
+    payload: [uint8];
+}
+
+table DeliverPacket {
+    metadata: PacketMeta;
+    payload: [uint8];
+}
+
+table ToTansivMsg {
+  content: ToTansiv;
+}
+
+table FromTansivMsg {
+  content: FromTansiv;
+}

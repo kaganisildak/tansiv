@@ -1,5 +1,4 @@
 use self::Error::*;
-use std::cell::UnsafeCell;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
@@ -25,70 +24,64 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 #[derive(Debug)]
-struct InnerBufferPool {
+pub struct InnerBufferPool<T: InnerBuffer> {
     buffer_size: usize,
-    buffers: UnsafeCell<Vec<u8>>,
+    buffers: T::Array,
     buffer_busy: Vec<AtomicBool>,
 }
 
-impl InnerBufferPool {
-    fn buffer_bounds(&self, buffer: &InnerBuffer) -> std::ops::Range<usize> {
-        let buffer_start = self.buffer_size * buffer.index;
-        let buffer_end = buffer_start + buffer.size;
-        buffer_start..buffer_end
+impl<T: InnerBuffer> InnerBufferPool<T> {
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
     }
 
-    fn buffer_as_slice<'a, 'b, 'c>(&'a self, buffer: &'b InnerBuffer) -> &'c [u8]
-        where 'a: 'c, 'b: 'c {
-        let range = self.buffer_bounds(buffer);
-        // TODO: Use slice::chunks()
-        unsafe {
-            let inner = self.buffers.get().as_ref().unwrap();
-            &inner[range]
-        }
+    pub fn buffers(&self) -> &T::Array {
+        &self.buffers
     }
+}
 
-    fn buffer_as_mut_slice<'a, 'b, 'c>(&'a self, buffer: &'b mut InnerBuffer) -> &'c mut [u8]
-        where 'a: 'c, 'b: 'c {
-        let range = self.buffer_bounds(buffer);
-        // TODO: Use slice::chunks_mut()
-        unsafe {
-            let inner = self.buffers.get().as_mut().unwrap();
-            &mut inner[range]
+// The safety of the InnerBuffer trait relies on BufferPool::inner being private
+#[derive(Debug)]
+pub struct BufferPool<T: InnerBuffer> {
+    inner: Arc<InnerBufferPool<T>>
+}
+
+impl<T: InnerBuffer> Clone for BufferPool<T> {
+    fn clone(&self) -> Self {
+        BufferPool {
+            inner: self.inner.clone()
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct BufferPool(Arc<InnerBufferPool>);
-
-impl BufferPool {
-    pub fn new(buffer_size: usize, num_buffers: usize) -> BufferPool {
-        let mut buffers: Vec<u8> = Vec::with_capacity(buffer_size * num_buffers);
-        buffers.resize(buffer_size * num_buffers, 0);
+impl<T: InnerBuffer> BufferPool<T> {
+    pub fn new(buffer_size: usize, num_buffers: usize) -> BufferPool<T> {
+        let buffers = T::calloc(buffer_size, num_buffers);
         let mut buffer_busy: Vec<AtomicBool> = Vec::with_capacity(num_buffers);
         buffer_busy.resize_with(num_buffers, Default::default);
 
-        BufferPool(Arc::new(InnerBufferPool {
-            buffer_size: buffer_size,
-            buffers: UnsafeCell::new(buffers),
-            buffer_busy: buffer_busy,
-        }))
+        BufferPool {
+            inner: Arc::new(InnerBufferPool {
+                buffer_size,
+                buffers,
+                buffer_busy,
+            })
+        }
     }
 
-    pub fn allocate_buffer(&self, size: usize) -> Result<Buffer> {
-        let pool = &self.0;
+    pub fn allocate_buffer(&self, size: usize) -> Result<Buffer<T>> {
+        let pool = &self.inner;
         if size <= pool.buffer_size {
             for (idx, slot) in pool.buffer_busy.iter().enumerate() {
                 if !slot.swap(true, Ordering::AcqRel) {
-                    // TODO: Zero fill
-                    return Ok(Buffer {
-                        pool: self.clone(),
-                        inner: InnerBuffer {
-                            index: idx,
-                            size: size,
-                        },
-                    });
+                    let mut buffer = Buffer {
+                        pool: (*self).clone(),
+                        index: idx,
+                        inner: T::new(idx, size),
+                    };
+                    // reset buffer internal states before serving it to the application
+                    buffer.inner.reset(pool, idx);
+                    return Ok(buffer);
                 }
             }
             Err(NoBufferAvailable)
@@ -97,59 +90,70 @@ impl BufferPool {
         }
     }
 
-    fn free_buffer(&self, buffer: &mut InnerBuffer) {
-        self.0.buffer_busy[buffer.index].store(false, Ordering::Release);
+    // Safety:
+    // - called only from Buffer<T>::drop
+    fn free_buffer(&self, index: usize, _buffer: &mut T) {
+        self.inner.buffer_busy[index].store(false, Ordering::Release);
     }
 }
 
-unsafe impl Send for BufferPool {}
-unsafe impl Sync for BufferPool {}
+unsafe impl<T: InnerBuffer> Send for BufferPool<T> {}
+unsafe impl<T: InnerBuffer> Sync for BufferPool<T> {}
 
-#[derive(Debug)]
-struct InnerBuffer {
-    index: usize,
-    size: usize,
+pub trait InnerBuffer: Sized {
+    type Array: fmt::Debug;
+    type Content: ?Sized;
+
+    fn calloc(buffer_size: usize, num_buffers: usize) -> Self::Array;
+    fn new(index: usize, size: usize) -> Self;
+
+    fn get<'a, 'b, 'c>(&'a self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c Self::Content
+        where 'a: 'c, 'b: 'c;
+    fn get_mut<'a, 'b, 'c>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) -> &'c mut Self::Content
+        where 'a: 'c, 'b: 'c;
+
+    fn reset<'a, 'b>(&'a mut self, pool: &'b InnerBufferPool<Self>, index: usize) where 'a: 'b;
+}
+
+pub trait InnerBufferDisplay: InnerBuffer {
+    fn display(&self, content: &Self::Content, f: &mut fmt::Formatter) -> fmt::Result;
 }
 
 // Does not implement Clone. It would be unsafe since cloning would mean allocating the buffer
 // space twice.
 #[derive(Debug)]
-pub struct Buffer {
-    pool: BufferPool,
-    inner: InnerBuffer,
+pub struct Buffer<T: InnerBuffer> {
+    pool: BufferPool<T>,
+    index: usize,
+    inner: T,
 }
 
-impl fmt::Display for Buffer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let bytes = self.deref();
-        write!(f, "{:?} / \"", bytes)?;
-        for b in bytes {
-            write!(f, "{}", char::from(*b))?;
-        }
-        write!(f, "\"")
-    }
-}
-
-impl Drop for Buffer {
+impl<T: InnerBuffer> Drop for Buffer<T> {
     fn drop(&mut self) {
         let pool = &self.pool;
         let inner = &mut self.inner;
-        pool.free_buffer(inner);
+        pool.free_buffer(self.index, inner);
     }
 }
 
-impl Deref for Buffer {
-    type Target = [u8];
+impl<T: InnerBuffer> Deref for Buffer<T> {
+    type Target = T::Content;
 
-    fn deref(&self) -> &[u8] {
-        self.pool.0.buffer_as_slice(&self.inner)
+    fn deref(&self) -> &Self::Target {
+        self.inner.get(&self.pool.inner, self.index)
     }
 }
 
-impl DerefMut for Buffer {
-    fn deref_mut(&mut self) -> &mut [u8] {
-        let pool = &self.pool.0;
+impl<T: InnerBuffer> DerefMut for Buffer<T> {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        let pool = &self.pool.inner;
         let inner = &mut self.inner;
-        pool.buffer_as_mut_slice(inner)
+        inner.get_mut(pool, self.index)
+    }
+}
+
+impl<T: InnerBufferDisplay> fmt::Display for Buffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.inner.display(self.deref(), f)
     }
 }

@@ -1,35 +1,40 @@
+#ifndef __VMSINTERFACE__
+#define __VMSINTERFACE__
+
+#include <arpa/inet.h>
 #include <cmath>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unordered_map>
 #include <vector>
-extern "C" {
-#include "vsg.h"
-}
 
 namespace vsg {
 
+struct vsg_time {
+  uint64_t seconds;
+  uint64_t useconds;
+};
+
 class Message {
 public:
-  Message(vsg_send_packet send_packet, uint8_t* payload, uint64_t my_id);
+  Message(uint64_t seconds, uint64_t useconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size, uint8_t* payload);
   Message(const Message& other);
   Message(Message&& other);
   Message& operator=(Message&& other);
   ~Message();
-  std::string toString();
-
+  uint64_t seconds;
+  u_int64_t useconds;
+  in_addr_t src_enc;
+  in_addr_t dst_enc;
+  uint32_t size;
+  // computed attribute below
   double sent_time;
-  vsg_send_packet send_packet;
   // decoded attribute
   std::string src;
-  std::string dest;
-  // keep size here for backward compatibility
-  uint32_t size;
+  std::string dst;
   // this will be dynamically allocated according to size
   uint8_t* data;
-  // internal id
-  uint64_t my_id;
 };
 
 class VmsInterface {
@@ -57,9 +62,13 @@ private:
   std::vector<std::string> vm_sockets_trash;
   std::unordered_map<std::string, std::string> vm_deployments; // VM_name |-> host name
 
-  uint64_t msgs_count;
-
   void close_vm_socket(std::string vm_name);
 };
+// low level stuffs
+
+int vsg_protocol_send(int, const void *, size_t);
+int vsg_protocol_recv(int, void *, size_t);
 
 } // namespace vsg
+
+#endif
