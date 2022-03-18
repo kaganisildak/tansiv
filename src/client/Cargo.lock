@@ -62,19 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "binser"
-version = "0.1.0"
-
-[[package]]
-name = "binser_derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "syn",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -540,8 +527,6 @@ name = "tansiv-client"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "binser",
- "binser_derive",
  "chrono",
  "crossbeam-queue",
  "flatbuffers",

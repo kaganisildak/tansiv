@@ -75,8 +75,9 @@ target_link_libraries(vsg PUBLIC m)
 
 # Tansiv (coordinator of the simulation)
 add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp)
-target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg)
-target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
+target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg flatbuffers)
+target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include fbs_packets)
+add_dependencies(tansiv fbs_packets)
 
 # Example with tanproc and tansiv
 add_executable(send examples/send/send.cpp)
@@ -94,11 +95,11 @@ configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
 configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
 add_dependencies(gettimeofday tansiv-clients)
 
-# Unit tests
+# "Unit" tests
 add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
-target_link_libraries(tests PUBLIC ${TANPROC_EXTRA_LIBS} vsg ${SimGrid_LIBRARY})
+target_link_libraries(tests PUBLIC ${TANPROC_EXTRA_LIBS} vsg ${SimGrid_LIBRARY} flatbuffers)
 configure_file(src/tests/tests.sh tests.sh)
-add_dependencies(tests tansiv-clients)
+add_dependencies(tests tansiv-clients fbs_packets)
 
 # Launch tests
 add_custom_target(run-tansiv-tests COMMAND  ./tests.sh)

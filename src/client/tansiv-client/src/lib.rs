@@ -1,12 +1,11 @@
-use buffer_pool::{Buffer, BufferPool};
-use bytes_buffer::BytesBuffer;
+use buffer_pool::BufferPool;
 pub(crate) use config::Config;
-use connector::{Connector, ConnectorImpl, MsgIn, MsgOut};
+use connector::{Connector, ConnectorImpl, DeliverPacket, FbBuffer, MsgIn, MsgOut};
 pub use error::Error;
 use libc;
 #[allow(unused_imports)]
 use log::{debug, info, error};
-use output_msg_set::OutputMsgSet;
+use output_msg_set::{OutputMsgSet, OutputMsg};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
@@ -21,6 +20,7 @@ mod connector;
 #[macro_use]
 mod debug;
 pub mod error;
+mod flatbuilder_buffer;
 mod output_msg_set;
 mod timer;
 mod vsg_address;
@@ -38,7 +38,7 @@ impl From<buffer_pool::Error> for Error {
 impl From<output_msg_set::Error> for Error {
     fn from(error: output_msg_set::Error) -> Error {
         match error {
-            output_msg_set::Error::NoSlotAvailable {buffer: _} => Error::NoMemoryAvailable,
+            output_msg_set::Error::NoSlotAvailable => Error::NoMemoryAvailable,
         }
     }
 }
@@ -47,23 +47,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
 pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
-
-#[derive(Debug)]
-struct Packet {
-    src: libc::in_addr_t,
-    dst: libc::in_addr_t,
-    payload: Buffer<BytesBuffer>,
-}
-
-impl Packet {
-    fn new(src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer<BytesBuffer>) -> Packet {
-        Packet {
-            src: src,
-            dst: dst,
-            payload: payload,
-        }
-    }
-}
 
 // Context must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
@@ -78,7 +61,7 @@ pub struct Context {
     // - pushed to the queue by the deadline handler,
     // - popped from the queue by application code.
     // Concurrent read-write support is provided by interior mutability.
-    input_queue: WaitfreeArrayQueue<Packet>,
+    input_queue: WaitfreeArrayQueue<DeliverPacket>,
     // No concurrency, read-only: called only by the deadline handler
     recv_callback: RecvCallback,
     // No concurrency, read-only: called only by ::start() and the deadline handler
@@ -91,7 +74,7 @@ pub struct Context {
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
     // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
-    output_buffer_pool: BufferPool<BytesBuffer>,
+    output_buffer_pool: BufferPool<FbBuffer>,
     outgoing_messages: OutputMsgSet,
     // Concurrency: none
     // Prevents application from starting twice
@@ -116,7 +99,7 @@ impl Context {
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(config)?;
-        let output_buffer_pool = BufferPool::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
+        let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
 
         let context = Arc::new(Context {
@@ -173,8 +156,13 @@ impl Context {
         let previous_deadline = self.timer_context.simulation_previous_deadline();
         let current_deadline = self.timer_context.simulation_next_deadline();
         deadline_handler_debug!("Context::at_deadline() current_deadline = {:?}", current_deadline);
-        for (send_time, src, dst, payload) in messages {
-            deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {}, payload = {})", send_time, vsg_address::to_ipv4addr(src), vsg_address::to_ipv4addr(dst), payload);
+        for send_packet_builder in messages {
+            let send_time = send_packet_builder.send_time();
+            // FIXME(msimonin): the trait `InnerBufferDisplay` is not implemented for `flatbuilder_buffer::FbBuilder<'static, connector::InFbInitializer>`
+            deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {})",
+                send_time,
+                vsg_address::to_ipv4addr(send_packet_builder.src()),
+                vsg_address::to_ipv4addr(send_packet_builder.dst()));
 
             let send_time = if send_time < previous_deadline {
                 // This message was time-stamped before the previous deadline but inserted after.
@@ -189,8 +177,9 @@ impl Context {
                 }
                 send_time
             };
-
-            if let Err(_e) = connector.send(MsgOut::SendPacket(send_time, src, dst, payload)) {
+            // so, the payload is a Buffer<FbBuffer> partially built with the actual payload inside
+            // we finish the construction here and send it over the wire
+            if let Err(_e) = connector.send(MsgOut::SendPacket(send_packet_builder.finish(send_time))) {
                 error!("send(SendPacket) failed: {}", _e);
                 return AfterDeadline::EndSimulation;
             }
@@ -237,9 +226,10 @@ impl Context {
     fn handle_actor_msg(&self, msg: MsgIn) -> Option<AfterDeadline> {
         deadline_handler_debug!("Context::handle_actor_msg() received msg = {}", msg);
         match msg {
-            MsgIn::DeliverPacket(src, dst, packet) => {
-                let size = packet.len();
-                if self.input_queue.push(Packet::new(src, dst, packet)).is_err() {
+            MsgIn::DeliverPacket(d) => {
+                let src = d.src();
+                let size = d.payload().len();
+                if self.input_queue.push(d).is_err() {
                     info!("Dropping input packet from {} of {} bytes", src, size);
                 }
                 None
@@ -258,26 +248,26 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let mut buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
-        buffer.copy_from_slice(msg);
-
         let send_time = self.timer_context.simulation_now();
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
-        self.outgoing_messages.insert(send_time, self.address,  dst, buffer)?;
+
+        // There's an hidden check behind this allocation that the msg len isn't too big
+        let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
+        self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
         Ok(())
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
         match self.input_queue.pop() {
-            Some(Packet { src, dst, payload, }) => {
-                if msg.len() >= payload.len() {
-                    let msg = &mut msg[..payload.len()];
-                    msg.copy_from_slice(&payload);
-                    Ok((src, dst, msg))
+            Some(msg_in) => {
+                if msg.len() >= msg_in.payload().len() {
+                    let msg = &mut msg[..msg_in.payload().len()];
+                    msg.copy_from_slice(&msg_in.payload());
+                    Ok((msg_in.src(), msg_in.dst(), msg))
                 } else {
                     Err(Error::SizeTooBig)
                 }
@@ -321,7 +311,7 @@ pub mod test_helpers {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
-    use super::connector::{MsgIn, MsgOut};
+    use super::connector::{MsgIn, MsgOut, create_deliver_packet_unprefixed};
     #[cfg(feature = "test-helpers")]
     pub use super::connector::test_helpers::*;
 
@@ -395,7 +385,7 @@ pub mod test_helpers {
             let msg = actor.recv()?;
             match msg {
                 MsgOut::AtDeadline => (),
-                MsgOut::SendPacket(_, _, _, _) => break,
+                MsgOut::SendPacket(_) => break,
             }
         }
         actor.send(MsgIn::EndSimulation)
@@ -409,9 +399,7 @@ pub mod test_helpers {
     }
 
     pub fn send_one_delayed_msg_actor(actor: &mut TestActor, msg: &[u8], slice_micros: u64, delay_micros: u64) -> TestResult<()> {
-        let buffer_pool = crate::BufferPool::<crate::bytes_buffer::BytesBuffer>::new(msg.len(), 1);
-        let mut buffer = TestActor::check(buffer_pool.allocate_buffer(msg.len()), "Buffer allocation failed")?;
-        (&mut buffer).copy_from_slice(msg);
+       //(&mut buffer).copy_from_slice(msg);
 
         let mut next_deadline_micros = slice_micros;
         while next_deadline_micros < delay_micros {
@@ -429,7 +417,18 @@ pub mod test_helpers {
         actor.send(MsgIn::GoToDeadline(Duration::from_micros(delay_micros)))?;
         let src = local_vsg_address!();
         let dst = remote_vsg_address!();
-        actor.send(MsgIn::DeliverPacket(src, dst, buffer))?;
+
+        let mut builder = flatbuffers::FlatBufferBuilder::new();
+        create_deliver_packet_unprefixed(&mut builder, src, dst, msg);
+        let fb = builder.finished_data();
+        let size = fb.len();
+        let buffer_pool = crate::BufferPool::<crate::bytes_buffer::BytesBuffer>::new(size, 1);
+        let mut buffer = TestActor::check(buffer_pool.allocate_buffer(size), "Buffer allocation failed")?;
+
+        let _ = &mut buffer.copy_from_slice(fb);
+
+
+        actor.send(MsgIn::new_deliver_packet(buffer).unwrap())?;
         actor.send(MsgIn::EndSimulation)
     }
 

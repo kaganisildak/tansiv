@@ -13,8 +13,6 @@ use-own-logger = ["simple_logger"]
 test-helpers = ["simple_logger"]
 
 [dependencies]
-binser = {version = "0.1.0", path = "../../rust-deps/binser"}
-binser_derive = {version = "0.1.0", path = "../../rust-deps/binser/binser_derive"}
 chrono = "0.4"
 crossbeam-queue = {path = "../../rust-deps/crossbeam/crossbeam-queue", features = ["spsc-waitfree"]}
 flatbuffers = "2.0.0"

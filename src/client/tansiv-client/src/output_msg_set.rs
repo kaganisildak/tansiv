@@ -1,16 +1,11 @@
-use crate::buffer_pool::Buffer;
-use crate::bytes_buffer::BytesBuffer;
-use libc;
+use crate::connector::SendPacketBuilder;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
-    NoSlotAvailable {
-        buffer: Buffer<BytesBuffer>,
-    },
+    NoSlotAvailable
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -18,7 +13,7 @@ type Result<T> = std::result::Result<T, Error>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            Error::NoSlotAvailable { buffer: _, } => "No slot available",
+            Error::NoSlotAvailable => "No slot available",
         };
         write!(f, "{}", msg)
     }
@@ -26,13 +21,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[derive(Debug)]
-struct OutputMsg {
-    send_time: Duration,
-    src: libc::in_addr_t,
-    dst: libc::in_addr_t,
-    payload: Buffer<BytesBuffer>,
-}
+pub type OutputMsg = SendPacketBuilder;
 
 #[derive(Debug)]
 pub struct OutputMsgSet {
@@ -47,9 +36,9 @@ pub struct OutputMsgDrain<'a> {
 }
 
 impl<'a> Iterator for OutputMsgDrain<'a> {
-    type Item = (Duration, libc::in_addr_t, libc::in_addr_t, Buffer<BytesBuffer>);
+    type Item = OutputMsg;
 
-    fn next<'b>(&'b mut self) -> Option<(Duration, libc::in_addr_t, libc::in_addr_t, Buffer<BytesBuffer>)> {
+    fn next<'b>(&'b mut self) -> Option<OutputMsg> {
         let msg_set = self.msg_set;
         let num_slots = msg_set.slots.len();
         let next_index = self.index;
@@ -57,8 +46,9 @@ impl<'a> Iterator for OutputMsgDrain<'a> {
             let val = msg_set.take_slot(index);
             if val.is_some() {
                 self.index = index + 1;
-                let val = val.unwrap();
-                return Some((val.send_time, val.src, val.dst, val.payload));
+                // let val = val.unwrap();
+                // return Some((val.send_time, val.src, val.dst, val.payload));
+                return val;
             }
         }
 
@@ -82,15 +72,9 @@ impl OutputMsgSet {
         }
     }
 
-    pub fn insert(&self, send_time: Duration, src: libc::in_addr_t, dst: libc::in_addr_t, payload: Buffer<BytesBuffer>) -> Result<()> {
+    pub fn insert(&self, output_msg: OutputMsg) -> Result<()> {
         for (idx, slot) in self.slot_busy.iter().enumerate() {
             if !slot.swap(true, Ordering::AcqRel) {
-                let output_msg = OutputMsg {
-                    send_time: send_time,
-                    src: src,
-                    dst: dst,
-                    payload: payload,
-                };
                 unsafe {
                     self.slots[idx].get().replace(Some(output_msg));
                 }
@@ -98,7 +82,7 @@ impl OutputMsgSet {
                 return Ok(());
             }
         }
-        Err(Error::NoSlotAvailable { buffer: payload, })
+        Err(Error::NoSlotAvailable)
     }
 
     pub fn drain<'a>(&'a self) -> OutputMsgDrain<'a> {

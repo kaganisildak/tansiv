@@ -46,7 +46,7 @@ RUN TEST_FLAGS="--nocapture" make run-tests
 WORKDIR /app/build
 RUN make send
 WORKDIR /app/build/examples/send
-RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from"
+RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from" | wc -l | grep 2
 
 WORKDIR /app/build
 RUN make gettimeofday
