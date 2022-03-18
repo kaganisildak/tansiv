@@ -26,8 +26,14 @@ RUN apt-get install -y build-essential \
 
 RUN cargo --help
 
+# clone some version of flatbuffer
+# flatc will be compiled from this
+# and used in the rust part (build.rs) and the cpp part to compile the protocol
+# IDL
+RUN git clone https://github.com/google/flatbuffers --depth 1 -b v2.0.0
+
 WORKDIR /app/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
+RUN cmake -DFLATBUFFERS_SRC=/app/flatbuffers -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
 
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1

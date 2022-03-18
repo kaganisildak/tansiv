@@ -9,7 +9,7 @@ elles sont observées en regardant comment le temps avance.
 ```
 mkdir build
 cd build
-cmake  -DCMAKE_INSTALL_PREFIX=/opt/tansiv ..  && make && make install
+cmake -DFLATBUFFERS_SRC=<path to flatbuffers sources> -DCMAKE_INSTALL_PREFIX=/opt/tansiv ..  && make && make install
 ```
 
 # Tests unitaires
