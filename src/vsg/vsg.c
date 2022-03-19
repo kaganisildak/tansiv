@@ -23,21 +23,6 @@ void dump_packet(const uint8_t* buf, size_t size)
   printf("\n");
 }
 
-/**
- *
- * Debug purpose only,
- * This decode the src and dest field from in_addr to cghar*
- *
- */
-int vsg_decode_src_dst(struct vsg_send_packet packet, char* src_addr, char* dst_addr)
-{
-  struct in_addr _dst_addr = {packet.packet.dst};
-  struct in_addr _src_addr = {packet.packet.src};
-  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
-  inet_ntop(AF_INET, &(_dst_addr), dst_addr, INET_ADDRSTRLEN);
-  return 0;
-}
-
 /*
  *
  * Piggyback the port in the payload
@@ -100,50 +85,5 @@ int vsg_protocol_recv(int fd, void *buf, size_t len)
     }
   } while (curlen > 0);
 
-  return 0;
-}
-
-/*
- * VSG_AT_DEADLINE related functions
- */
-
-int vsg_at_deadline_send(int fd)
-{
-  log_debug("VSG_AT_DEADLINE send");
-  enum vsg_msg_out_type at_deadline = AtDeadline;
-  return vsg_protocol_send(fd, &at_deadline, sizeof(at_deadline));
-}
-
-int vsg_at_deadline_recv(int fd, struct vsg_time* deadline)
-{
-  log_debug("VSG_GOTO_DEADLINE recv");
-  int ret = vsg_protocol_recv(fd, deadline, sizeof(struct vsg_time));
-  // TODO(msimonin): this can be verbose, I really need to add a logger
-  // printf("VSG] -- deadline = %d.%d\n", deadline->seconds,
-  // deadline->useconds);
-  return ret;
-}
-
-/*
- * VSG_DELIVER_PACKET related functions
- */
-
-int vsg_deliver_send(int fd, struct vsg_deliver_packet deliver_packet, const uint8_t* message)
-{
-  // log_deliver_packet(deliver_packet);
-  struct vsg_packet packet          = deliver_packet.packet;
-  enum vsg_msg_in_type deliver_flag = DeliverPacket;
-  int ret                           = 0;
-  ret                               = vsg_protocol_send(fd, &deliver_flag, sizeof(deliver_flag));
-  if (ret < 0)
-    return -1;
-
-  ret = vsg_protocol_send(fd, &deliver_packet, sizeof(deliver_packet));
-  if (ret < 0)
-    return -1;
-
-  ret = vsg_protocol_send(fd, message, packet.size);
-  if (ret < 0)
-    return -1;
   return 0;
 }
