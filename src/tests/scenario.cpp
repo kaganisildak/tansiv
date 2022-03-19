@@ -47,6 +47,10 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     exit(1);
   }
 
+  // Avoid duplicated output when not running in a terminal
+  fflush(stdout);
+  fflush(stderr);
+
   pid_t pid = fork();
   if (pid == 0) {
     // Adding a signal to leave the child gracefully
@@ -118,8 +122,7 @@ static int fb_send_goto_deadline(int socket)
   auto msg           = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_GotoDeadline, goto_deadline.Union());
   builder.FinishSizePrefixed(msg);
 
-  // TODO(msimonin): reliable send
-  return send(socket, builder.GetBufferPointer(), builder.GetSize(), 0);
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 }
 
 /*
@@ -133,8 +136,7 @@ static int fb_send_end_simulation(int socket)
   auto msg            = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_EndSimulation, end_simulation.Union());
   builder.FinishSizePrefixed(msg);
 
-  // TODO(msimonin): reliable send
-  return send(socket, builder.GetBufferPointer(), builder.GetSize(), 0);
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 }
 
 /*
@@ -152,22 +154,20 @@ static int fb_send_deliver(int socket)
   auto msg            = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_DeliverPacket, deliver_packet.Union());
   builder.FinishSizePrefixed(msg);
 
-  // TODO(msimonin): reliable sends
-  send(socket, builder.GetBufferPointer(), builder.GetSize(), 0);
-
-
-  return 0;
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 }
 
 static void fb_init_sequence(int client_socket)
 {
   // send go to deadline packet
-  fb_send_goto_deadline(client_socket);
+  auto ret = fb_send_goto_deadline(client_socket);
+  REQUIRE(0 == ret);
 }
 
 static void fb_end_sequence(int client_socket)
 {
-  fb_send_end_simulation(client_socket);
+  auto ret = fb_send_end_simulation(client_socket);
+  REQUIRE(0 == ret);
 }
 
 /*
@@ -196,8 +196,6 @@ void simple(int client_socket)
  */
 void recv_one(int client_socket)
 {
-  int ret;
-
   printf("Entering recv_one scenario\n");
   fb_init_sequence(client_socket);
   uint8_t buffer[128];
@@ -208,9 +206,11 @@ void recv_one(int client_socket)
   // so we loop until we get somethiing different than AtDeadline
   // and this message must be a SendPacket
   do {
-    int ret = fb_recv(client_socket, buffer);
+    int ret = fb_recv(client_socket, buffer, sizeof(buffer));
+    REQUIRE(0 == ret);
     msg     = flatbuffers::GetRoot<tansiv::ToTansivMsg>(buffer);
-    fb_send_goto_deadline(client_socket);
+    ret     = fb_send_goto_deadline(client_socket);
+    REQUIRE(0 == ret);
   } while (msg->content_type() == tansiv::ToTansiv::ToTansiv_AtDeadline);
   REQUIRE(msg->content_type() == tansiv::ToTansiv::ToTansiv_SendPacket);
   auto send_packet = msg->content_as_SendPacket();
@@ -221,7 +221,6 @@ void recv_one(int client_socket)
   in_addr_t dst_expected = inet_addr(DEST);
   REQUIRE(dst_expected == send_packet->metadata()->dst());
 
-  REQUIRE(0 == ret);
   std::string expected = MESSAGE;
   std::string actual   = std::string((char *)send_packet->payload()->data());
   REQUIRE(expected == actual);
@@ -280,7 +279,8 @@ void fb_deliver(int client_socket)
   printf("\t[tansiv] Entering fb simple scenario\n");
   fb_init_sequence(client_socket);
 
-  fb_send_deliver(client_socket);
+  auto ret = fb_send_deliver(client_socket);
+  REQUIRE(0 == ret);
 
   fb_end_sequence(client_socket);
   printf("\t[tansiv] Leaving fb simple scenario\n");
