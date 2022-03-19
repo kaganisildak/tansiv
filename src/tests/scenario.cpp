@@ -47,6 +47,10 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     exit(1);
   }
 
+  // Avoid duplicated output when not running in a terminal
+  fflush(stdout);
+  fflush(stderr);
+
   pid_t pid = fork();
   if (pid == 0) {
     // Adding a signal to leave the child gracefully
