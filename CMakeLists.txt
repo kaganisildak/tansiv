@@ -1,10 +1,8 @@
 # Compile and install the various parts of the project:
 # For now (10/21):
-# - mkdir build && cd build && cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make
+# - mkdir build && cd build && cmake -DFLATBUFFERS_SRC=$(pwd)/../../flatbuffers/flatbuffers -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make
 # - tansiv-clients: implement different client side flavors of the vsg protocol (rust)
 #   + libtanproc.a and libtanqemu.a installed in /opt/tansiv-client
-# - vsg: low-level simgrid side of the vsg protocol (c/c++)
-#   + installed in $CMAKE_INSTALL_PREFIX
 # - tansiv: simgrid simulation
 #   + installed in $CMAKE_INSTALL_PREFIX
 
@@ -23,7 +21,7 @@ set(TANPROC_EXTRA_LIBS ${TANPROC_LIB} dl rt pthread)
 set(TANQEMU_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemu.a)
 
 set(TANSIVCLIENT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
-set(VSG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/vsg/)
+set(WIRE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/wire)
 set(CLIENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/client/)
 
 set(FLATBUFFERS_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/flatbuffers-build)
@@ -43,12 +41,12 @@ add_subdirectory(${FLATBUFFERS_SRC}
 # This compile a schema to cpp
 # - This makes the target fbs_packets available to other make tasks
 # - This adds the include output dir to CMAKE's include directory
-build_flatbuffers("${CMAKE_CURRENT_SOURCE_DIR}/src/wire/packets.fbs" "" "fbs_packets" "" "${CMAKE_CURRENT_SOURCE_DIR}/src/wire/" "" "")
+build_flatbuffers("${WIRE_INCLUDE_DIR}/packets.fbs" "" "fbs_packets" "" "${WIRE_INCLUDE_DIR}/" "" "")
 
 # Search for SimGrid
 find_package(SimGrid REQUIRED)
 
-include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${VSG_INCLUDE_DIR}"  SYSTEM)
+include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
 # as part of 6.1.0 the file is generated at configure phase
@@ -68,21 +66,16 @@ add_dependencies(tansiv-clients config-host.h flatbuffers flatc)
 
 add_custom_target(packer COMMAND packer build debian-10.3.0-x86_64.json WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packer)
 
-# vsg lib (actor side)
-add_library(vsg STATIC src/vsg/vsg.c src/vsg/log.c)
-target_compile_options(vsg PUBLIC -DLOG_USE_COLOR)
-target_link_libraries(vsg PUBLIC m)
-
 # Tansiv (coordinator of the simulation)
-add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp)
-target_link_libraries(tansiv ${SimGrid_LIBRARY} vsg flatbuffers)
-target_include_directories(tansiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/include fbs_packets)
+add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+target_link_libraries(tansiv ${SimGrid_LIBRARY} flatbuffers)
+target_include_directories(tansiv PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
 add_dependencies(tansiv fbs_packets)
 
 # Example with tanproc and tansiv
 add_executable(send examples/send/send.cpp)
 set_target_properties(send PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/send)
-target_link_libraries(send PUBLIC ${TANPROC_EXTRA_LIBS} vsg)
+target_link_libraries(send PUBLIC ${TANPROC_EXTRA_LIBS})
 configure_file(examples/send/deployment.xml examples/send/deployment.xml)
 configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
 add_dependencies(send tansiv-clients)
@@ -90,14 +83,14 @@ add_dependencies(send tansiv-clients)
 # Benchs
 add_executable(gettimeofday examples/benchs/gettimeofday.cpp)
 set_target_properties(gettimeofday PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/benchs)
-target_link_libraries(gettimeofday PUBLIC ${TANPROC_EXTRA_LIBS} vsg)
+target_link_libraries(gettimeofday PUBLIC ${TANPROC_EXTRA_LIBS})
 configure_file(examples/benchs/deployment.xml examples/benchs/deployment.xml)
 configure_file(examples/benchs/nova_cluster.xml examples/benchs/nova_cluster.xml)
 add_dependencies(gettimeofday tansiv-clients)
 
 # "Unit" tests
-add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp)
-target_link_libraries(tests PUBLIC ${TANPROC_EXTRA_LIBS} vsg ${SimGrid_LIBRARY} flatbuffers)
+add_executable(tests src/tests/tests.cpp src/tests/scenario.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+target_link_libraries(tests PUBLIC ${TANPROC_EXTRA_LIBS} flatbuffers)
 configure_file(src/tests/tests.sh tests.sh)
 add_dependencies(tests tansiv-clients fbs_packets)
 
@@ -112,8 +105,6 @@ add_dependencies(run-tests run-tansiv-tests run-client-tests)
 
 
 install(TARGETS tansiv DESTINATION bin)
-install(TARGETS vsg DESTINATION lib)
-install(FILES src/vsg/vsg.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
 install(PROGRAMS bin/boot.py DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")

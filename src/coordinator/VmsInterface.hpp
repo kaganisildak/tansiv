@@ -64,10 +64,6 @@ private:
 
   void close_vm_socket(std::string vm_name);
 };
-// low level stuffs
-
-int vsg_protocol_send(int, const void *, size_t);
-int vsg_protocol_recv(int, void *, size_t);
 
 } // namespace vsg
 

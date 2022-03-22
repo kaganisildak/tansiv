@@ -5,8 +5,10 @@
 #include <unistd.h>
 #include <xbt/log.hpp>
 
-#include "packets_generated.h"
+#include "socket.hpp"
 
+// big enough buffer for incoming messages
+#define SCRATCH_BUFFER_LEN 2048
 
 #define LOG_MESSAGES 1
 
@@ -157,23 +159,6 @@ bool VmsInterface::vmActive()
   return (!vm_sockets.empty() && !simulate_until_any_stop) || (!a_vm_stopped && simulate_until_any_stop);
 }
 
-/*recv flatbuffer message from a socket.
-
-Must provide a big enough buffer...
-*/
-static int fb_recv(int sock, uint8_t* buffer)
-{
-  // our fb are prefixed with their size
-  int s = recv(sock, buffer, 4, MSG_WAITALL);
-  if (s < 0) {
-    return s;
-  }
-  auto len = flatbuffers::ReadScalar<uint32_t>(buffer);
-  // read the remaining part
-
-  return recv(sock, buffer, len, MSG_WAITALL);
-}
-
 std::vector<Message*> VmsInterface::goTo(double deadline)
 {
   // Beforehand, forget about the VMs that bailed out recently.
@@ -203,9 +188,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   std::vector<Message*> messages;
   XBT_INFO("getting the message send by the VMs");
 
-  // allocate a buffer for incoming control messages
-  // FIXME
-  uint8_t scratch_buffer[2048];
+  uint8_t scratch_buffer[SCRATCH_BUFFER_LEN];
 
   for (auto kv : vm_sockets) {
     std::string vm_name = kv.first;
@@ -214,10 +197,11 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
     // we loop until we get an at_deadline
     bool finished = false;
     while (!finished) {
-      if (fb_recv(vm_socket, scratch_buffer) <= 0) {
+      if (fb_recv(vm_socket, scratch_buffer, SCRATCH_BUFFER_LEN) < 0) {
         XBT_INFO("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
                  vm_name.c_str());
         close_vm_socket(vm_name);
+        break;
       }
       auto msg = flatbuffers::GetRoot<tansiv::ToTansivMsg>(scratch_buffer);
       switch (msg->content_type()) {
@@ -237,9 +221,8 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
           auto message =
               new Message(time->seconds(), time->useconds(), metadata->src(), metadata->dst(), flatbuffers::VectorLength<uint8_t>(payload), (uint8_t*) payload->data());
           messages.push_back(message);
-
-        } break;
-
+          break;
+        }
         default:
           XBT_ERROR("Unknown message received from VM %s", vm_name.c_str());
           end_simulation();
@@ -379,44 +362,5 @@ Message::~Message()
     printf("Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
 #endif
   }
-}
-
-// low level stuffs
-int vsg_protocol_send(int fd, const void* buf, size_t len)
-{
-  size_t curlen = len;
-  ssize_t count;
-
-  do {
-    count = send(fd, buf + (len - curlen), curlen, 0);
-    if (count > 0) {
-      curlen -= count;
-    } else if (count < 0 && errno != EINTR) {
-      return -1;
-    }
-  } while (curlen > 0);
-
-  return 0;
-}
-
-int vsg_protocol_recv(int fd, void* buf, size_t len)
-{
-  size_t curlen = len;
-  ssize_t count;
-
-  do {
-    count = recv(fd, buf + (len - curlen), curlen, MSG_WAITALL);
-    if (count > 0) {
-      curlen -= count;
-    } else if (count == 0 && curlen > 0) {
-      /* The peer closed the socket prematurately. */
-      errno = EPIPE;
-      return -1;
-    } else if (count < 0 && errno != EINTR) {
-      return -1;
-    }
-  } while (curlen > 0);
-
-  return 0;
 }
 } // namespace vsg

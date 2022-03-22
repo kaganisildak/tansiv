@@ -1,12 +1,13 @@
+#include <arpa/inet.h>
 #include <atomic>
 #include <cstring>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <unistd.h>
+
 extern "C" {
 #include <tansiv-client.h>
-#include <vsg.h>
 }
 
 using namespace std;

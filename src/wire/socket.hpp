@@ -5,10 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-void dump_packet(const uint8_t*, size_t);
-
-void vsg_pg_port(in_port_t, uint8_t*, int, uint8_t*);
-void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
+#include <packets_generated.h>
 
 /*
  * Low-level functions
@@ -18,5 +15,14 @@ void vsg_upg_port(void*, int, in_port_t*, uint8_t**);
  */
 int vsg_protocol_send(int, const void*, size_t);
 int vsg_protocol_recv(int, void*, size_t);
+
+/*
+ * Helper function to read from a socket a size prefixed flatbuffer message
+ *
+ * @return follows vsg_protocol_recv semantics
+ *         0 on success, -1 on failure with errno set accordingly
+ *         (errno == ENOBUFS if a not enough buffer is passed)
+*/
+int fb_recv(int sock, uint8_t* buffer, size_t buf_size);
 
 #endif

@@ -7,9 +7,9 @@
 
 extern "C" {
 #include <tansiv-client.h>
-#include <vsg.h>
 }
-#include <packets_generated.h>
+
+#include <socket.hpp>
 
 /* The socket to use for all the tests. */
 #define SOCKET_ACTOR "titi"
@@ -43,29 +43,6 @@ void send_deliver_pg_port(int);
 
 void fb_simple(int);
 void fb_deliver(int);
-
-/*recv flatbuffer message from a socket.
-
-Must provide a big enough buffer...
-*/
-static int fb_recv(int sock, uint8_t* buffer, size_t buf_size)
-{
-  char len_buf[4];
-  // our fb are prefixed with their size
-  int ret  = vsg_protocol_recv(sock, len_buf, 4);
-  if (ret) {
-      return ret;
-  }
-  auto len = flatbuffers::ReadScalar<uint8_t>(len_buf);
-  if (buf_size < len) {
-      errno = ENOBUFS;
-      perror("fb_recv");
-      fprintf(stderr, "  %zd bytes provided but at least %d bytes required\n", buf_size, len);
-      return -1;
-  }
-  // read the remaining part
-  return vsg_protocol_recv(sock, buffer, len);
-}
 
 
 #endif /* __SCENARIO__ */
