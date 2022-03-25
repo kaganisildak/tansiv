@@ -212,14 +212,34 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
 
         case tansiv::ToTansiv_SendPacket: {
           auto send_packet = msg->content_as_SendPacket();
-          // getting the actual data
+          // The returned pointer can be nullptr. This happens for instance when
+          // the content_type is inconsistent with the actual type of the
+          // content yes fbb doesn't prevent this inconsistency (fbb 2.0.0)
+          if (send_packet == nullptr) {
+            XBT_ERROR("Deserialization error: type of content must be SendPacket");
+            break;
+          }
+          // Our schema use an fbb table (see packets.fbs) Fields on a table can
+          // be null however our protocol doesn't allow null fields so we're
+          // checking every single field before accepting the message
           auto metadata = send_packet->metadata();
-          auto time     = send_packet->time();
-
-          // build our own internal message structure and add it to the list of flying messages
+          if (metadata == nullptr) {
+            XBT_ERROR("Deserialization error: metadata can't be empty");
+            break;
+          }
+          auto time = send_packet->time();
+          if (time == nullptr) {
+            XBT_ERROR("Deserialization error: time can't be empty");
+            break;
+          }
           const flatbuffers::Vector<uint8_t>* payload = send_packet->payload();
-          auto message =
-              new Message(time->seconds(), time->useconds(), metadata->src(), metadata->dst(), flatbuffers::VectorLength<uint8_t>(payload), (uint8_t*) payload->data());
+          if (payload == nullptr) {
+            XBT_ERROR("Deserialization error: payload can't be empty");
+            break;
+          }
+          // build our own internal message structure and add it to the list of flying messages
+          auto message = new Message(time->seconds(), time->useconds(), metadata->src(), metadata->dst(),
+                                     flatbuffers::VectorLength<uint8_t>(payload), (uint8_t*)payload->data());
           messages.push_back(message);
           break;
         }
@@ -282,7 +302,8 @@ void VmsInterface::deliverMessage(Message* m)
     builder.FinishSizePrefixed(msg);
     vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 
-    XBT_VERB("message from vm %s delivered to vm %s size=%u (on the wire size=%d)", m->src.c_str(), m->dst.c_str(), m->size, builder.GetSize());
+    XBT_VERB("message from vm %s delivered to vm %s size=%u (on the wire size=%d)", m->src.c_str(), m->dst.c_str(),
+             m->size, builder.GetSize());
   } else {
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m->src.c_str(),
              m->dst.c_str());
