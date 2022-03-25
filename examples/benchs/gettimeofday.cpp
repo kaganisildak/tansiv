@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <atomic>
 #include <cstring>
 #include <limits>
@@ -6,9 +7,9 @@
 #include <stdlib.h>
 #include <string>
 #include <sys/time.h>
+
 extern "C" {
 #include <tansiv-client.h>
-#include <vsg.h>
 }
 
 using namespace std;
