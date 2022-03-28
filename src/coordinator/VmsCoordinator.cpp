@@ -149,7 +149,7 @@ static void vm_coordinator()
     if (deadline != std::numeric_limits<double>::infinity()) {
       simgrid::s4u::this_actor::sleep_until(deadline);
     }
-    int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+    int changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
     while (
         changed_pos >=
         0) { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
@@ -163,7 +163,7 @@ static void vm_coordinator()
                m->size);
       vms_interface->deliverMessage(m);
 
-      changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+      changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
     }
     XBT_DEBUG("Timestep finished preparing the next iteration [current_time=%f] [next_event = %f]",
               simgrid::s4u::Engine::get_clock(), get_next_event());
