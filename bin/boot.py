@@ -98,9 +98,11 @@ class VM(object):
 
     def ci_network_config(self) -> Dict:
         # yes the nic names are hardcoded...
-        def ethernet_config(interface: IPv4Interface):
-            return dict(
-                addresses=[f"{interface.ip}"],
+        def ethernet_config(mac: str, interface: IPv4Interface, idx: int):
+            c = dict(
+                match=dict(macaddress=mac),
+                # address in cidr
+                addresses=[str(interface)],
                 gateway4=str(next(interface.network.hosts())),
                 # routes=[
                 #     dict(to=str(interface), via=str(next(interface.network.hosts())))
@@ -108,12 +110,13 @@ class VM(object):
                 dhcp4=False,
                 dhcp6=False,
             )
+            c.update({"set-name": f"tan{idx}"})
+            return c
 
-        ens3 = ethernet_config(self.tantap)
-        ens4 = ethernet_config(
-            self.management,
-        )
-        network_config = dict(version=2, ethernets=dict(ens3=ens3, ens4=ens4))
+        mac_tantap, mac_mantap = self.mac
+        nic1 = ethernet_config(mac_tantap, self.tantap, 0)
+        nic2 = ethernet_config(mac_mantap, self.management, 1)
+        network_config = dict(version=2, ethernets=dict(nic1=nic1, nic2=nic2))
         LOGGER.debug(network_config)
         return network_config
 
