@@ -55,7 +55,7 @@ int fb_recv(int sock, uint8_t* buffer, size_t buf_size)
   if (ret) {
     return ret;
   }
-  auto len = flatbuffers::ReadScalar<uint8_t>(len_buf);
+  auto len = flatbuffers::ReadScalar<uint32_t>(len_buf);
   if (buf_size < len) {
     errno = ENOBUFS;
     fprintf(stderr, "  %zd bytes provided but at least %d bytes required\n", buf_size, len);
