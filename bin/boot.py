@@ -12,6 +12,8 @@ import yaml
 LOGGER = logging.getLogger(__name__)
 
 
+DEFAULT_BUFFER_POOL_SIZE = 100
+
 class VM(object):
     def __init__(
         self,
@@ -242,9 +244,11 @@ class TansivVM(VM):
         self,
         socket_name: str,
         *args,
+        num_buffers=DEFAULT_BUFFER_POOL_SIZE,
         **kwargs
     ):
         self.socket_name = socket_name
+        self.num_buffers = num_buffers
         super().__init__(*args, **kwargs)
 
     @property
@@ -253,7 +257,7 @@ class TansivVM(VM):
         return (
             qemu_args
             + " "
-            + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip}"
+            + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip},num_buffers={self.num_buffers}"
         )
 
     @property
@@ -370,6 +374,15 @@ done
         help="base directory where the working dir will be stored",
     )
 
+    parser.add_argument(
+        "--num_buffers",
+        type=int,
+        help="""Size of the buffer pool of tansiv. This should be set accordingly
+to the latency x bandwidth. Undersized buffer pool lead to packet dropping (silently).
+The default value is too low for realistics benchmarks.""",
+        default=DEFAULT_BUFFER_POOL_SIZE
+    )
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
@@ -390,6 +403,8 @@ done
         raise ValueError("qemu_image must be set")
     autoconfig_net = args.autoconfig_net
 
+    num_buffers = args.num_buffers
+
     # check the required third party software
     check_call("genisoimage --version", shell=True)
     check_call("qemu-img --version", shell=True)
@@ -409,6 +424,7 @@ done
             public_key=public_key,
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
+            num_buffers=num_buffers
         )
     else:
         vm = VM(
