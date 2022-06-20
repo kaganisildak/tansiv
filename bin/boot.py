@@ -12,8 +12,6 @@ import yaml
 LOGGER = logging.getLogger(__name__)
 
 
-DEFAULT_BUFFER_POOL_SIZE = 100
-
 class VM(object):
     def __init__(
         self,
@@ -244,7 +242,7 @@ class TansivVM(VM):
         self,
         socket_name: str,
         *args,
-        num_buffers=DEFAULT_BUFFER_POOL_SIZE,
+        num_buffers=None,
         **kwargs
     ):
         self.socket_name = socket_name
@@ -254,11 +252,15 @@ class TansivVM(VM):
     @property
     def qemu_args(self):
         qemu_args = super().qemu_args
-        return (
+        cmd = (
             qemu_args
             + " "
-            + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip},num_buffers={self.num_buffers}"
+            + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip}"
         )
+
+        if self.num_buffers:
+            cmd += f",num_buffers={self.num_buffers}"
+        return cmd
 
     @property
     def taptype(self) -> List[str]:
@@ -380,7 +382,6 @@ done
         help="""Size of the buffer pool of tansiv. This should be set accordingly
 to the latency x bandwidth. Undersized buffer pool lead to packet dropping (silently).
 The default value is too low for realistics benchmarks.""",
-        default=DEFAULT_BUFFER_POOL_SIZE
     )
 
     logging.basicConfig(level=logging.DEBUG)
