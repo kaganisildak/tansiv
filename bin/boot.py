@@ -11,6 +11,7 @@ import yaml
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
 
 class VM(object):
     def __init__(
@@ -212,7 +213,10 @@ class VM(object):
         ]
 
     def start(self, working_dir: Path) -> Path:
-        working_dir.mkdir(parents=True, exist_ok=True)
+        # create the working dir
+        #   fail if it already exist so that the user can explicitly choose to
+        #   remove it (and backup the previous one if needed)
+        working_dir.mkdir(parents=True, exist_ok=False)
         # generate cloud_init
         iso = self.prepare_cloud_init(working_dir)
         # generate the base image
@@ -412,7 +416,6 @@ The default value is too low for realistics benchmarks.""",
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
-
     if args.mode == "tantap":
         vm = TansivVM(
             socket_name,
@@ -444,19 +447,16 @@ The default value is too low for realistics benchmarks.""",
         print(cmd)
 
     # base_working_dir allows to gather in a predefined place all the working dirs.
-    base_working_dir = args.base_working_dir
-    if base_working_dir is not None:
-        Path(base_working_dir).mkdir(exist_ok=True, parents=True)
-    # Use a "temporary" directory as working dir where the VM can store
-    # some files (dump filter, stdout ...)
-    # we actually want this to persist for debugging purpose
-    # that's why it's "temporary"
-    tmp = tempfile.TemporaryDirectory(
-        prefix=f"{vm.hostname}_", dir=args.base_working_dir
-    )
-    LOGGER.info(f"Launching in {tmp.name}")
-    vm.start(working_dir=Path(tmp.name))
+    base_working_dir = Path(args.base_working_dir) if args.base_working_dir else DEFAULT_BASE_WORKING_DIR
+    # create it if it doesn't exist
+    Path(base_working_dir).mkdir(exist_ok=True, parents=True)
 
+    # craft the working dir
+    # this is where some of the vm specific state / output will be stored
+    working_dir = base_working_dir / vm.hostname
+
+    LOGGER.info(f"Launching in {working_dir}")
+    vm.start(working_dir=working_dir)
 
 if __name__ == "__main__":
     main()
