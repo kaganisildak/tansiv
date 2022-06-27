@@ -13,6 +13,7 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
 
+
 class VM(object):
     def __init__(
         self,
@@ -242,13 +243,7 @@ class VM(object):
 
 
 class TansivVM(VM):
-    def __init__(
-        self,
-        socket_name: str,
-        *args,
-        num_buffers=None,
-        **kwargs
-    ):
+    def __init__(self, socket_name: str, *args, num_buffers=None, **kwargs):
         self.socket_name = socket_name
         self.num_buffers = num_buffers
         super().__init__(*args, **kwargs)
@@ -428,7 +423,7 @@ The default value is too low for realistics benchmarks.""",
             public_key=public_key,
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
-            num_buffers=num_buffers
+            num_buffers=num_buffers,
         )
     else:
         vm = VM(
@@ -447,7 +442,11 @@ The default value is too low for realistics benchmarks.""",
         print(cmd)
 
     # base_working_dir allows to gather in a predefined place all the working dirs.
-    base_working_dir = Path(args.base_working_dir) if args.base_working_dir else DEFAULT_BASE_WORKING_DIR
+    base_working_dir = (
+        Path(args.base_working_dir)
+        if args.base_working_dir
+        else DEFAULT_BASE_WORKING_DIR
+    )
     # create it if it doesn't exist
     Path(base_working_dir).mkdir(exist_ok=True, parents=True)
 
@@ -457,6 +456,7 @@ The default value is too low for realistics benchmarks.""",
 
     LOGGER.info(f"Launching in {working_dir}")
     vm.start(working_dir=working_dir)
+
 
 if __name__ == "__main__":
     main()
