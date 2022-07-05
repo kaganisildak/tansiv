@@ -21,6 +21,10 @@ apt -y install taktuk \
     python3-setuptools \
     redis-server
 
+# linpack
+mkdir /opt/linpack
+cd /opt/linpack && wget http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/l_mklb_p_2018.3.011.tgz && tar xf l_mklb_p_2018.3.011.tgz
+
 mkdir -p /home/tansiv/.ssh
 ssh-keygen -t rsa -f /home/tansiv/.ssh/id_rsa -P ''
 cat /home/tansiv/.ssh/id_rsa.pub >> /home/tansiv/.ssh/authorized_keys
