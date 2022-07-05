@@ -23,7 +23,7 @@
     <argument value="--qemu_mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
-    <argument value=""/>
+    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
     <argument value="--num_buffers"/>
     <argument value="100"/>
     <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
@@ -42,7 +42,7 @@
     <argument value="--qemu_mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
-    <argument value=""/>
+    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
     <argument value="--num_buffers"/>
     <argument value="100"/>
     <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
