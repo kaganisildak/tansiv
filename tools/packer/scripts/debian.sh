@@ -25,6 +25,9 @@ apt -y install taktuk \
 mkdir /opt/linpack
 cd /opt/linpack && wget http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/l_mklb_p_2018.3.011.tgz && tar xf l_mklb_p_2018.3.011.tgz
 
+# coremark
+cd /opt && git clone https://github.com/eembc/coremark.git
+
 mkdir -p /home/tansiv/.ssh
 ssh-keygen -t rsa -f /home/tansiv/.ssh/id_rsa -P ''
 cat /home/tansiv/.ssh/id_rsa.pub >> /home/tansiv/.ssh/authorized_keys
