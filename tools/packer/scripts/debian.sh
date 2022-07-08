@@ -22,8 +22,9 @@ apt -y install taktuk \
     redis-server
 
 # linpack
+package='l_mklb_p_2018.3.011.tgz'
 mkdir /opt/linpack
-cd /opt/linpack && wget http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/l_mklb_p_2018.3.011.tgz && tar xf l_mklb_p_2018.3.011.tgz
+cd /opt/linpack && wget "http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/$package" && sha256sum -c "$package".sha256 && tar xf "$package"
 
 # coremark
 cd /opt && git clone https://github.com/eembc/coremark.git
