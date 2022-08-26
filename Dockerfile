@@ -6,6 +6,7 @@ COPY . /app
 
 RUN apt-get update
 RUN apt-get install -y build-essential \
+    gcc-11 \
     libboost-dev \
     cmake \
     libcppunit-dev \
@@ -55,7 +56,7 @@ RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock -
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN ./configure --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install
+RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install
 
 # make some room
 # RUN rm -rf /app
