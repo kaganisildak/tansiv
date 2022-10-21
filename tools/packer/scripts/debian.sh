@@ -24,7 +24,9 @@ apt -y install taktuk \
 # linpack
 package='l_mklb_p_2018.3.011.tgz'
 mkdir /opt/linpack
-cd /opt/linpack && wget "http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/$package" && sha256sum -c "$package".sha256 && tar xf "$package"
+cd /opt/linpack
+echo "eac1fc2784c3ac2f130dafaa8e590b48f7623c577b469bae8b53decd27652b53  l_mklb_p_2018.3.011.tgz" > "$package".sha256
+wget "http://registrationcenter-download.intel.com/akdlm/irc_nas/9752/$package" && sha256sum -c "$package".sha256 && tar -xzf "$package"
 
 # coremark
 cd /opt && git clone https://github.com/eembc/coremark.git
@@ -32,7 +34,9 @@ cd /opt && git clone https://github.com/eembc/coremark.git
 # nbench
 package='nbench-byte-2.2.3.tar.gz'
 mkdir /opt/nbench
-cd /opt/nbench && wget "http://www.math.utah.edu/~mayer/linux/$package" && sha256sum -c "$package".sha256 && tar xf "$package"
+cd /opt/nbench
+echo "723dd073f80e9969639eb577d2af4b540fc29716b6eafdac488d8f5aed9101ac  nbench-byte-2.2.3.tar.gz" > "$package".sha256
+wget "http://www.math.utah.edu/~mayer/linux/$package" && sha256sum -c "$package".sha256 && tar -xzf "$package"
 
 mkdir -p /home/tansiv/.ssh
 ssh-keygen -t rsa -f /home/tansiv/.ssh/id_rsa -P ''
