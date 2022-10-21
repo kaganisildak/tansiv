@@ -15,7 +15,7 @@ RUN apt-get install -y build-essential \
     libglib2.0-dev \
     cargo \
     clang
-RUN libclang-dev \
+RUN apt-get install -y libclang-dev \
     curl \
     git \
     pkg-config \
