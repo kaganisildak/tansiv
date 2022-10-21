@@ -5,6 +5,8 @@ WORKDIR /app
 COPY . /app
 
 RUN apt-get update
+# putting all in one layer make us hit
+# a timeout limit when pushing the layers
 RUN apt-get install -y build-essential \
     gcc-11 \
     libboost-dev \
@@ -12,8 +14,8 @@ RUN apt-get install -y build-essential \
     libcppunit-dev \
     libglib2.0-dev \
     cargo \
-    clang \
-    libclang-dev \
+    clang
+RUN libclang-dev \
     curl \
     git \
     pkg-config \
