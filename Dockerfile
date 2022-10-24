@@ -58,7 +58,7 @@ RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock -
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install
+RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install && make clean
 
 # make some room
 # RUN rm -rf /app
