@@ -14,7 +14,13 @@ RUN apt-get install -y build-essential \
     libcppunit-dev \
     libglib2.0-dev \
     cargo \
-    clang
+    clang \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get -y autoremove \
+    && apt-get -y clean \
+    && find /var/cache -type f -exec rm -rf {} \; \
+    && find /var/log/ -name *.log -exec rm -f {} \;
+
 RUN apt-get install -y libclang-dev \
     curl \
     git \
@@ -25,7 +31,13 @@ RUN apt-get install -y libclang-dev \
     flex \
     bison \
     genisoimage \
-    iproute2
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get -y autoremove \
+    && apt-get -y clean \
+    && find /var/cache -type f -exec rm -rf {} \; \
+    && find /var/log/ -name *.log -exec rm -f {} \;
+
 
 RUN cargo --help
 
@@ -58,7 +70,10 @@ RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock -
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" && make -j  && make install && make clean
+RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" \
+    && make -j \
+    && make install \
+    && make clean
 
 # make some room
 # RUN rm -rf /app
