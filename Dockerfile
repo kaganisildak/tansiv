@@ -13,7 +13,6 @@ RUN apt-get install -y build-essential \
     cmake \
     libcppunit-dev \
     libglib2.0-dev \
-    cargo \
     clang \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y autoremove \
@@ -39,13 +38,16 @@ RUN apt-get install -y libclang-dev \
     && find /var/log/ -name *.log -exec rm -f {} \;
 
 
+RUN apt install -y curl
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.64.0
+ENV PATH /root/.cargo/bin:$PATH
 RUN cargo --help
 
 # clone some version of flatbuffer
 # flatc will be compiled from this
 # and used in the rust part (build.rs) and the cpp part to compile the protocol
 # IDL
-RUN git clone https://github.com/google/flatbuffers --depth 1 -b v2.0.0
+RUN git clone https://github.com/google/flatbuffers --depth 1 -b v22.9.29
 
 WORKDIR /app/build
 RUN cmake -DFLATBUFFERS_SRC=/app/flatbuffers -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install

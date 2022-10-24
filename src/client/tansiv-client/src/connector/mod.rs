@@ -192,7 +192,7 @@ impl DeliverPacket {
 
     pub fn payload(&self) -> &[u8] {
         let msg = self.deserialize();
-        msg.payload().unwrap()
+        msg.payload().unwrap().bytes()
     }
 
     fn deserialize(&self) -> tansiv::DeliverPacket {
@@ -415,7 +415,7 @@ impl MsgOut {
                         metadata.src(),
                         metadata.dst(),
                         send_time,
-                        send_packet.payload().unwrap(),
+                        send_packet.payload().unwrap().bytes(),
                         fb_buffer,
                     )?;
                     Ok(MsgOut::SendPacket(send_packet_builder.finish(send_time)))
