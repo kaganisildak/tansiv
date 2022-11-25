@@ -1,14 +1,10 @@
 # tansiv in docker :)
 FROM simgrid/unstable:latest
 
-WORKDIR /app
-COPY . /app
-
 RUN apt-get update
 # putting all in one layer make us hit
 # a timeout limit when pushing the layers
 RUN apt-get install -y build-essential \
-    gcc-11 \
     libboost-dev \
     cmake \
     libcppunit-dev \
@@ -41,6 +37,9 @@ RUN apt-get install -y libclang-dev \
 
 RUN cargo --help
 
+WORKDIR /app
+COPY . /app
+
 # clone some version of flatbuffer
 # flatc will be compiled from this
 # and used in the rust part (build.rs) and the cpp part to compile the protocol
@@ -70,10 +69,8 @@ RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock -
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
-RUN ./configure --cc=/usr/bin/gcc-11 --target-list=x86_64-softmmu  --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="/opt/tansiv/lib/libtanqemu.a" \
-    && make -j \
-    && make install \
-    && make clean
+RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemu.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemu-system-x86_64
+RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemukvm.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemukvm-system-x86_64
 
 # make some room
 # RUN rm -rf /app
