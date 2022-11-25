@@ -1,0 +1,9 @@
+[package]
+name = "tanqemukvm"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+#tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["qemukvm"]}
+tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["qemukvm", "use-own-logger", "deadline-handler-debug"]}
