@@ -75,39 +75,6 @@ unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int
     return info.vmx_timer_value;
 }
 
-/* Register a deadline handler */
-int ioctl_register_handler(pid_t pid, pid_t handler_pid)
-{
-    int error;
-    int fd;
-    int fd_lock;
-    struct tansiv_handler_ioctl info;
-    info.pid = pid;
-    info.handler_pid = handler_pid;
-
-    fd_lock = open(LOCK_PATH, O_CREAT, 0600);
-    if (fd_lock < 0) {
-        printf("Failed to open lock file\n");
-    }
-    flock(fd_lock, LOCK_EX);
-
-    fd = open(DEVICE_PATH, O_RDWR);
-    if (fd < 0) {
-        printf("Failed to open device file: %s, error:%d\n", DEVICE_PATH, fd);
-        exit(EXIT_FAILURE);
-    }
-
-    error = ioctl(fd, TANSIV_REGISTER_HANDLER, &info);
-    if (error < 0) {
-        perror("ioctl_register_signalfd");
-        return -1;
-    }
-    close(fd);
-    flock(fd_lock, LOCK_UN);
-    close(fd_lock);
-    return error;
-}
-
 /* Register a vcpu thread */
 int ioctl_register_vcpu(pid_t pid, pid_t vcpu_pid)
 {

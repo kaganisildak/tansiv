@@ -101,7 +101,6 @@ static void cb_pop(struct circular_buffer *cb, void *item) {
 struct tansiv_vm {
     struct pid pid; // VM pid
     struct hrtimer timer; // VM timer
-    struct pid handler_pid; // VM handler pid
     struct struct_pid_array vcpus_pids; // Array of vcpu pids
     bool init_status; // true if the VM is fully initialized
     unsigned long long int deadline; // deadline of the VM (Cumulated)
@@ -332,8 +331,6 @@ void free_vm(struct tansiv_vm *vm)
 
     unregister_target_pid(&vm->pid);
     
-    unregister_target_pid(&vm->handler_pid);
-    
     for (i = 0; i < vm->vcpus_pids.used; i++) {
         unregister_target_pid(&vm->vcpus_pids.array[i]);
     }
@@ -435,7 +432,11 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
             // Average of both TSC values
             vm->timer_start = (tsc_before + tsc_after) >> 1;
 
-            vmx_timer_value = vmenter_guest_tsc + last_deadline_tsc + vm->deadline_tsc;
+            // Value for deadline stored in guest tsc scale approach
+            vmx_timer_value = vmenter_guest_tsc + last_deadline_tsc +
+            vm->deadline_tsc;
+            // Value for deadline stored in host tsc scale approach
+            // vmx_timer_value = rdtsc() + vm->deadline_tsc;
             expired = kvm_set_preemption_timer(pid_nr(&vm->pid), vmx_timer_value);
             deadline.vmx_timer_value = vmx_timer_value;
 
@@ -472,33 +473,6 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
             if (copy_to_user(tmp, &deadline, sizeof(struct tansiv_deadline_ioctl))) {
                 return -EFAULT;
             }
-
-            break;
-        }
-        case TANSIV_REGISTER_HANDLER: {
-            struct tansiv_vm *vm;
-            struct tansiv_handler_ioctl __user *tmp = (struct tansiv_handler_ioctl *)ioctl_param;
-            struct tansiv_handler_ioctl handler;
-            int error;
-
-            if (copy_from_user(&handler, tmp, sizeof(struct tansiv_handler_ioctl))) {
-                return -EFAULT;
-            }
-
-            vm = find_tansiv_vm_array(&tansiv_vm_array, handler.pid);
-            if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_REGISTER_HANDLER: vm %d not found\n", handler.pid);
-                return -EINVAL;
-            }
-            
-
-            error = register_target_pid(handler.pid, &vm->handler_pid);
-            if (error) {
-                unregister_target_pid(&vm->handler_pid);
-                pr_err("tansiv-timer: Error while registering target pid in TANSIV_REGISTER_HANDLER of vm %d\n", handler.pid);
-                return -EINVAL;
-            }
-
 
             break;
         }
@@ -600,15 +574,6 @@ static struct file_operations fops = {
     .release = device_release,
 };
 
-/* Show tsc frequency in sysfs */
-// static ssize_t tsc_khz_show(struct kobject *kobj,
-			    // struct kobj_attribute *attr, char *buf)
-// {
-	// return sprintf(buf, "%u\n", tsc_khz);
-// }
-// 
-// struct kobj_attribute tsc_khz_attr = __ATTR_RO(tsc_khz);
-
 /* Initialize the module */
 static int __init tansiv_timer_init(void)
 {
@@ -645,13 +610,6 @@ static int __init tansiv_timer_init(void)
     spin_lock_init(&logs_buffer_lock);
     INIT_WORK(&logs_work, write_logs);
 
-    /* Sysfs */
-    // error = sysfs_create_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr);
-	// if (error < 0) {
-        // pr_err("tansiv-timer: failed to initialize sysfs\n");
-        // return error;
-    // }
-
     pr_info("tansiv-timer: successfully initialized\n");
     return error;
 }
@@ -668,7 +626,6 @@ static void __exit cancel_tansiv_timer(void)
     /* Circular buffer */
     cb_free(&logs_buffer);
     /* Sysfs */
-    // sysfs_remove_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr);
     pr_info("tansiv-timer: Exit success\n");
 }
 
