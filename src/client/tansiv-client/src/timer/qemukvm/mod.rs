@@ -97,18 +97,30 @@ impl TimerContextInner {
         static mut INIT_DONE: bool = false;
         let mut next_deadline = self.next_deadline.lock().unwrap();
         let next_deadline_val = *next_deadline;
-
+        static mut TSC_FREQ : f64 = 1.0;
+       
         let mut timer_deadline = (deadline - next_deadline_val).as_nanos() as u64;
         *self.prev_deadline.lock().unwrap() = next_deadline_val;
         *next_deadline = deadline;
-        // Send timer_deadline to the tansiv-timer kernel module
+        // ioctls && mutable static variables are unsafe 
         unsafe {
+            // First deadline : read tsc frequency from sysfs and convert it to GHz
+            if !(INIT_DONE) {
+                match fs::read_to_string("/sys/devices/system/cpu/tsc_khz") {
+                    Err(why) => log_write(&format!("Failed to read tsc frequency from sysfs: {:?}", why)),
+                    Ok(tsc_khz_str) => match tsc_khz_str.trim().parse::<i64>() {
+                        Err(why) => log_write(&format!("Failed to convert tsc frequency to GHz: {:?}", why)),
+                        Ok(tsc_khz_int) => TSC_FREQ = (tsc_khz_int as f64) / 1000000.0,
+                    }
+                }
+            }
             while !(INIT_DONE) {
                 INIT_DONE = ioctl_init_check(getpid());
             }
             let mut timer_deadline_tsc = timer_deadline as f64;
-            timer_deadline_tsc *= 2.8032;
+            timer_deadline_tsc *= TSC_FREQ;
             let vmenter_guest_tsc = *self.guest_tsc.lock().unwrap();
+            // Send timer_deadline to the tansiv-timer kernel module
             let vmx_timer_value =  ioctl_register_deadline(getpid(), timer_deadline, timer_deadline_tsc as u64, vmenter_guest_tsc);
             *self.vmx_timer_value.lock().unwrap() = vmx_timer_value;
         };

@@ -574,6 +574,17 @@ static struct file_operations fops = {
     .release = device_release,
 };
 
+/* sysfs file to export the tsc frequency
+ * Exported in /sys/devices/system/cpu/tsc_khz , in kHz
+ */
+static ssize_t tsc_khz_show(struct kobject *kobj,
+			    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", tsc_khz);
+}
+
+struct kobj_attribute tsc_khz_attr = __ATTR_RO(tsc_khz);
+
 /* Initialize the module */
 static int __init tansiv_timer_init(void)
 {
@@ -610,6 +621,11 @@ static int __init tansiv_timer_init(void)
     spin_lock_init(&logs_buffer_lock);
     INIT_WORK(&logs_work, write_logs);
 
+    if (!sysfs_create_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr))
+		pr_info("tansiv-timer: tsc frequency exported in sysfs");
+	else
+		pr_warn("tansiv-timer: tsc frequency failed to be exported in sysfs");
+
     pr_info("tansiv-timer: successfully initialized\n");
     return error;
 }
@@ -626,6 +642,7 @@ static void __exit cancel_tansiv_timer(void)
     /* Circular buffer */
     cb_free(&logs_buffer);
     /* Sysfs */
+    sysfs_remove_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr);
     pr_info("tansiv-timer: Exit success\n");
 }
 
