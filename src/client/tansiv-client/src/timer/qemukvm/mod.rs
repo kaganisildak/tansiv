@@ -93,7 +93,7 @@ impl TimerContextInner {
         }
     }
 
-    pub fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration, first_deadline: bool) {
+    pub fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration) {
         static mut INIT_DONE: bool = false;
         let mut next_deadline = self.next_deadline.lock().unwrap();
         let next_deadline_val = *next_deadline;
@@ -106,10 +106,6 @@ impl TimerContextInner {
             while !(INIT_DONE) {
                 INIT_DONE = ioctl_init_check(getpid());
             }
-            // TODO : Find something to get the tsc freq
-            if (first_deadline) {
-                timer_deadline = 60 * 1000000000; // Do nothing for 1 min
-            }
             let mut timer_deadline_tsc = timer_deadline as f64;
             timer_deadline_tsc *= 2.8032;
             let vmenter_guest_tsc = *self.guest_tsc.lock().unwrap();
@@ -121,7 +117,7 @@ impl TimerContextInner {
     pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<Duration> {
         // TODO: Make sure ::start() is not called again before ::stop()
 
-        self.set_next_deadline(deadline, true);
+        self.set_next_deadline(deadline);
 
         Ok(Duration::zero())
     }
@@ -130,7 +126,6 @@ impl TimerContextInner {
     // called twice. Otherwise calling stop() prematurately drops self!
     pub fn stop(self: &Pin<Arc<Self>>) {
         // Safety: TODO
-        // TODO : Add stuff to clean tansiv_module
         // Drop the reference given to qemu_timer
         // It is easier to use the opaque pointer from self than using the one from qemu_timer
         let ptr = self.deref() as *const TimerContextInner;
@@ -149,25 +144,10 @@ impl TimerContextInner {
 
     /// Returns the global simulation time
     pub fn simulation_now(&self) -> StdDuration {
-        // let vm_time = unsafe
-        // {qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL)};
-        // ioctls involved so everythng is unsafe
+        // ioctls involved so everything is unsafe
         unsafe{
             // Get current timestamp
             let now = _rdtsc();
-            // let pipe_name = CString::new("/tmp/tansiv-fifo").expect("CString::new failed");
-            // let fd = open(pipe_name.as_ptr(), O_RDONLY | O_NONBLOCK);
-            // if fd < 0 {
-                // panic!("simulation_now: failed to open tansiv-fifo!");
-            // }
-            // let buf : &mut [u8; 8] = &mut [0, 0, 0, 0, 0, 0, 0, 0];
-            // let err = read(fd, buf.as_ptr() as *mut c_void, 8);
-            // if err != 8 {
-                // panic!("simulation_now: failed to read tansiv-fifo! err is {}", err);
-            // }
-            // close(fd);
-            // let now = u64::from_le_bytes(*buf);
-            
             // Convert it to guest tsc scale
             let mut now_guest = ioctl_scale_tsc(getpid(), now) as f64;
             // Get the value of the deadline in guest tsc scale
@@ -201,7 +181,6 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
-
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {
@@ -220,7 +199,7 @@ pub extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void, guest_ts
     if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
         match context_arg.at_deadline() {
             AfterDeadline::NextDeadline(deadline) => {
-                context.timer_context.set_next_deadline(deadline, false);
+                context.timer_context.set_next_deadline(deadline);
 
             },
             AfterDeadline::EndSimulation => {
