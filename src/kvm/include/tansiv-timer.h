@@ -36,10 +36,11 @@ struct tansiv_vm_ioctl {
 
 /* TANSIV_REGISTER_DEADLINE */
 struct tansiv_deadline_ioctl {
+    /* Arguments */
     pid_t pid; // pid of the VM
     unsigned long long int deadline; // Time until the next deadline (ns)
     unsigned long long int deadline_tsc; // Time until the next deadline (TSC ticks)
-    unsigned long long int vmenter_guest_tsc; // Value of the guest tsc at the last VM-Enter following the last VMX Timer VM-Exit
+    /* Results */
     unsigned long long int vmx_timer_value; // Value stored in the VMX preemption timer
 };
 
@@ -65,7 +66,7 @@ struct tansiv_scale_tsc_ioctl {
 };
 
 int ioctl_register_vm(pid_t pid);
-unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int deadline, unsigned long long int deadline_tsc, unsigned long long int vmenter_guest_tsc);
+unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int deadline, unsigned long long int deadline_tsc);
 int ioctl_register_vcpu(pid_t pid, pid_t vcpu_pid);
 int ioctl_init_end(pid_t pid);
 bool ioctl_init_check(pid_t pid);

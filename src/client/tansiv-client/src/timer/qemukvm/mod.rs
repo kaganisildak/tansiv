@@ -14,7 +14,7 @@ use std::io::Write;
 use core::arch::x86_64::{_rdtsc};
 
 extern {
-    fn ioctl_register_deadline(pid: i32, deadline: u64, deadline_tsc: u64, vmenter_guest_tsc: u64) -> u64;
+    fn ioctl_register_deadline(pid: i32, deadline: u64, deadline_tsc: u64) -> u64;
     fn ioctl_init_check(pid: i32) -> bool;
     fn ioctl_scale_tsc(pid: i32, tsc: u64) -> i64;
 }
@@ -40,6 +40,7 @@ pub struct TimerContextInner {
     next_deadline: Mutex<StdDuration>,
     guest_tsc : Mutex<u64>, // Value of the guest tsc register at the beginning of slot before the last deadline handled
     vmx_timer_value : Mutex<u64>, // Value of the deadline used to setup the VMX Preemption timer. It's the equivalent of next_deadline at the scale of the guest
+    tsc_freq : Mutex<f64> // frequency of guest TSC in GHz
 }
 
 // Wrapper struct to avoid conflicts between Pin::new() and TimerContextInner::new()
@@ -81,6 +82,7 @@ impl TimerContextInner {
         let next_deadline = Mutex::new(StdDuration::new(0, 0));
         let guest_tsc = Mutex::new(0);
         let vmx_timer_value = Mutex::new(0);
+        let tsc_freq = Mutex::new(0.0);
 
         TimerContextInner {
             phantom_pinned,
@@ -89,7 +91,8 @@ impl TimerContextInner {
             prev_deadline,
             next_deadline,
             guest_tsc,
-            vmx_timer_value
+            vmx_timer_value,
+            tsc_freq
         }
     }
 
@@ -113,15 +116,15 @@ impl TimerContextInner {
                         Ok(tsc_khz_int) => TSC_FREQ = (tsc_khz_int as f64) / 1000000.0,
                     }
                 }
+                *self.tsc_freq.lock().unwrap() = TSC_FREQ;
             }
             while !(INIT_DONE) {
                 INIT_DONE = ioctl_init_check(getpid());
             }
             let mut timer_deadline_tsc = timer_deadline as f64;
             timer_deadline_tsc *= TSC_FREQ;
-            let vmenter_guest_tsc = *self.guest_tsc.lock().unwrap();
             // Send timer_deadline to the tansiv-timer kernel module
-            let vmx_timer_value =  ioctl_register_deadline(getpid(), timer_deadline, timer_deadline_tsc as u64, vmenter_guest_tsc);
+            let vmx_timer_value =  ioctl_register_deadline(getpid(), timer_deadline, timer_deadline_tsc as u64);
             *self.vmx_timer_value.lock().unwrap() = vmx_timer_value;
         };
     }
@@ -175,10 +178,12 @@ impl TimerContextInner {
             // Get prev and next deadline in ns
             let next_deadline = self.next_deadline.lock().unwrap().as_nanos() as u64;
             let prev_deadline = self.prev_deadline.lock().unwrap().as_nanos() as u64;
+            // Get tsc freq
+            let tsc_freq = *self.tsc_freq.lock().unwrap();
             // Get the duration of the current deadline slot
             let slot_duration_ns =  (next_deadline - prev_deadline) as f64; 
             // Get the duration of the slot in tsc ticks
-            let slot_duration_tsc = (slot_duration_ns as f64) * 2.8032;
+            let slot_duration_tsc = (slot_duration_ns as f64) * tsc_freq;
             // Compute the date of the timestamp
             let vm_time = prev_deadline + ((1.0 - (next_deadline_guest - now_guest) / slot_duration_tsc) * slot_duration_ns) as u64;
             return Duration::nanoseconds(vm_time as i64).to_std().unwrap();

@@ -400,10 +400,8 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
             unsigned long long int tsc_after;
             unsigned long long int tsc_before_guest;
             unsigned long long int tsc_after_guest;
-            bool expired;
             unsigned long long int vmx_timer_value;
             unsigned long long int last_deadline_tsc;
-            unsigned long long int vmenter_guest_tsc;
 
             if (copy_from_user(&deadline, tmp, sizeof(struct tansiv_deadline_ioctl))) {
                 return -EFAULT;
@@ -415,7 +413,6 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
                 return -EINVAL;
             }
             last_deadline_tsc = vm->deadline_tsc;
-            vmenter_guest_tsc = deadline.vmenter_guest_tsc;
             
             vm->deadline += deadline.deadline;
             vm->deadline_tsc = deadline.deadline_tsc;
@@ -432,12 +429,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
             // Average of both TSC values
             vm->timer_start = (tsc_before + tsc_after) >> 1;
 
-            // Value for deadline stored in guest tsc scale approach
-            vmx_timer_value = vmenter_guest_tsc + last_deadline_tsc +
-            vm->deadline_tsc;
-            // Value for deadline stored in host tsc scale approach
-            // vmx_timer_value = rdtsc() + vm->deadline_tsc;
-            expired = kvm_set_preemption_timer(pid_nr(&vm->pid), vmx_timer_value);
+            vmx_timer_value = kvm_set_preemption_timer(pid_nr(&vm->pid), vm->deadline_tsc);
             deadline.vmx_timer_value = vmx_timer_value;
 
             // pr_info("tansiv-timer: loading value %llu to set the VMX Preemption Timer. Deadline_tsc: %llu \n", vmx_timer_value, vm->deadline_tsc);

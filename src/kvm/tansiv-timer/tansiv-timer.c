@@ -42,7 +42,7 @@ int ioctl_register_vm(pid_t pid) {
 }
 
 /* Set deadline for a VM */
-unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int deadline, unsigned long long int deadline_tsc, unsigned long long int vmenter_guest_tsc) {
+unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int deadline, unsigned long long int deadline_tsc) {
     int error;
     int fd;
     struct tansiv_deadline_ioctl info;
@@ -50,8 +50,6 @@ unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int
     info.pid = pid;
     info.deadline = deadline;
     info.deadline_tsc = deadline_tsc;
-    info.vmenter_guest_tsc = vmenter_guest_tsc;
-
     fd_lock = open(LOCK_PATH, O_CREAT, 0600);
     if (fd_lock < 0) {
         printf("Failed to open lock file\n");
