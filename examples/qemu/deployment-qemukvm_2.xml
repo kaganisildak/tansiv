@@ -13,6 +13,8 @@
     <argument value="boot.py"/>
     <argument value="--mode"/>
     <argument value="tantap"/>
+    <argument value="--num_buffers"/>
+    <argument value="100"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemukvm-system-x86_64"/>
     <argument value="--qemu_image"/>
@@ -31,6 +33,8 @@
     <argument value="boot.py"/>
     <argument value="--mode"/>
     <argument value="tantap"/>
+    <argument value="--num_buffers"/>
+    <argument value="100"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemukvm-system-x86_64"/>
     <argument value="--qemu_image"/>
