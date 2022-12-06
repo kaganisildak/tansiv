@@ -1,4 +1,4 @@
-LIB_CRATES := tanproc_capi tanqemu_capi
+LIB_CRATES := tanproc_capi tanqemu_capi tanqemukvm_capi
 
 CARGO := cargo
 CARGO_ENV ?=
@@ -52,4 +52,5 @@ install: build
 	install -d -m 755 $(DEST_INC_DIR)
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanproc.a
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanqemu.a
+	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanqemukvm.a
 	install -m 0644 -t $(DEST_INC_DIR) $(TOP_DIR)/capi/src/tansiv-client.h

@@ -2,7 +2,9 @@
 # For now (10/21):
 # - mkdir build && cd build && cmake -DFLATBUFFERS_SRC=$(pwd)/../../flatbuffers/flatbuffers -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make
 # - tansiv-clients: implement different client side flavors of the vsg protocol (rust)
-#   + libtanproc.a and libtanqemu.a installed in /opt/tansiv-client
+#   + libtanproc.a, libtanqemu.a and libtanqemukvm.a installed in /opt/tansiv-client
+# - vsg: low-level simgrid side of the vsg protocol (c/c++)
+#   + installed in $CMAKE_INSTALL_PREFIX
 # - tansiv: simgrid simulation
 #   + installed in $CMAKE_INSTALL_PREFIX
 
@@ -17,8 +19,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/tools/cmake/")
 # https://stackoverflow.com/questions/45135/why-does-the-order-in-which-libraries-are-linked-sometimes-cause-errors-in-gcc
 set(TANPROC_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanproc.a)
 set(TANPROC_EXTRA_LIBS ${TANPROC_LIB} dl rt pthread)
-# use this to link against tanqemu (obvly only qemu needs that)
+# use this to link against tanqemu(kvm) (obvly only qemu needs that)
 set(TANQEMU_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemu.a)
+set(TANQEMUKVM_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemukvm.a)
+set(TANSIVTIMER_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtansiv-timer.a)
 
 set(TANSIVCLIENT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(WIRE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/wire)
@@ -53,7 +57,7 @@ include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WI
 # TODO: use prefix
 add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu
                                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu)
-# tansiv-client client libs tanproc and tanqemu (Rust implementation exporting a C API)
+# tansiv-client client libs tanproc tanqemu and tanqemukvm (Rust implementation exporting a C API)
 # installed in /opt/tansiv-client
 # compiled in RELEASE mode (I've got the power !)
 # build the qemu base image
@@ -65,6 +69,10 @@ add_custom_target(tansiv-clients COMMAND PATH=$ENV{PATH}:${FLATBUFFERS_BUILD_DIR
 add_dependencies(tansiv-clients config-host.h flatbuffers flatc)
 
 add_custom_target(packer COMMAND packer build debian-10.3.0-x86_64.json WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packer)
+
+# tansiv-timer lib (tanqemukvm)
+add_library(tansiv-timer STATIC src/kvm/tansiv-timer/tansiv-timer.c)
+target_compile_options(tansiv-timer PUBLIC -fPIE)
 
 # Tansiv (coordinator of the simulation)
 add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
@@ -103,8 +111,9 @@ add_custom_target(run-client-tests COMMAND PATH=$ENV{PATH}:${FLATBUFFERS_BUILD_D
 add_custom_target(run-tests)
 add_dependencies(run-tests run-tansiv-tests run-client-tests)
 
-
 install(TARGETS tansiv DESTINATION bin)
+install(TARGETS tansiv-timer DESTINATION lib)
+install(FILES src/kvm/tansiv-timer/tansiv-timer.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
 install(PROGRAMS bin/boot.py DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")

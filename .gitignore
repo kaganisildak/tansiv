@@ -13,3 +13,13 @@ _deps
 
 /build/
 cloud-init*
+
+*.cmd
+*.ko
+*.mod
+*.symvers
+*.order
+*.o
+*.mod.c
+*.der
+*.priv
