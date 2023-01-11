@@ -6,3 +6,6 @@
 	path = src/qemu
 	url = https://gitlab.inria.fr/lcossero/qemu.git
 	branch = wip/tsc_clock
+[submodule "tools/packer"]
+	path = tools/packer
+	url = https://gitlab.inria.fr/tansiv/packer.git
