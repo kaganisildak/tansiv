@@ -1,5 +1,5 @@
-#include "catch.hpp"
 #include "scenario.hpp"
+#include "catch.hpp"
 
 #include <csignal>
 #include <cstdio>
@@ -21,7 +21,7 @@ void sigquit(int signum)
 ScenarioRunner::ScenarioRunner(scenario* the_scenario)
 {
   remove(SOCKET_ACTOR);
-  printf("\n---\nCreating Simple Actor\n");
+  printf("\n---\n[scenario runner] Creating Simple Actor\n");
   int connection_socket = socket(AF_LOCAL, SOCK_STREAM, 0);
 
   struct sockaddr_un address;
@@ -29,23 +29,27 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
   strcpy(address.sun_path, SOCKET_ACTOR);
 
   if (bind(connection_socket, (sockaddr*)(&address), sizeof(address)) != 0) {
-    std::perror("unable to bind connection socket");
+    std::perror("[scenario runner] unable to bind connection socket");
     exit(1);
   }
   // Start queueing incoming connections otherwise there might be a race
   // condition where vsg_init is called before the server side socket is
   // listening.
   if (listen(connection_socket, 1) != 0) {
-    std::perror("unable to listen on connection socket");
+    std::perror("[scenario runner] unable to listen on connection socket");
     exit(1);
   }
-  printf("Actor is now ready to listen to connections\n");
+  printf("[scenario runner]]Actor is now ready to listen to connections\n");
 
   int life_pipe[2];
   if (pipe(life_pipe) != 0) {
-    std::perror("unable to create life_pipe\n");
+    std::perror("[scenario runner] unable to create life_pipe\n");
     exit(1);
   }
+
+  // Avoid duplicated output when not running in a terminal
+  fflush(stdout);
+  fflush(stderr);
 
   pid_t pid = fork();
   if (pid == 0) {
@@ -59,27 +63,28 @@ ScenarioRunner::ScenarioRunner(scenario* the_scenario)
     // child process: we continue the actor execution
     struct sockaddr_un vm_address = {0};
     unsigned int len              = sizeof(vm_address);
-    printf("\tWaiting connections\n");
+    printf("\t[tansiv] Waiting connections\n");
     int client_socket = accept(connection_socket, (sockaddr*)(&vm_address), &len);
     if (client_socket < 0) {
-      std::perror("unable to accept connection on socket");
+      std::perror("[tansiv] unable to accept connection on socket");
       exit(1);
     }
-    printf("\tClient connection accepted\n");
+    printf("\t[tansiv] Client connection accepted\n");
     // run it
     (*the_scenario)(client_socket);
 
     // Wait for the parent to (abnormally) exit or (normally) terminate us by SIGQUIT
     char dummy;
     read(life_pipe[0], &dummy, 1);
+    printf("[tansiv] Exiting\n");
     exit(0);
   } else if (pid > 0) {
     // Parent: close now unused fds
     close(connection_socket);
     close(life_pipe[0]);
     // sets the attributes
-    printf("I'm your father (my child=%d)\n", pid);
-    this->child_pid = pid;
+    // printf("[client] I'm your father (my child=%d)\n", pid);
+    this->child_pid    = pid;
     this->life_pipe_fd = life_pipe[1];
   } else {
     exit(1);
@@ -105,28 +110,63 @@ ScenarioRunner::~ScenarioRunner()
   }
 }
 
-// Hard-coded time slice of 200 microseconds
-static void send_go_to_deadline(int client_socket)
+/*
+ * Build and send an goto deadline message
+ */
+static int fb_send_goto_deadline(int socket)
 {
-  int ret;
 
-  vsg_msg_in_type msg = vsg_msg_in_type::GoToDeadline;
-  ret                 = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
-  REQUIRE(0 == ret);
-  vsg_time t = {0, 200};
-  ret        = vsg_protocol_send(client_socket, &t, sizeof(vsg_time));
+  flatbuffers::FlatBufferBuilder builder;
+  auto time          = tansiv::Time(0, 200);
+  auto goto_deadline = tansiv::CreateGotoDeadline(builder, &time);
+  auto msg           = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_GotoDeadline, goto_deadline.Union());
+  builder.FinishSizePrefixed(msg);
+
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
+}
+
+/*
+ * Build and send an end deadline message
+ */
+static int fb_send_end_simulation(int socket)
+{
+
+  flatbuffers::FlatBufferBuilder builder;
+  auto end_simulation = tansiv::CreateEndSimulation(builder);
+  auto msg            = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_EndSimulation, end_simulation.Union());
+  builder.FinishSizePrefixed(msg);
+
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
+}
+
+/*
+ * Build and serialize a deliver message
+ */
+static int fb_send_deliver(int socket)
+{
+
+  flatbuffers::FlatBufferBuilder builder;
+
+  std::string data    = MESSAGE;
+  auto packet_meta    = tansiv::PacketMeta(inet_addr(SRC), inet_addr(DEST));
+  auto payload_offset = builder.CreateVector<uint8_t>((uint8_t*) data.c_str(), data.length());
+  auto deliver_packet = tansiv::CreateDeliverPacket(builder, &packet_meta, payload_offset);
+  auto msg            = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_DeliverPacket, deliver_packet.Union());
+  builder.FinishSizePrefixed(msg);
+
+  return vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
+}
+
+static void fb_init_sequence(int client_socket)
+{
+  // send go to deadline packet
+  auto ret = fb_send_goto_deadline(client_socket);
   REQUIRE(0 == ret);
 }
 
-static void init_sequence(int client_socket)
+static void fb_end_sequence(int client_socket)
 {
-  send_go_to_deadline(client_socket);
-}
-
-static void end_sequence(int client_socket)
-{
-  vsg_msg_in_type msg = vsg_msg_in_type::EndSimulation;
-  int ret             = vsg_protocol_send(client_socket, &msg, sizeof(uint32_t));
+  auto ret = fb_send_end_simulation(client_socket);
   REQUIRE(0 == ret);
 }
 
@@ -141,8 +181,8 @@ static void end_sequence(int client_socket)
 void simple(int client_socket)
 {
   printf("Entering simple scenario\n");
-  init_sequence(client_socket);
-  end_sequence(client_socket);
+  fb_init_sequence(client_socket);
+  fb_end_sequence(client_socket);
   printf("Leaving simple scenario\n");
 }
 
@@ -156,46 +196,36 @@ void simple(int client_socket)
  */
 void recv_one(int client_socket)
 {
-  int ret;
-
   printf("Entering recv_one scenario\n");
-  init_sequence(client_socket);
+  fb_init_sequence(client_socket);
+  uint8_t buffer[128];
 
-  vsg_msg_out_type msg_type;
+  const tansiv::ToTansivMsg* msg;
+  // AtDeadline msgs can arrive before getting the first SendPacket
+  // https://gitlab.inria.fr/tansiv/tansiv/-/issues/20
+  // so we loop until we get somethiing different than AtDeadline
+  // and this message must be a SendPacket
   do {
-    // AtDeadline msgs can arrive before getting the first SendPacket
-    // https://gitlab.inria.fr/tansiv/tansiv/-/issues/20
-    // so we loop until we get somethiing different than AtDeadline
-    // and this message must be a SendPacket
-    ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
+    int ret = fb_recv(client_socket, buffer, sizeof(buffer));
     REQUIRE(0 == ret);
-    send_go_to_deadline(client_socket);
-  } while (msg_type == vsg_msg_out_type::AtDeadline);
+    msg     = flatbuffers::GetRoot<tansiv::ToTansivMsg>(buffer);
+    ret     = fb_send_goto_deadline(client_socket);
+    REQUIRE(0 == ret);
+  } while (msg->content_type() == tansiv::ToTansiv::ToTansiv_AtDeadline);
+  REQUIRE(msg->content_type() == tansiv::ToTansiv::ToTansiv_SendPacket);
+  auto send_packet = msg->content_as_SendPacket();
 
-  REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
-
-  // second, check the send time and size
-  vsg_send_packet send_packet = {0};
-  ret                         = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
-  REQUIRE(0 == ret);
-
-  // test the received addresses
   in_addr_t src_expected = inet_addr(SRC);
-  REQUIRE(src_expected == send_packet.packet.src);
+  REQUIRE(src_expected == send_packet->metadata()->src());
 
   in_addr_t dst_expected = inet_addr(DEST);
-  REQUIRE(dst_expected == send_packet.packet.dst);
-
-  // finally get the payload
-  uint8_t buf[send_packet.packet.size];
-  ret = vsg_protocol_recv(client_socket, buf, send_packet.packet.size);
-  REQUIRE(0 == ret);
+  REQUIRE(dst_expected == send_packet->metadata()->dst());
 
   std::string expected = MESSAGE;
-  std::string actual   = std::string((char*)buf);
+  std::string actual   = std::string((char *)send_packet->payload()->data());
   REQUIRE(expected == actual);
 
-  end_sequence(client_socket);
+  fb_end_sequence(client_socket);
   printf("Leaving recv_one scenario\n");
 };
 
@@ -210,64 +240,48 @@ void recv_one(int client_socket)
 void deliver_one(int client_socket)
 {
   printf("Entering deliver_one scenario\n");
-  init_sequence(client_socket);
+  fb_init_sequence(client_socket);
 
-  uint32_t deliver_flag = vsg_msg_in_type::DeliverPacket;
-  std::string data      = MESSAGE;
-  vsg_packet packet     = {.size = (uint32_t)data.length() + 1, .src = inet_addr(SRC), .dst = inet_addr(DEST)};
-  struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  int ret                                  = vsg_deliver_send(client_socket, deliver_packet, (uint8_t*)data.c_str());
-  REQUIRE(0 == ret);
+  fb_deliver(client_socket);
+
   printf("Leaving deliver_one scenario\n");
 
-  end_sequence(client_socket);
+  fb_end_sequence(client_socket);
 };
 
 /*
- * scenario: send_deliver_pg_port
+ * Simple fb scenario
  *
- * The actor sends
- *  - the init sequence
- *  - wait a message sent by the application (with a port piggybacked)
+ * The actor sends the init_sequence:
+ *  - a GoToDeadline message
+ * Then it sends the end sequence:
+ *  - an EndSimulation message
  *
  */
-void send_deliver_pg_port(int client_socket)
+void fb_simple(int client_socket)
 {
-  int ret;
 
-  printf("Entering send_deliver_pg_port scenario\n");
-  init_sequence(client_socket);
+  printf("\t[tansiv] Entering fb simple scenario\n");
+  fb_init_sequence(client_socket);
+  fb_end_sequence(client_socket);
+  printf("\t[tansiv] Leaving fb simple scenario\n");
+}
 
-  // wait for send_packet
-  vsg_msg_out_type msg_type;
-  do {
-    // AtDeadline msgs can arrive before getting the first SendPacket
-    // https://gitlab.inria.fr/tansiv/tansiv/-/issues/20
-    // so we loop until we get somethiing different than AtDeadline
-    // and this message must be a SendPacket
-    ret = vsg_protocol_recv(client_socket, &msg_type, sizeof(vsg_msg_out_type));
-    REQUIRE(0 == ret);
-    send_go_to_deadline(client_socket);
-  } while (msg_type == vsg_msg_out_type::AtDeadline);
+/*
+ * Deliver fb scenario
+ *
+ * The actot sends a DeliverMessage
+ *
+ */
+void fb_deliver(int client_socket)
+{
 
-  REQUIRE(vsg_msg_out_type::SendPacket == msg_type);
-  vsg_send_packet send_packet = {0};
-  ret                         = vsg_protocol_recv(client_socket, &send_packet, sizeof(vsg_send_packet));
+  printf("\t[tansiv] Entering fb simple scenario\n");
+  fb_init_sequence(client_socket);
+
+  auto ret = fb_send_deliver(client_socket);
   REQUIRE(0 == ret);
 
-  // here the payload contains the port
-  // we just pass it back to the app with a deliver message
-  uint8_t buf[send_packet.packet.size];
-  ret = vsg_protocol_recv(client_socket, buf, send_packet.packet.size);
-  REQUIRE(0 == ret);
-
-  // deliver sequence
-  uint32_t deliver_flag                    = vsg_msg_in_type::DeliverPacket;
-  vsg_packet packet                        = {.size = (uint32_t)sizeof(buf)};
-  struct vsg_deliver_packet deliver_packet = {.packet = packet};
-  ret                                      = vsg_deliver_send(client_socket, deliver_packet, buf);
-  REQUIRE(0 == ret);
-
-  end_sequence(client_socket);
-  printf("Leaving send_deliver_pg_port scenario\n");
-};
+  fb_end_sequence(client_socket);
+  printf("\t[tansiv] Leaving fb simple scenario\n");
+}

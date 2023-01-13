@@ -8,6 +8,7 @@ edition = "2018"
 default = []
 process = ["tansiv-client/process"]
 qemu = ["tansiv-client/qemu"]
+qemukvm = ["tansiv-client/qemukvm"]
 deadline-handler-debug = ["tansiv-client/deadline-handler-debug"]
 use-own-logger = ["tansiv-client/use-own-logger"]
 

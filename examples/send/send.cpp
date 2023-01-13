@@ -1,12 +1,13 @@
+#include <arpa/inet.h>
 #include <atomic>
 #include <cstring>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <unistd.h>
+
 extern "C" {
 #include <tansiv-client.h>
-#include <vsg.h>
 }
 
 using namespace std;
@@ -81,9 +82,10 @@ int main(int argc, char* argv[])
 
   uint32_t recv_src;
   uint32_t recv_dest;
-  uint32_t buffer_len = msg.length() + 1;
-  char buffer[buffer_len];
+  uint32_t buffer_len = msg.length() + 30;
+  uint8_t buffer[buffer_len];
   ret = vsg_recv(context, &recv_src, &recv_dest, &buffer_len, (uint8_t*)buffer);
+  // we expect a str so add ing a nul character at the end
   if (ret) {
     die("vsg_recv() failed", ret);
   }

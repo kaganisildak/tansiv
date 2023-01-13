@@ -127,11 +127,12 @@ static void vm_coordinator()
         simgrid::s4u::this_actor::sleep_until(m->sent_time);
       }
 
+
       std::string src_host_name = vms_interface->getHostOfVm(m->src);
       xbt_assert(not src_host_name.empty(), "The VM %s tries to send a message but we do not know its PM",
                  m->src.c_str());
 
-      std::string dest_host_name = vms_interface->getHostOfVm(m->dest);
+      std::string dest_host_name = vms_interface->getHostOfVm(m->dst);
       if (not dest_host_name.empty()) {
         auto src_host  = simgrid::s4u::Host::by_name(src_host_name);
         auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
@@ -139,7 +140,7 @@ static void vm_coordinator()
         pending_comms.push_back(comm);
         pending_messages.push_back(m);
       } else {
-        XBT_WARN("the VM %s tries to send a message to the unknown VM %s", m->src.c_str(), m->dest.c_str());
+        XBT_WARN("the VM %s tries to send a message to the unknown VM %s", m->src.c_str(), m->dst.c_str());
       }
     }
 
@@ -148,7 +149,7 @@ static void vm_coordinator()
     if (deadline != std::numeric_limits<double>::infinity()) {
       simgrid::s4u::this_actor::sleep_until(deadline);
     }
-    int changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+    int changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
     while (
         changed_pos >=
         0) { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
@@ -158,11 +159,11 @@ static void vm_coordinator()
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dest.c_str(),
+      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dst.c_str(),
                m->size);
       vms_interface->deliverMessage(m);
 
-      changed_pos = simgrid::s4u::Comm::test_any(&pending_comms);
+      changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
     }
     XBT_DEBUG("Timestep finished preparing the next iteration [current_time=%f] [next_event = %f]",
               simgrid::s4u::Engine::get_clock(), get_next_event());

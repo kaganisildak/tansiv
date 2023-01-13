@@ -10,37 +10,40 @@
   -->
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.10"/>  <!-- how simgrid knows me-->
-    <argument value="boot.py"/>
+    <!-- relative the examples/qemu_docker dir -->
+    <argument value="../../bin/boot.py"/>
     <argument value="--mode"/>
     <argument value="tantap"/>
     <argument value="--qemu_cmd"/>
-    <argument value="qemu-system-x86_64"/>
+    <argument value="tanqemu-system-x86_64"/>
     <argument value="--qemu_image"/>
-    <argument value="/srv/image.qcow2"/>
+    <!-- relative to the exampes/qemu_dir -->
+    <argument value="../../tools/packer/packer-debian-11.1.0-x86_64-qemu/debian-11.1.0-x86_64.qcow2"/>
     <argument value="--qemu_mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
     <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
-    <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
+    <argument value="--num_buffers"/>
+    <argument value="100"/>
     <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.10/24"/> <!-- management -->
   </actor>
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.11"/>  <!-- how simgrid knows me-->
-    <argument value="boot.py"/>
+    <argument value="../../bin/boot.py"/>
     <argument value="--mode"/>
     <argument value="tantap"/>
     <argument value="--qemu_cmd"/>
-    <argument value="qemu-system-x86_64"/>
+    <argument value="tanqemu-system-x86_64"/>
     <argument value="--qemu_image"/>
-    <argument value="/srv/image.qcow2"/>
+    <argument value="../../tools/packer/packer-debian-11.1.0-x86_64-qemu/debian-11.1.0-x86_64.qcow2"/>
     <argument value="--qemu_mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
-    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm -object filter-dump,id=f1,netdev=mynet0,file=dump.dat"/>
-    <!-- <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/> -->
-    <argument value="--autoconfig_net"/>
+    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
+    <argument value="--num_buffers"/>
+    <argument value="100"/>
     <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.11/24"/> <!-- management -->
   </actor>

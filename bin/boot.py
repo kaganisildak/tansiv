@@ -11,6 +11,8 @@ import yaml
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
+
 
 class VM(object):
     def __init__(
@@ -98,9 +100,11 @@ class VM(object):
 
     def ci_network_config(self) -> Dict:
         # yes the nic names are hardcoded...
-        def ethernet_config(interface: IPv4Interface):
-            return dict(
-                addresses=[f"{interface.ip}"],
+        def ethernet_config(mac: str, interface: IPv4Interface, idx: int):
+            c = dict(
+                match=dict(macaddress=mac),
+                # address in cidr
+                addresses=[str(interface)],
                 gateway4=str(next(interface.network.hosts())),
                 # routes=[
                 #     dict(to=str(interface), via=str(next(interface.network.hosts())))
@@ -108,12 +112,13 @@ class VM(object):
                 dhcp4=False,
                 dhcp6=False,
             )
+            c.update({"set-name": f"tan{idx}"})
+            return c
 
-        ens3 = ethernet_config(self.tantap)
-        ens4 = ethernet_config(
-            self.management,
-        )
-        network_config = dict(version=2, ethernets=dict(ens3=ens3, ens4=ens4))
+        mac_tantap, mac_mantap = self.mac
+        nic1 = ethernet_config(mac_tantap, self.tantap, 0)
+        nic2 = ethernet_config(mac_mantap, self.management, 1)
+        network_config = dict(version=2, ethernets=dict(nic1=nic1, nic2=nic2))
         LOGGER.debug(network_config)
         return network_config
 
@@ -209,7 +214,10 @@ class VM(object):
         ]
 
     def start(self, working_dir: Path) -> Path:
-        working_dir.mkdir(parents=True, exist_ok=True)
+        # create the working dir
+        #   fail if it already exist so that the user can explicitly choose to
+        #   remove it (and backup the previous one if needed)
+        working_dir.mkdir(parents=True, exist_ok=False)
         # generate cloud_init
         iso = self.prepare_cloud_init(working_dir)
         # generate the base image
@@ -235,23 +243,23 @@ class VM(object):
 
 
 class TansivVM(VM):
-    def __init__(
-        self,
-        socket_name: str,
-        *args,
-        **kwargs
-    ):
+    def __init__(self, socket_name: str, *args, num_buffers=None, **kwargs):
         self.socket_name = socket_name
+        self.num_buffers = num_buffers
         super().__init__(*args, **kwargs)
 
     @property
     def qemu_args(self):
         qemu_args = super().qemu_args
-        return (
+        cmd = (
             qemu_args
             + " "
             + f"--vsg mynet0,socket={self.socket_name},src={self.tantap.ip}"
         )
+
+        if self.num_buffers:
+            cmd += f",num_buffers={self.num_buffers}"
+        return cmd
 
     @property
     def taptype(self) -> List[str]:
@@ -367,6 +375,14 @@ done
         help="base directory where the working dir will be stored",
     )
 
+    parser.add_argument(
+        "--num_buffers",
+        type=int,
+        help="""Size of the buffer pool of tansiv. This should be set accordingly
+to the latency x bandwidth. Undersized buffer pool lead to packet dropping (silently).
+The default value is too low for realistics benchmarks.""",
+    )
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
@@ -387,13 +403,14 @@ done
         raise ValueError("qemu_image must be set")
     autoconfig_net = args.autoconfig_net
 
+    num_buffers = args.num_buffers
+
     # check the required third party software
     check_call("genisoimage --version", shell=True)
     check_call("qemu-img --version", shell=True)
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
-
     if args.mode == "tantap":
         vm = TansivVM(
             socket_name,
@@ -406,6 +423,7 @@ done
             public_key=public_key,
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
+            num_buffers=num_buffers,
         )
     else:
         vm = VM(
@@ -424,18 +442,20 @@ done
         print(cmd)
 
     # base_working_dir allows to gather in a predefined place all the working dirs.
-    base_working_dir = args.base_working_dir
-    if base_working_dir is not None:
-        Path(base_working_dir).mkdir(exist_ok=True, parents=True)
-    # Use a "temporary" directory as working dir where the VM can store
-    # some files (dump filter, stdout ...)
-    # we actually want this to persist for debugging purpose
-    # that's why it's "temporary"
-    tmp = tempfile.TemporaryDirectory(
-        prefix=f"{vm.hostname}_", dir=args.base_working_dir
+    base_working_dir = (
+        Path(args.base_working_dir)
+        if args.base_working_dir
+        else DEFAULT_BASE_WORKING_DIR
     )
-    LOGGER.info(f"Launching in {tmp.name}")
-    vm.start(working_dir=Path(tmp.name))
+    # create it if it doesn't exist
+    Path(base_working_dir).mkdir(exist_ok=True, parents=True)
+
+    # craft the working dir
+    # this is where some of the vm specific state / output will be stored
+    working_dir = base_working_dir / vm.hostname
+
+    LOGGER.info(f"Launching in {working_dir}")
+    vm.start(working_dir=working_dir)
 
 
 if __name__ == "__main__":

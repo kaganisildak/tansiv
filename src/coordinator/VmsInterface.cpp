@@ -1,14 +1,19 @@
 #include "VmsInterface.hpp"
 #include <algorithm>
-#include <arpa/inet.h>
 #include <limits>
 #include <signal.h>
 #include <unistd.h>
 #include <xbt/log.hpp>
 
-extern "C" {
-#include "vsg.h"
-}
+#include "socket.hpp"
+
+// big enough buffer for incoming messages
+#define SCRATCH_BUFFER_LEN 2048
+
+#define LOG_MESSAGES 1
+
+// Enable to get some log about message create/copy/move
+// #define LOG_MESSAGES 1
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
 
@@ -38,9 +43,14 @@ vsg_time simgridToVmTime(double simgrid_time)
   return vm_time;
 }
 
+double vmToSimgridTime(uint64_t seconds, uint64_t useconds)
+{
+  return seconds + useconds * 1e-6;
+}
+
 double vmToSimgridTime(vsg_time vm_time)
 {
-  return vm_time.seconds + (vm_time.useconds * 1e-6);
+  return vmToSimgridTime(vm_time.seconds, vm_time.useconds);
 }
 
 VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_stop)
@@ -49,7 +59,6 @@ VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_
   simulate_until_any_stop   = stop_at_any_stop;
   socket_name               = connection_socket_name;
   const char* c_socket_name = socket_name.c_str();
-  msgs_count                = 0;
 
   remove(c_socket_name);
   connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
@@ -156,69 +165,93 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   // We hope that the coordinator cleaned the SimGrid side in between
   vm_sockets_trash.clear();
 
+  // TODO(msimonin): reuse that
+  flatbuffers::FlatBufferBuilder builder(128);
+
   // first, we ask all the VMs to go to deadline
-  XBT_DEBUG("Sending: go to deadline %f (%f)", deadline, vmToSimgridTime(simgridToVmTime(deadline)));
-  uint32_t goto_flag          = vsg_msg_in_type::GoToDeadline;
+  XBT_DEBUG("Sending: go to deadline %f", deadline);
+  // FIXME(msimonin)
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
+  // goto deadline message
+  auto time          = tansiv::Time(vm_deadline.seconds, vm_deadline.useconds);
+  auto goto_deadline = tansiv::CreateGotoDeadline(builder, &time);
+  auto msg           = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_GotoDeadline, goto_deadline.Union());
+  builder.FinishSizePrefixed(msg);
+
   for (auto it : vm_sockets) {
-    // vsg_goto_deadline_send(it.second, vm_deadline);
-    send(it.second, &goto_flag, sizeof(uint32_t), 0);
-    send(it.second, &vm_deadline, sizeof(vsg_time), 0);
+    XBT_DEBUG("-- to %s(size=%d)", it.first.c_str(), builder.GetSize());
+    vsg_protocol_send(it.second, builder.GetBufferPointer(), builder.GetSize());
   }
 
   // then, we pick up all the messages send by the VM until they reach the deadline
   std::vector<Message*> messages;
-  XBT_DEBUG("getting the message send by the VMs");
+  XBT_INFO("getting the message send by the VMs");
+
+  uint8_t scratch_buffer[SCRATCH_BUFFER_LEN];
+
   for (auto kv : vm_sockets) {
-    uint32_t vm_flag    = 0;
     std::string vm_name = kv.first;
     int vm_socket       = kv.second;
 
-    while (true) {
-
-      // ->vsg_order_recv
-      if (recv(vm_socket, &vm_flag, sizeof(uint32_t), MSG_WAITALL) <= 0) {
+    // we loop until we get an at_deadline
+    bool finished = false;
+    while (!finished) {
+      if (fb_recv(vm_socket, scratch_buffer, SCRATCH_BUFFER_LEN) < 0) {
         XBT_INFO("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
                  vm_name.c_str());
         close_vm_socket(vm_name);
-      }
-
-      // When the VM reaches the deadline, we're done with it, let's consider the next VM
-      if (vm_flag == vsg_msg_out_type::AtDeadline) {
         break;
-      } else if (vm_flag == vsg_msg_out_type::SendPacket) {
+      }
+      auto msg = flatbuffers::GetRoot<tansiv::ToTansivMsg>(scratch_buffer);
+      switch (msg->content_type()) {
 
-        XBT_VERB("getting a message from VM %s", vm_name.c_str());
-        struct vsg_send_packet send_packet = {0};
-        // we first get the message size
-        recv(vm_socket, &send_packet, sizeof(send_packet), MSG_WAITALL);
-        // then we get the message itself and we spli
-        //   - the destination address (first part) that is only useful for setting up the communication in SimGrid
-        //   - and the data transfer, that correspond to the data actually send through the (simulated) network
-        // (nb: we use vm_name.length() to determine the size of the destination address because we assume all the vm id
-        // to have the same size)
-        uint8_t data[send_packet.packet.size];
-        if (recv(vm_socket, data, sizeof(data), MSG_WAITALL) <= 0) {
-          XBT_ERROR("can not receive the data of the message from VM %s. The socket may be closed", vm_name.c_str());
-          end_simulation();
+        case tansiv::ToTansiv_AtDeadline:
+          finished = true;
+          break;
+
+        case tansiv::ToTansiv_SendPacket: {
+          auto send_packet = msg->content_as_SendPacket();
+          // The returned pointer can be nullptr. This happens for instance when
+          // the content_type is inconsistent with the actual type of the
+          // content yes fbb doesn't prevent this inconsistency (fbb 2.0.0)
+          if (send_packet == nullptr) {
+            XBT_ERROR("Deserialization error: type of content must be SendPacket");
+            break;
+          }
+          // Our schema use an fbb table (see packets.fbs) Fields on a table can
+          // be null however our protocol doesn't allow null fields so we're
+          // checking every single field before accepting the message
+          auto metadata = send_packet->metadata();
+          if (metadata == nullptr) {
+            XBT_ERROR("Deserialization error: metadata can't be empty");
+            break;
+          }
+          auto time = send_packet->time();
+          if (time == nullptr) {
+            XBT_ERROR("Deserialization error: time can't be empty");
+            break;
+          }
+          const flatbuffers::Vector<uint8_t>* payload = send_packet->payload();
+          if (payload == nullptr) {
+            XBT_ERROR("Deserialization error: payload can't be empty");
+            break;
+          }
+          // build our own internal message structure and add it to the list of flying messages
+          auto message = new Message(time->seconds(), time->useconds(), metadata->src(), metadata->dst(),
+                                     flatbuffers::VectorLength<uint8_t>(payload), (uint8_t*)payload->data());
+          messages.push_back(message);
+          break;
         }
-        char dst_addr[INET_ADDRSTRLEN];
-        char src_addr[INET_ADDRSTRLEN];
-        vsg_decode_src_dst(send_packet, src_addr, dst_addr);
-        Message* m = new Message(send_packet, data, msgs_count);
-        // NB: packet_size is the size used by SimGrid to simulate the transfer of the data on the network.
-        //     It does NOT correspond to the size of the data transfered to/from the VM on the REAL socket.
-
-        messages.push_back(m);
-        XBT_INFO("SendPacket: %s \n", m->toString().c_str());
-        msgs_count ++;
-      } else {
-        XBT_ERROR("unknown message received from VM %s : %lu", vm_name.c_str(), vm_flag);
-        end_simulation();
+        default:
+          XBT_ERROR("Unknown message received from VM %s", vm_name.c_str());
+          end_simulation();
+          finished = true;
+          break;
       }
     }
   }
+
   // Remove all invalid sockets from our list, but leave a chance to the coordinator to notice about them
   for (auto sock_name : vm_sockets_trash)
     vm_sockets.erase(sock_name);
@@ -236,6 +269,7 @@ std::string VmsInterface::getHostOfVm(std::string vm_name)
   }
   return vm_deployments[vm_name];
 }
+
 void VmsInterface::close_vm_socket(std::string vm_name)
 {
   int vm_socket = vm_sockets.at(vm_name);
@@ -256,63 +290,88 @@ const std::vector<std::string> VmsInterface::get_dead_vm_hosts()
 
 void VmsInterface::deliverMessage(Message* m)
 {
-  if (vm_sockets.find(m->dest) != vm_sockets.end()) {
-    int socket                               = vm_sockets[m->dest];
-    struct vsg_deliver_packet deliver_packet = {.packet = m->send_packet.packet};
-    vsg_deliver_send(socket, deliver_packet, m->data);
+  if (vm_sockets.find(m->dst) != vm_sockets.end()) {
+    int socket = vm_sockets[m->dst];
 
-    XBT_INFO("DeliverPacket %s", m->toString().c_str());
+    flatbuffers::FlatBufferBuilder builder(2048);
+    auto packet_meta    = tansiv::PacketMeta(m->src_enc, m->dst_enc);
+    auto payload_offset = builder.CreateVector<uint8_t>(m->data, m->size);
+    auto deliver_packet = tansiv::CreateDeliverPacket(builder, &packet_meta, payload_offset);
+    auto msg =
+        tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv::FromTansiv_DeliverPacket, deliver_packet.Union());
+    builder.FinishSizePrefixed(msg);
+    vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 
-    } else {
+    XBT_VERB("message from vm %s delivered to vm %s size=%u (on the wire size=%d)", m->src.c_str(), m->dst.c_str(),
+             m->size, builder.GetSize());
+  } else {
     XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m->src.c_str(),
-             m->dest.c_str());
+             m->dst.c_str());
   }
   delete m;
 }
 
-Message::Message(vsg_send_packet send_packet, uint8_t* payload, uint64_t my_id)
-    : send_packet(send_packet), size(send_packet.packet.size), my_id(my_id)
+Message::Message(uint64_t seconds, uint64_t useconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size,
+                 uint8_t* payload)
+    : seconds(seconds), useconds(useconds), src_enc(src_enc), dst_enc(dst_enc), size(size)
 {
   // -- compute sent time the sent_time
-  this->sent_time = vmToSimgridTime(send_packet.send_time);
+  this->sent_time = vmToSimgridTime(seconds, useconds);
+
   // -- then src and dest and make them a std::string
-  char dst_addr[INET_ADDRSTRLEN];
   char src_addr[INET_ADDRSTRLEN];
-  vsg_decode_src_dst(send_packet, src_addr, dst_addr);
-  this->src  = std::string(src_addr);
-  this->dest = std::string(dst_addr);
+  char dst_addr[INET_ADDRSTRLEN];
+  struct in_addr _src_addr = {src_enc};
+  struct in_addr _dst_addr = {dst_enc};
+  inet_ntop(AF_INET, &(_src_addr), src_addr, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &(_dst_addr), dst_addr, INET_ADDRSTRLEN);
+  this->src = std::string(src_addr);
+  this->dst = std::string(dst_addr);
+
   // -- finally handle the payload
-  this->data = new uint8_t[this->size];
-  memcpy(this->data, payload, this->size);
-  // printf("Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
+  this->data = new uint8_t[size];
+  memcpy(this->data, payload, size);
+#ifdef LOG_MESSAGES
+  printf("Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
+#endif
 };
 
-Message::Message(const Message& other) : Message(other.send_packet, other.data, other.my_id)
+Message::Message(const Message& other)
+    : Message(other.seconds, other.useconds, other.src_enc, other.dst_enc, other.size, other.data)
 {
-  // printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+#ifdef LOG_MESSAGES
+  printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+#endif
 }
 
 Message::Message(Message&& other) : data(nullptr)
 {
   // uses the assignement
   *this = std::move(other);
-  // printf("Moved Message[%p]: size=%d, data@%p from Message[%p]\n", this, this->size, this->data, &other);
+#ifdef LOG_MESSAGES
+  printf("Moved Message[%p]: size=%d, data@%p from Message[%p]\n", this, this->size, this->data, &other);
+#endif
 }
 
 Message& Message::operator=(Message&& other)
 {
   if (this != &other) {
     delete[] this->data;
-    this->data        = other.data;
-    this->size        = other.size;
-    this->src         = other.src;
-    this->dest        = other.dest;
-    this->send_packet = other.send_packet;
-    this->sent_time   = other.sent_time;
+    this->seconds   = other.seconds;
+    this->useconds  = other.useconds;
+    this->src_enc   = other.src_enc;
+    this->dst_enc   = other.dst_enc;
+    this->size      = other.size;
+    this->sent_time = other.sent_time;
+    this->src       = other.src;
+    this->dst       = other.dst;
+    this->data      = other.data;
 
     other.data = nullptr;
   }
-  // printf("Moved assigned Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+#ifdef LOG_MESSAGES
+  printf("Moved assigned Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+#endif
   return *this;
 }
 
@@ -320,17 +379,9 @@ Message::~Message()
 {
   if (this->data != nullptr) {
     delete[] this->data;
-    // printf("Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
+#ifdef LOG_MESSAGES
+    printf("Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
+#endif
   }
 }
-
-std::string Message::toString() {
-  return "[m-" + std::to_string(my_id) + "]"
-               + "src=" + src
-               + ", dest=" + dest
-               + ", size=" + std::to_string(size)
-               + ", sent_time=" + std::to_string(sent_time);
-}
-
 } // namespace vsg
-

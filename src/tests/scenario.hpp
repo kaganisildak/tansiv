@@ -2,11 +2,14 @@
 #ifndef __SCENARIO__
 #define __SCENARIO__
 #include <sys/types.h>
+#include <arpa/inet.h>
+#include <errno.h>
 
 extern "C" {
 #include <tansiv-client.h>
-#include <vsg.h>
 }
+
+#include <socket.hpp>
 
 /* The socket to use for all the tests. */
 #define SOCKET_ACTOR "titi"
@@ -37,5 +40,9 @@ void simple(int);
 void recv_one(int);
 void deliver_one(int);
 void send_deliver_pg_port(int);
+
+void fb_simple(int);
+void fb_deliver(int);
+
 
 #endif /* __SCENARIO__ */
