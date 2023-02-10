@@ -221,7 +221,7 @@ int main(int argc, char* argv[])
   for (auto l : e.get_all_links()) {
      auto name = l->get_name();
      const char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
-     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern))) {
+     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern)) == 0) {
        XBT_INFO("Setting link '%s' as serial", name.c_str());
        l->set_concurrency_limit(1);
      }
