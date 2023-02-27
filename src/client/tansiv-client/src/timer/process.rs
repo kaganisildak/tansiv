@@ -228,6 +228,10 @@ impl TimerContext {
         assert!(self.at_deadline.load(Ordering::Relaxed));
         *self.next_deadline.lock().unwrap()
     }
+
+    pub fn delay(&self, delay: StdDuration) {
+        std::thread::sleep(delay);
+    }
 }
 
 impl Drop for TimerContext {

@@ -70,6 +70,9 @@ pub struct Context {
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
+    // Concurrency:
+    // - read/write by application code only
+    last_send: Mutex<(usize, Duration, usize)>,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -109,6 +112,7 @@ impl Context {
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
+            last_send: Mutex::new((0, Duration::ZERO, 0)),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -248,7 +252,34 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
+
+        let mut last_send = self.last_send.lock().unwrap();
+        let (last_send_size, last_send_time, mut delayed_count) = *last_send;
+        // Gross simulation of 10Mbps Ethernet uplink.
+        // Add:
+        // - preamble + start frame delimiter: 8 bytes
+        // - CRC: 4 bytes
+        // - interpacket gap: 12 bytes
+        let next_send_floor = last_send_time + Duration::from_nanos((last_send_size as u64 + 24) * 1_000_000_000 / 1_250_000);
+        let delay = next_send_floor.saturating_sub(send_time);
+        if !delay.is_zero() {
+            self.timer_context.delay(delay);
+
+            send_time = next_send_floor;
+            delayed_count += 1;
+        }
+
+        // let next_deadline = self.timer_context.simulation_next_deadline();
+        // if send_time > next_deadline {
+            // send_time = next_deadline;
+            // capped_count++;
+            // send_time_changed = true;
+        // }
+
+        *last_send = (msg.len(), send_time, delayed_count);
+        drop(last_send);
+
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
@@ -258,6 +289,12 @@ impl Context {
         // There's an hidden check behind this allocation that the msg len isn't too big
         let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
         self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
+
+        if !delay.is_zero() {
+            // info!("send_time {} changed: next_deadline {}, delayed_count {}, capped_count {}", send_time, next_deadline, delayed_count, capped_count);
+            info!("send_time {:?} changed: +{:?}, delayed_count {}", send_time, delay, delayed_count);
+        }
+
         Ok(())
     }
 

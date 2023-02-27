@@ -11,6 +11,10 @@ use std::time::Duration as StdDuration;
 
 mod qemu_timer_sys;
 
+extern "C" {
+    fn qemu_icount_delay(_: i64) -> ();
+}
+
 #[derive(Debug)]
 pub struct TimerContextInner {
     qemu_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
@@ -169,6 +173,13 @@ impl TimerContextInner {
 
     pub fn simulation_next_deadline(&self) -> StdDuration {
         *self.next_deadline.lock().unwrap()
+    }
+
+    pub fn delay(&self, delay: StdDuration) {
+        let delay_nanos = delay.as_nanos();
+        assert!(delay_nanos <= i64::MAX as u128);
+
+        unsafe { qemu_icount_delay(delay_nanos as i64); }
     }
 }
 

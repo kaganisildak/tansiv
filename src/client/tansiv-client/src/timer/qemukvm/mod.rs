@@ -198,6 +198,9 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
+    pub fn delay(&self, delay: StdDuration) {
+        std::thread::sleep(delay);
+    }
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {
