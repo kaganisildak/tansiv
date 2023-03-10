@@ -297,6 +297,8 @@ impl Context {
             info!("send_time {:?} changed: +{:?}, delayed_count {}", send_time, delay, delayed_count);
         }
 
+        debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+
         Ok(())
     }
 
