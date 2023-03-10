@@ -287,7 +287,13 @@ impl Context {
         // takes the latest time between the recorded time and the previous deadline.
 
         // There's an hidden check behind this allocation that the msg len isn't too big
-        let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
+        let buffer = match self.output_buffer_pool.allocate_buffer(msg.len()) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("send error at send_time {:?}: {:?}", send_time, e);
+                return Err(e.into());
+            }
+        };
         self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
 
         if !delay.is_zero() {
