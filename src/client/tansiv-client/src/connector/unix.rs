@@ -287,7 +287,7 @@ mod test {
     fn valid_server_path() {
         init();
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-w100000000", "-x24", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::new(&config);
         assert!(connector.is_ok());
@@ -304,7 +304,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-amust not exist", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-amust not exist", "-n10.0.0.1", "-w100000000", "-x24", "-t1970-01-02T00:00:00"]).unwrap();
 
         assert!(UnixConnector::new(&config).is_err());
 
@@ -318,7 +318,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-w100000000", "-x24", "-t1970-01-02T00:00:00"]).unwrap();
 
         let connector = UnixConnector::new(&config).unwrap();
         // Check the length as a borrowed mutable slice because borrowing as an immutable slice
@@ -336,7 +336,7 @@ mod test {
         init();
 
         let mut actor = TestActorDesc::new("titi", actor_fn);
-        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-t1970-01-02T00:00:00"]).unwrap();
+        let config = Config::from_iter_safe(&["-atiti", "-n10.0.0.1", "-w100000000", "-x24", "-t1970-01-02T00:00:00"]).unwrap();
         let connector = UnixConnector::new(&config).unwrap();
 
         client_fn(connector);
