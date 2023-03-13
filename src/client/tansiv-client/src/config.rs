@@ -20,67 +20,14 @@ pub(crate) struct Config {
     pub time_offset: NaiveDateTime,
 
     /// Number of packet buffers available for received packets, must not be 0
-    #[structopt(short = "b", long = "num_buffers", default_value = "100", parse(try_from_str = "crate::config::try_non_zero_usize_from_str"))]
+    #[structopt(short = "b", long = "num_buffers", default_value = "100")]
     pub num_buffers: NonZeroUsize,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ParseNonZeroIntError {
-    Zero,
-    IntError(std::num::ParseIntError),
-}
-
-impl From<std::num::ParseIntError> for ParseNonZeroIntError {
-    fn from(v: std::num::ParseIntError) -> ParseNonZeroIntError {
-        ParseNonZeroIntError::IntError(v)
-    }
-}
-
-impl std::fmt::Display for ParseNonZeroIntError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ParseNonZeroIntError::Zero => write!(f, "number is zero"),
-            ParseNonZeroIntError::IntError(e) => e.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ParseNonZeroIntError {}
-
-fn try_non_zero_usize_from_str(src: &str) -> std::result::Result<NonZeroUsize, ParseNonZeroIntError> {
-    let value = usize::from_str(src)?;
-    if 0 == value {
-        Err(ParseNonZeroIntError::Zero)
-    } else {
-        Ok(NonZeroUsize::new(value).unwrap())
-    }
 }
 
 #[cfg(test)]
 mod test {
     use structopt::StructOpt;
     use super::*;
-
-    #[test]
-    // try_non_zero_usize_from_str() accepts non zero values
-    fn try_non_zero_usize_from_str_valid_value() {
-        assert_eq!(Ok(NonZeroUsize::new(42).unwrap()), try_non_zero_usize_from_str(&"42"));
-    }
-
-    #[test]
-    // try_non_zero_usize_from_str() rejects zero values with ParseNonZeroIntError::Zero
-    fn try_non_zero_usize_from_str_zero_value() {
-        assert_eq!(Err(ParseNonZeroIntError::Zero), try_non_zero_usize_from_str(&"0"));
-    }
-
-    #[test]
-    // try_non_zero_usize_from_str() rejects strings not representing numbers
-    fn try_non_zero_usize_from_str_no_number() {
-        match try_non_zero_usize_from_str(&"a") {
-            Err(ParseNonZeroIntError::IntError(_)) => (),
-            _ => assert!(false),
-        }
-    }
 
     #[test]
     // Correct args in case of sticked options and values
