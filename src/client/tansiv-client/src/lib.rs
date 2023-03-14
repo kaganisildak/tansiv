@@ -6,6 +6,8 @@ use libc;
 #[allow(unused_imports)]
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
@@ -76,6 +78,7 @@ pub struct Context {
     // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
     output_buffer_pool: BufferPool<FbBuffer>,
     outgoing_messages: OutputMsgSet,
+    upcoming_messages: Mutex<BinaryHeap<Reverse<OutputMsg>>>,
     // Concurrency: none
     // Prevents application from starting twice
     start_once: Once,
@@ -101,6 +104,7 @@ impl Context {
         let timer_context = TimerContext::new(config)?;
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
+        let upcoming_messages = BinaryHeap::new();
 
         let context = Arc::new(Context {
             address: address,
@@ -112,6 +116,7 @@ impl Context {
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
+            upcoming_messages: Mutex::new(upcoming_messages),
         });
         timer::register(&context)?;
 
@@ -185,6 +190,24 @@ impl Context {
             }
         }
 
+        // Now, check if there are any messages that were timestamped after a
+        // deadline that are ready to be sent.
+        let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
+        while !upcoming_messages.is_empty() && upcoming_messages.peek().unwrap().0.send_time() <= current_deadline {
+            let message = upcoming_messages.pop().unwrap().0;
+            let send_time = message.send_time();
+            deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {})",
+                send_time,
+                vsg_address::to_ipv4addr(message.src()),
+                vsg_address::to_ipv4addr(message.dst()));
+
+            if let Err(_e) = connector.send(MsgOut::SendPacket(message.finish(send_time))) {
+                error!("send(SendPacket) failed: {}", _e);
+                return AfterDeadline::EndSimulation;
+            }
+        }
+        drop(upcoming_messages);
+
         // Second, notify that we reached the deadline
         deadline_handler_debug!("Context::at_deadline() sending AtDeadline");
         if let Err(_e) = connector.send(MsgOut::AtDeadline) {
@@ -248,17 +271,51 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
 
-        // There's an hidden check behind this allocation that the msg len isn't too big
-        let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
-        self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-        Ok(())
+        // It is possible that messages are timestamped after a deadline with KVM.
+        // It can only happen when the delay of the network card emulation
+        // exceeds a deadline.
+        // Indeed as the vCPU thread is the one performing the timestamp, it is not
+        // possible to have a situation where a deadline is handled at the same
+        // time as the timestamp is taken (in which case the solution would be
+        // more complex).
+        // We save the message in a Min-Heap, with the timestamp just taken
+        // (which is accurate).
+        if send_time > self.timer_context.simulation_next_deadline() {
+            let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
+            // It is possible that this message is timestamped before messages
+            // that are already in the Min-Heap.
+            // It is possible because the delay of the network card emulation is
+            // variable, and of the time adjustments to the VM clock after a
+            // deadline.
+            // If this happens, change the timestamp of the message to be the
+            // same as the first one in the Min-heap
+            if let Some(first_msg) = upcoming_messages.peek() {
+                if first_msg.0.send_time() > send_time {
+                    deadline_handler_debug!("Message timestamped {:?} before another message!\n", first_msg.0.send_time() - send_time);
+                    send_time = first_msg.0.send_time();
+                }   
+            }
+
+            let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
+            // Use Reverse for a Min-Heap
+            upcoming_messages.push(Reverse(OutputMsg::new(self.address, dst, send_time, msg, buffer)?));
+            Ok(())
+        }
+        else {
+            // There's an hidden check behind this allocation that the msg len isn't
+            // too big
+            let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
+            self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
+            Ok(())
+        }
+        
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {

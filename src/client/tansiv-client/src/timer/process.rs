@@ -225,7 +225,11 @@ impl TimerContext {
     }
 
     pub fn simulation_next_deadline(&self) -> StdDuration {
-        assert!(self.at_deadline.load(Ordering::Relaxed));
+        // We have to access the next deadline even when we are handling
+        // a deadline for the mechanism that fixes messages timestamped late.
+        // Should not break anything as next_deadline is only modified while
+        // handling a deadline.
+        // assert!(self.at_deadline.load(Ordering::Relaxed));
         *self.next_deadline.lock().unwrap()
     }
 }
