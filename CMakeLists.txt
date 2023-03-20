@@ -8,7 +8,7 @@
 # - tansiv: simgrid simulation
 #   + installed in $CMAKE_INSTALL_PREFIX
 
-cmake_minimum_required(VERSION 2.8.10)
+cmake_minimum_required(VERSION 3.5)
 project (Tansiv C CXX)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g")
@@ -28,20 +28,7 @@ set(TANSIVCLIENT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(WIRE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/wire)
 set(CLIENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/client/)
 
-set(FLATBUFFERS_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/flatbuffers-build)
-
-IF( DEFINED FLATBUFFERS_SRC )
-    MESSAGE(STATUS "FLATBUFFERS is defined...cool!")
-ELSE (DEFINED FLATBUFFERS_SRC)
-    MESSAGE(FATAL_ERROR "cmake -DFLATBUFFERS_SRC=... is required")
-ENDIF (DEFINED FLATBUFFERS_SRC)
-
-# Add FlatBuffers directly to our build. This defines the `flatbuffers` target.
-# https://google.github.io/flatbuffers/flatbuffers_guide_building.html
-add_subdirectory(${FLATBUFFERS_SRC}
-                 ${FLATBUFFERS_BUILD_DIR}
-                 EXCLUDE_FROM_ALL)
-
+find_package(FlatBuffers REQUIRED)
 # This compile a schema to cpp
 # - This makes the target fbs_packets available to other make tasks
 # - This adds the include output dir to CMAKE's include directory
@@ -64,9 +51,9 @@ add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu
 # - installed in /opt/tansiv/
 # - compiled in RELEASE mode (I've got the power !)
 # - making flatc known to the cargo step (this is required to compile the flatbuffers schema to rust)
-add_custom_target(tansiv-clients COMMAND PATH=$ENV{PATH}:${FLATBUFFERS_BUILD_DIR} make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install
+add_custom_target(tansiv-clients COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install
                                  WORKING_DIRECTORY ${CLIENT_SOURCE_DIR})
-add_dependencies(tansiv-clients config-host.h flatbuffers flatc)
+add_dependencies(tansiv-clients config-host.h)
 
 add_custom_target(packer COMMAND packer build debian-10.3.0-x86_64.json WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packer)
 
@@ -105,7 +92,7 @@ add_dependencies(tests tansiv-clients fbs_packets)
 # Launch tests
 add_custom_target(run-tansiv-tests COMMAND  ./tests.sh)
 add_dependencies(run-tansiv-tests tests)
-add_custom_target(run-client-tests COMMAND PATH=$ENV{PATH}:${FLATBUFFERS_BUILD_DIR} PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 make test
+add_custom_target(run-client-tests COMMAND PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 make test
                                    WORKING_DIRECTORY ${CLIENT_SOURCE_DIR})
 ## launch all tests
 add_custom_target(run-tests)

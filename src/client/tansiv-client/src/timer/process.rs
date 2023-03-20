@@ -4,6 +4,7 @@ use chrono::{Duration, NaiveDateTime};
 use lazy_static::lazy_static;
 use libc_timer::{clock, timer, ClockId};
 use seq_lock::SeqLock;
+use std::collections::LinkedList;
 use std::io::Result;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 #[cfg(not(any(test, feature = "test-helpers")))]
@@ -11,6 +12,8 @@ use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration as StdDuration;
 use crate::Context;
+
+use crate::output_msg_set::{OutputMsg};
 
 #[derive(Debug)]
 struct AdjustedTime(SeqLock<Duration>);
@@ -225,8 +228,16 @@ impl TimerContext {
     }
 
     pub fn simulation_next_deadline(&self) -> StdDuration {
+        // We have to access the next deadline even when we are handling
+        // a deadline for the mechanism that fixes messages timestamped late.
+        // Should not break anything as next_deadline is only modified while
+        // handling a deadline.
         assert!(self.at_deadline.load(Ordering::Relaxed));
         *self.next_deadline.lock().unwrap()
+    }
+
+    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
+        return None;
     }
 
     pub fn delay(&self, delay: StdDuration) {
