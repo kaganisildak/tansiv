@@ -40,9 +40,9 @@ find_package(SimGrid REQUIRED)
 include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
-# as part of 6.1.0 the file is generated at configure phase
+# as part of 7.2.0 the file is generated at configure phase
 # TODO: use prefix
-add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu
+add_custom_target(config-host.h COMMAND ./configure --target-list=x86_64-softmmu && cd build && ninja config-poison.h
                                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu)
 # tansiv-client client libs tanproc tanqemu and tanqemukvm (Rust implementation exporting a C API)
 # installed in /opt/tansiv-client
