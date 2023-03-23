@@ -166,6 +166,10 @@ impl TimerContextInner {
         (Duration::nanoseconds(vm_time) - *self.offset.lock().unwrap()).to_std().unwrap()
     }
 
+    pub fn convert_timestamp(&self, timestamp: StdDuration) -> StdDuration {
+        timestamp
+    }
+
     pub fn simulation_previous_deadline(&self) -> StdDuration {
         *self.prev_deadline.lock().unwrap()
     }

@@ -353,6 +353,10 @@ impl SendPacketBuilder {
     pub fn send_time(&self) -> Duration {
         self.send_time
     }
+
+    pub fn set_send_time(&mut self, timestamp: Duration) {
+        self.send_time = timestamp;
+    }
 }
 
 impl Ord for SendPacketBuilder {

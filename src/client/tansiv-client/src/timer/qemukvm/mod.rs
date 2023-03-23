@@ -152,12 +152,23 @@ impl TimerContextInner {
 
     /// Returns the global simulation time
     pub fn simulation_now(&self) -> StdDuration {
-        // ioctls involved so everything is unsafe
+        let tsc_freq = *self.tsc_freq.lock().unwrap();
+        // rdtsc is unsafe
         unsafe{
-            // Get current timestamp
-            let now = _rdtsc();
+            // Get current timestamp in ns
+            Duration::nanoseconds((_rdtsc() as f64 / tsc_freq) as i64).to_std().unwrap()
+        }
+    }
+
+    pub fn convert_timestamp(&self, timestamp: StdDuration) -> StdDuration {
+        unsafe {
+            // Get tsc freq
+            let tsc_freq = *self.tsc_freq.lock().unwrap();
+            // This timestamp is in host nanoseconds, and takes into account the delay
+            let now = timestamp.as_nanos() as u64;
             // Convert it to guest tsc scale
-            let now_guest = ioctl_scale_tsc(getpid(), now) as f64;
+            // Convert it to host tsc, then in guest tsc
+            let now_guest = ioctl_scale_tsc(getpid(), (now as f64 * tsc_freq) as u64) as f64;
             // Get the value of the deadline in guest tsc scale
             let next_deadline_guest = *self.vmx_timer_value.lock().unwrap() as f64;
             // Check that the timestamp is not greater than the deadline. In
@@ -165,10 +176,8 @@ impl TimerContextInner {
             if now_guest > next_deadline_guest {
                 log_write(&format!("Message time stamped {} virtual TSC ticks after the deadline.\n", (now_guest - next_deadline_guest) as i64));
             }
-            // Get prev and next deadline in ns
+            // Get next deadline in ns
             let next_deadline = self.next_deadline.lock().unwrap().as_nanos() as u64;
-            // Get tsc freq
-            let tsc_freq = *self.tsc_freq.lock().unwrap();
             // We have Simulation_time = (Guest_TSC / TSC_freq) - Offset
             // There is an offset because the VMs start their clock before the
             // synchronisation begins with the call to vsg_start
@@ -196,15 +205,17 @@ impl TimerContextInner {
         if send_time > self.simulation_next_deadline() {
             let upcoming_messages = list.lock().unwrap();
             // It is possible that this message is timestamped before messages
-            // that are already in the Min-Heap.
+            // that are already in the FIFO.
             // It is possible because the delay of the network card emulation is
             // variable, and of the time adjustments to the VM clock after a
             // deadline.
             // If this happens, change the timestamp of the message to be the
-            // same as the last one in the list
+            // same as the last one in the list.
+            // It should be impossible with the the emulation of the delay
+            // between messages in Context.send.
             if let Some(last_msg) = upcoming_messages.back() {
                 if last_msg.send_time() > send_time {
-                    deadline_handler_debug!("Message timestamped {:?} before another message!\n", last_msg.send_time() - send_time);
+                    deadline_handler_debug!("WARNING: Message timestamped {:?} before another message!\n", last_msg.send_time() - send_time);
                     return Some(last_msg.send_time());
                 }   
             }
@@ -212,7 +223,6 @@ impl TimerContextInner {
         }
         return None;
     }
-
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {

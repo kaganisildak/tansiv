@@ -161,8 +161,25 @@ impl Context {
         let previous_deadline = self.timer_context.simulation_previous_deadline();
         let current_deadline = self.timer_context.simulation_next_deadline();
         deadline_handler_debug!("Context::at_deadline() current_deadline = {:?}", current_deadline);
-        for send_packet_builder in messages {
-            let send_time = send_packet_builder.send_time();
+        for mut send_packet_builder in messages {
+            let mut send_time = send_packet_builder.send_time();
+            send_time = self.timer_context.convert_timestamp(send_time);
+
+            // It is possible that messages are timestamped after a deadline with KVM.
+            // It can only happen when the delay of the network card emulation
+            // exceeds a deadline.
+            // Indeed as the vCPU thread is the one performing the timestamp, it is not
+            // possible to have a situation where a deadline is handled at the same
+            // time as the timestamp is taken (in which case the solution would be
+            // more complex).
+            if let Some(send_time_overrun) = self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
+                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
+                send_packet_builder.set_send_time(send_time_overrun);
+                upcoming_messages.push_back(send_packet_builder);
+                drop(upcoming_messages);
+                continue;
+            }
+
             // FIXME(msimonin): the trait `InnerBufferDisplay` is not implemented for `flatbuilder_buffer::FbBuilder<'static, connector::InFbInitializer>`
             deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {})",
                 send_time,
@@ -278,31 +295,20 @@ impl Context {
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
 
-        // It is possible that messages are timestamped after a deadline with KVM.
-        // It can only happen when the delay of the network card emulation
-        // exceeds a deadline.
-        // Indeed as the vCPU thread is the one performing the timestamp, it is not
-        // possible to have a situation where a deadline is handled at the same
-        // time as the timestamp is taken (in which case the solution would be
-        // more complex).
-        // We save the message in a Min-Heap, with the timestamp just taken
-        // (which is accurate).
-        match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
-            Some(send_time_overrun) => {
-                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
-                let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
-                // Use Reverse for a Min-Heap
-                upcoming_messages.push_back(OutputMsg::new(self.address, dst, send_time_overrun, msg, buffer)?);
-                Ok(())
-            },
-            None => {
-                // There's an hidden check behind this allocation that the msg len isn't
-                // too big
-                let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
-                self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-                Ok(())
+        // There's an hidden check behind this allocation that the msg len isn't too big
+        let buffer = match self.output_buffer_pool.allocate_buffer(msg.len()) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("send error at send_time {:?}: {:?}", send_time, e);
+                return Err(e.into());
             }
-        }
+        };
+
+        self.outgoing_messages.insert(OutputMsg::new(self.address, dst, send_time, msg, buffer)?)?;
+
+        debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+
+        Ok(())
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
