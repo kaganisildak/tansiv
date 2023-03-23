@@ -173,8 +173,25 @@ impl Context {
         let previous_deadline = self.timer_context.simulation_previous_deadline();
         let current_deadline = self.timer_context.simulation_next_deadline();
         deadline_handler_debug!("Context::at_deadline() current_deadline = {:?}", current_deadline);
-        for send_packet_builder in messages {
-            let send_time = send_packet_builder.send_time();
+        for mut send_packet_builder in messages {
+            let mut send_time = send_packet_builder.send_time();
+            send_time = self.timer_context.convert_timestamp(send_time);
+
+            // It is possible that messages are timestamped after a deadline with KVM.
+            // It can only happen when the delay of the network card emulation
+            // exceeds a deadline.
+            // Indeed as the vCPU thread is the one performing the timestamp, it is not
+            // possible to have a situation where a deadline is handled at the same
+            // time as the timestamp is taken (in which case the solution would be
+            // more complex).
+            if let Some(send_time_overrun) = self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
+                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
+                send_packet_builder.set_send_time(send_time_overrun);
+                upcoming_messages.push_back(send_packet_builder);
+                drop(upcoming_messages);
+                continue;
+            }
+
             // FIXME(msimonin): the trait `InnerBufferDisplay` is not implemented for `flatbuilder_buffer::FbBuilder<'static, connector::InFbInitializer>`
             deadline_handler_debug!("Context::at_deadline() message to send (send_time = {:?}, src = {}, dst = {})",
                 send_time,
@@ -313,26 +330,8 @@ impl Context {
                 return Err(e.into());
             }
         };
-        //
-        // It is possible that messages are timestamped after a deadline with KVM.
-        // It can only happen when the delay of the network card emulation
-        // exceeds a deadline.
-        // Indeed as the vCPU thread is the one performing the timestamp, it is not
-        // possible to have a situation where a deadline is handled at the same
-        // time as the timestamp is taken (in which case the solution would be
-        // more complex).
-        // We save the message in a Min-Heap, with the timestamp just taken
-        // (which is accurate).
-        match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
-            Some(send_time_overrun) => {
-                // Never happens with tanproc so no deadlock to expect with the deadline handler
-                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
-                upcoming_messages.push_back(OutputMsg::new(self.address, dst, send_time_overrun, msg, buffer)?);
-            },
-            None => {
-                self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-            }
-        }
+
+        self.outgoing_messages.insert(OutputMsg::new(self.address, dst, send_time, msg, buffer)?)?;
 
         if !delay.is_zero() {
             // info!("send_time {} changed: next_deadline {}, delayed_count {}, capped_count {}", send_time, next_deadline, delayed_count, capped_count);
