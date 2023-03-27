@@ -7,12 +7,12 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration as StdDuration;
 
+use log::debug;
 use crate::output_msg_set::{OutputMsg};
 
 
 // log_write
 use std::fs;
-use std::io::Write;
 use core::arch::x86_64::{_rdtsc};
 
 extern {
@@ -35,7 +35,10 @@ pub struct TimerContextInner {
     next_deadline: Mutex<StdDuration>,
     guest_tsc : Mutex<u64>, // Value of the guest tsc register at the beginning of slot before the last deadline handled
     vmx_timer_value : Mutex<u64>, // Value of the deadline used to setup the VMX Preemption timer. It's the equivalent of next_deadline at the scale of the guest
-    tsc_freq : Mutex<f64> // frequency of guest TSC in GHz
+    tsc_freq : Mutex<f64>, // frequency of guest TSC in GHz
+    offset: Mutex<u64>,
+    tsc_scaling_ratio: Mutex<u64>,
+    tsc_offset: Mutex<u64>
 }
 
 // Wrapper struct to avoid conflicts between Pin::new() and TimerContextInner::new()
@@ -56,26 +59,17 @@ impl Deref for TimerContext {
     }
 }
 
-fn log_write(message: &str) {
-    unsafe {
-    let filename = format!("/tmp/tansiv_rust_{:?}.csv", getpid());
-    let mut f = fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(filename)
-        .expect("Unable to open the file");
-    f.write_all(message.as_bytes()).expect("Unable to write to the file");
-    }
-}
-
 impl TimerContextInner {
     fn new() -> TimerContextInner {
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
-        let next_deadline = Mutex::new(StdDuration::new(0, 0));
+        let next_deadline = Mutex::new(StdDuration::ZERO);
         let guest_tsc = Mutex::new(0);
         let vmx_timer_value = Mutex::new(0);
         let tsc_freq = Mutex::new(0.0);
+        let offset = Mutex::new(0);
+        let tsc_scaling_ratio = Mutex::new(0);
+        let tsc_offset = Mutex::new(0);
 
         TimerContextInner {
             context,
@@ -83,7 +77,10 @@ impl TimerContextInner {
             next_deadline,
             guest_tsc,
             vmx_timer_value,
-            tsc_freq
+            tsc_freq,
+            offset,
+            tsc_scaling_ratio,
+            tsc_offset
         }
     }
 
@@ -118,9 +115,9 @@ impl TimerContextInner {
         // First deadline : read tsc frequency from sysfs and convert it to GHz
         let mut tsc_freq : f64 = 1.0;
         match fs::read_to_string("/sys/devices/system/cpu/tsc_khz") {
-            Err(why) => log_write(&format!("Failed to read tsc frequency from sysfs: {:?}", why)),
+            Err(why) => debug!("Failed to read tsc frequency from sysfs: {:?}", why),
             Ok(tsc_khz_str) => match tsc_khz_str.trim().parse::<i64>() {
-                Err(why) => log_write(&format!("Failed to convert tsc frequency to GHz: {:?}", why)),
+                Err(why) => debug!("Failed to convert tsc frequency to GHz: {:?}", why),
                 Ok(tsc_khz_int) => tsc_freq = (tsc_khz_int as f64) / 1000000.0,
             }
         }
@@ -154,43 +151,43 @@ impl TimerContextInner {
     pub fn simulation_now(&self) -> StdDuration {
         let tsc_freq = *self.tsc_freq.lock().unwrap();
         // rdtsc is unsafe
-        unsafe{
+        unsafe {
             // Get current timestamp in ns
-            Duration::nanoseconds((_rdtsc() as f64 / tsc_freq) as i64).to_std().unwrap()
+            let now = _rdtsc();
+            let tsc_offset = *self.tsc_offset.lock().unwrap();
+            let next_deadline = self.next_deadline.lock().unwrap().as_nanos() as u64;
+            let next_deadline_guest = *self.vmx_timer_value.lock().unwrap() as f64;
+            
+            let mut offset = *self.offset.lock().unwrap();
+            if offset == 0 { // The offset was never updated
+                // TODO: Investigate round error in the offset computation
+                offset = (next_deadline_guest / tsc_freq) as u64 - next_deadline;
+                if offset == 0 {
+                    StdDuration::ZERO // can happen if a message is sent before vsg_start
+                }
+                *self.offset.lock().unwrap() = offset;
+                debug!("start: vsg_start offset: {:?}", StdDuration::from_nanos(offset));
+            }
+            
+            // Will Overflow because now_guest < now
+            // Warning: Only works because we assume the guest and the host have
+            // the same tsc frequency.
+            // This can be verified by checking if tsc_scaling_ratio is "1ull <<
+            // kvm_caps.tsc_scaling_ratio_frac_bits" (2^48 on my machine).
+            let now_guest = (now + tsc_offset) as f64; 
+            
+            // We have Simulation_time = (Guest_TSC / TSC_freq) - Offset
+            if let Some(vm_time) = ((now_guest / tsc_freq) as u64).checked_sub(offset) {
+                StdDuration::from_nanos(vm_time)
+            }
+            else {
+                StdDuration::ZERO // can happen if a message is sent before vsg_start
+            }
         }
     }
 
     pub fn convert_timestamp(&self, timestamp: StdDuration) -> StdDuration {
-        unsafe {
-            // Get tsc freq
-            let tsc_freq = *self.tsc_freq.lock().unwrap();
-            // This timestamp is in host nanoseconds, and takes into account the delay
-            let now = timestamp.as_nanos() as u64;
-            // Convert it to guest tsc scale
-            // Convert it to host tsc, then in guest tsc
-            let now_guest = ioctl_scale_tsc(getpid(), (now as f64 * tsc_freq) as u64) as f64;
-            // Get the value of the deadline in guest tsc scale
-            let next_deadline_guest = *self.vmx_timer_value.lock().unwrap() as f64;
-            // Check that the timestamp is not greater than the deadline. In
-            // this case, log it.
-            if now_guest > next_deadline_guest {
-                log_write(&format!("Message time stamped {} virtual TSC ticks after the deadline.\n", (now_guest - next_deadline_guest) as i64));
-            }
-            // Get next deadline in ns
-            let next_deadline = self.next_deadline.lock().unwrap().as_nanos() as u64;
-            // We have Simulation_time = (Guest_TSC / TSC_freq) - Offset
-            // There is an offset because the VMs start their clock before the
-            // synchronisation begins with the call to vsg_start
-            // Thanks to next_deadline_guest and next_deadline, we can compute
-            // this offset
-            let offset = (next_deadline_guest / tsc_freq) as u64 - next_deadline;
-            let vm_time = (now_guest / tsc_freq) as u64 - offset;
-            match Duration::nanoseconds(vm_time as i64).to_std()
-            {
-                Err(_)  => return StdDuration::ZERO, // can happen if a message is sent before vsg_start
-                Ok(val) => return val,
-            }
-        }
+       timestamp
     }
 
     pub fn simulation_previous_deadline(&self) -> StdDuration {
@@ -219,6 +216,7 @@ impl TimerContextInner {
                     return Some(last_msg.send_time());
                 }   
             }
+            debug!("check_deadline_overrun: send_time: {:?} ; next_deadline: {:?} ", send_time, self.simulation_next_deadline());
             return Some(send_time);
         }
         return None;
@@ -229,6 +227,16 @@ pub fn register(context: &Arc<crate::Context>) -> Result<()> {
     let timer_context = &context.timer_context;
     *timer_context.context.lock().unwrap() = Arc::downgrade(context);
     Ok(())
+}
+
+#[no_mangle]
+pub extern "C" fn update_tsc_infos(opaque: *mut ::std::os::raw::c_void, tsc_scaling_ratio: u64, tsc_offset: u64) {
+    let context_arg = unsafe { (opaque as *const crate::Context).as_ref().unwrap() };
+    let timer_context = &context_arg.timer_context;
+    *timer_context.tsc_scaling_ratio.lock().unwrap() = tsc_scaling_ratio;
+    *timer_context.tsc_offset.lock().unwrap() = tsc_offset;
+    // debug!("update_tsc_infos: tsc_scaling_ratio : {:?}", tsc_scaling_ratio);
+    // debug!("update_tsc_infos: tsc_offset : {:?}", tsc_offset);
 }
 
 #[no_mangle]
