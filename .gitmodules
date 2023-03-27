@@ -4,7 +4,7 @@
 	branch = dev/waitfree
 [submodule "src/qemu"]
 	path = src/qemu
-	url = https://gitlab.inria.fr/lrilling/qemu.git
+	url = https://gitlab.inria.fr/lcossero/qemu.git
 	branch = dev/check-back-pressure
 [submodule "tools/packer"]
 	path = tools/packer
