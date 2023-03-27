@@ -163,7 +163,7 @@ impl TimerContextInner {
                 // TODO: Investigate round error in the offset computation
                 offset = (next_deadline_guest / tsc_freq) as u64 - next_deadline;
                 if offset == 0 {
-                    StdDuration::ZERO; // can happen if a message is sent before vsg_start
+                    return StdDuration::ZERO; // can happen if a message is sent before vsg_start
                 }
                 *self.offset.lock().unwrap() = offset;
                 debug!("start: vsg_start offset: {:?}", StdDuration::from_nanos(offset));
