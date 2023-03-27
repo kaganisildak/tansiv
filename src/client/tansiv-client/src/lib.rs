@@ -305,6 +305,8 @@ impl Context {
         let mut last_send = self.last_send.lock().unwrap();
         let (last_send_size, last_send_time, mut delayed_count) = *last_send;
         let next_send_floor = last_send_time + Duration::from_nanos(((last_send_size + self.uplink_overhead) * 8 * 1_000_000_000 / usize::from(self.uplink_bandwidth)) as u64);
+        // debug!("send: last_send_time: {:?}", last_send_time);
+        // debug!("send: next_send_floor: {:?}", next_send_floor);
         let delay = next_send_floor.saturating_sub(send_time);
         if !delay.is_zero() {
             self.timer_context.delay(delay);
