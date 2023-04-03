@@ -4,6 +4,7 @@ use crate::flatbuilder_buffer::*;
 use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
 use libc::in_addr_t;
 use std::convert::TryFrom;
+use std::cmp::Ordering;
 use std::fmt;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::time::Duration;
@@ -353,6 +354,26 @@ impl SendPacketBuilder {
         self.send_time
     }
 }
+
+impl Ord for SendPacketBuilder {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.send_time.cmp(&other.send_time)
+    }
+}
+
+impl PartialOrd for SendPacketBuilder {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for SendPacketBuilder {
+    fn eq(&self, other:&Self) -> bool {
+        self.send_time == other.send_time
+    }
+}
+
+impl Eq for SendPacketBuilder {}
 
 // Used to represent a fully built buffer
 #[derive(Debug)]

@@ -523,6 +523,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tanqemukvm"
+version = "0.1.0"
+dependencies = [
+ "tansiv-client",
+]
+
+[[package]]
+name = "tanqemukvm_capi"
+version = "0.1.0"
+dependencies = [
+ "capi",
+]
+
+[[package]]
 name = "tansiv-client"
 version = "0.1.0"
 dependencies = [

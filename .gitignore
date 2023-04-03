@@ -23,3 +23,12 @@ cloud-init*
 *.mod.c
 *.der
 *.priv
+
+# Binaries
+libtansiv-timer.a
+tansiv
+tests
+tests.sh
+gettimeofday
+send
+titi
