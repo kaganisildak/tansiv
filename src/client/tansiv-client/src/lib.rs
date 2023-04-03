@@ -71,6 +71,17 @@ pub struct Context {
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
+    // Read-only
+    send_queue_size: std::num::NonZeroUsize,
+    // Concurrency: accessed by application only
+    // Read/write by ::send()
+    send_queue_slots: Mutex<VecDeque<Duration>>,
+    // Read-only
+    // In bits per second
+    uplink_bandwidth: std::num::NonZeroUsize,
+    // Read-only
+    // Overhead in bytes per packet (preample, inter-frame gap...)
+    uplink_overhead: usize,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -101,17 +112,23 @@ impl Context {
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(config)?;
+        let send_queue_size = config.queue_size;
+        let send_queue_slots = Mutex::new(VecDeque::with_capacity(send_queue_size.get()));
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
         let upcoming_messages = VecDeque::with_capacity(config.num_buffers.get());
 
         let context = Arc::new(Context {
             address: address,
+            uplink_bandwidth: config.uplink_bandwidth,
+            uplink_overhead: config.uplink_overhead,
             connector: Mutex::new(connector),
             input_queue: input_queue,
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
+            send_queue_size: send_queue_size,
+            send_queue_slots: send_queue_slots,
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -270,7 +287,39 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
+
+        // Simulation of a bounded send queue
+        let num_slots = self.send_queue_size.get();
+        let mut slots = self.send_queue_slots.lock().unwrap();
+
+        // Check for free slots
+        let slots_busy = {
+            let (slots_head, slots_tail) = slots.as_slices();
+            slots_head.len() + slots_tail.len()
+        };
+        // Lazily free slots of packets done transmitting
+        if slots_busy >= num_slots {
+            assert!(slots_busy == num_slots);
+
+            if let Some(xmit_end) = slots.front() {
+                if *xmit_end > send_time {
+                    debug!("no space in queue, dropped packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+                    return Ok(());
+                }
+            }
+            // Found one slot to free. It's enough!
+            slots.pop_front();
+        }
+
+        // Start transmitting this packet after all previous ones are done transmitting
+        if let Some(xmit_end) = slots.back() {
+            if *xmit_end > send_time {
+                debug!("delaying packet: send_time = {:?} + {:?}, src = {}, dst = {}, size = {}", send_time, *xmit_end - send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+                send_time = *xmit_end;
+            }
+        }
+
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
@@ -303,6 +352,10 @@ impl Context {
                 self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
             }
         }
+
+        // Finally record this packet in the next slot
+        let xmit_end = send_time + Duration::from_nanos(((msg.len() + self.uplink_overhead) * 8 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
+        slots.push_back(xmit_end);
 
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
 
@@ -389,21 +442,21 @@ pub mod test_helpers {
     #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
