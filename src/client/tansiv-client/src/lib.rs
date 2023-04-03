@@ -278,6 +278,14 @@ impl Context {
         // (included) and (strictly) before the current deadline. To solve this, ::at_deadline()
         // takes the latest time between the recorded time and the previous deadline.
 
+        // There's an hidden check behind this allocation that the msg len isn't too big
+        let buffer = match self.output_buffer_pool.allocate_buffer(msg.len()) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("send error at send_time {:?}: {:?}", send_time, e);
+                return Err(e.into());
+            }
+        };
         // It is possible that messages are timestamped after a deadline with KVM.
         // It can only happen when the delay of the network card emulation
         // exceeds a deadline.
@@ -285,24 +293,21 @@ impl Context {
         // possible to have a situation where a deadline is handled at the same
         // time as the timestamp is taken (in which case the solution would be
         // more complex).
-        // We save the message in a Min-Heap, with the timestamp just taken
+        // We save the message in a Fifo, with the timestamp just taken
         // (which is accurate).
         match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
             Some(send_time_overrun) => {
                 let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
-                let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
-                // Use Reverse for a Min-Heap
                 upcoming_messages.push_back(OutputMsg::new(self.address, dst, send_time_overrun, msg, buffer)?);
-                Ok(())
             },
             None => {
-                // There's an hidden check behind this allocation that the msg len isn't
-                // too big
-                let buffer = self.output_buffer_pool.allocate_buffer(msg.len())?;
                 self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-                Ok(())
             }
         }
+
+        debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+
+        Ok(())
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
