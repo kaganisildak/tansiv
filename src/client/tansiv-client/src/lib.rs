@@ -6,7 +6,7 @@ use libc;
 #[allow(unused_imports)]
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
@@ -77,7 +77,7 @@ pub struct Context {
     // BufferPool uses interior mutability for concurrent allocation and freeing of buffers.
     output_buffer_pool: BufferPool<FbBuffer>,
     outgoing_messages: OutputMsgSet,
-    upcoming_messages: Mutex<LinkedList<OutputMsg>>,
+    upcoming_messages: Mutex<VecDeque<OutputMsg>>,
     // Concurrency: none
     // Prevents application from starting twice
     start_once: Once,
@@ -103,7 +103,7 @@ impl Context {
         let timer_context = TimerContext::new(config)?;
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
-        let upcoming_messages = LinkedList::new();
+        let upcoming_messages = VecDeque::with_capacity(config.num_buffers.get());
 
         let context = Arc::new(Context {
             address: address,
