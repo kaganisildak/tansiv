@@ -1,6 +1,6 @@
 use chrono::Duration;
 use qemu_timer_sys::{QEMUClockType, qemu_clock_get_ns};
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::mem::MaybeUninit;
 use std::io::Result;
 use std::marker::PhantomPinned;
@@ -174,7 +174,7 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
-    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
+    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
         return None;
     }
 }

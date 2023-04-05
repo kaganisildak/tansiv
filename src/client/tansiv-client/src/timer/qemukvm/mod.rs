@@ -1,6 +1,6 @@
 use chrono::Duration;
 use libc::{getpid};
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::io::Result;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -192,7 +192,7 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
-    pub fn check_deadline_overrun(&self, send_time: StdDuration, list: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
+    pub fn check_deadline_overrun(&self, send_time: StdDuration, list: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
         if send_time > self.simulation_next_deadline() {
             let upcoming_messages = list.lock().unwrap();
             // It is possible that this message is timestamped before messages
