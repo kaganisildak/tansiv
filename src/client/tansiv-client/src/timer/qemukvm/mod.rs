@@ -1,6 +1,7 @@
 use chrono::Duration;
 use libc::{getpid};
 use std::collections::LinkedList;
+use std::fs;
 use std::io::Result;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -9,11 +10,9 @@ use std::time::Duration as StdDuration;
 
 use crate::output_msg_set::{OutputMsg};
 
-
-// log_write
-use std::fs;
-use std::io::Write;
 use core::arch::x86_64::{_rdtsc};
+
+use log::debug;
 
 extern {
     fn ioctl_register_deadline(pid: i32, deadline: u64, deadline_tsc: u64) -> u64;
@@ -53,18 +52,6 @@ impl Deref for TimerContext {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-fn log_write(message: &str) {
-    unsafe {
-    let filename = format!("/tmp/tansiv_rust_{:?}.csv", getpid());
-    let mut f = fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(filename)
-        .expect("Unable to open the file");
-    f.write_all(message.as_bytes()).expect("Unable to write to the file");
     }
 }
 
@@ -118,9 +105,9 @@ impl TimerContextInner {
         // First deadline : read tsc frequency from sysfs and convert it to GHz
         let mut tsc_freq : f64 = 1.0;
         match fs::read_to_string("/sys/devices/system/cpu/tsc_khz") {
-            Err(why) => log_write(&format!("Failed to read tsc frequency from sysfs: {:?}", why)),
+            Err(why) => debug!("Failed to read tsc frequency from sysfs: {:?}", why),
             Ok(tsc_khz_str) => match tsc_khz_str.trim().parse::<i64>() {
-                Err(why) => log_write(&format!("Failed to convert tsc frequency to GHz: {:?}", why)),
+                Err(why) => debug!("Failed to convert tsc frequency to GHz: {:?}", why),
                 Ok(tsc_khz_int) => tsc_freq = (tsc_khz_int as f64) / 1000000.0,
             }
         }
@@ -163,7 +150,7 @@ impl TimerContextInner {
             // Check that the timestamp is not greater than the deadline. In
             // this case, log it.
             if now_guest > next_deadline_guest {
-                log_write(&format!("Message time stamped {} virtual TSC ticks after the deadline.\n", (now_guest - next_deadline_guest) as i64));
+                debug!("Message time stamped {} virtual TSC ticks after the deadline.\n", (now_guest - next_deadline_guest) as i64);
             }
             // Get prev and next deadline in ns
             let next_deadline = self.next_deadline.lock().unwrap().as_nanos() as u64;
