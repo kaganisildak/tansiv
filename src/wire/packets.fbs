@@ -19,7 +19,7 @@ namespace tansiv;
 
 struct Time {
     seconds: uint64;
-    useconds: uint64;
+    nseconds: uint64;
 }
 
 struct PacketMeta {

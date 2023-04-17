@@ -13,18 +13,18 @@ namespace vsg {
 
 struct vsg_time {
   uint64_t seconds;
-  uint64_t useconds;
+  uint64_t nseconds;
 };
 
 class Message {
 public:
-  Message(uint64_t seconds, uint64_t useconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size, uint8_t* payload);
+  Message(uint64_t seconds, uint64_t nseconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size, uint8_t* payload);
   Message(const Message& other);
   Message(Message&& other);
   Message& operator=(Message&& other);
   ~Message();
   uint64_t seconds;
-  u_int64_t useconds;
+  u_int64_t nseconds;
   in_addr_t src_enc;
   in_addr_t dst_enc;
   uint32_t size;

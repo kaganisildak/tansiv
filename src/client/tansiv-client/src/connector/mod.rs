@@ -47,7 +47,7 @@ pub fn create_end_simulation(builder: &mut FlatBufferBuilder) -> () {
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub fn create_goto_deadline(builder: &mut FlatBufferBuilder, deadline: Duration) -> () {
-    let time = tansiv::Time::new(deadline.as_secs(), deadline.subsec_micros() as u64);
+    let time = tansiv::Time::new(deadline.as_secs(), deadline.subsec_nanos() as u64);
     let goto_deadline = tansiv::GotoDeadline::create(builder, &tansiv::GotoDeadlineArgs {
         time: Some(&time)
     });
@@ -103,7 +103,7 @@ pub fn create_deliver_packet_unprefixed(builder: &mut FlatBufferBuilder, src: u3
 }
 
 pub fn create_send_packet_from_payload(builder: &mut FlatBufferBuilder, send_time: Duration, src: u32, dst: u32, payload: &[u8]) -> () {
-    let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_micros() as u64);
+    let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_nanos() as u64);
     let packet_meta = tansiv::PacketMeta::new(src, dst);
     let fb_payload = builder.create_vector(payload);
     let send_packet = tansiv::SendPacket::create(builder, &tansiv::SendPacketArgs {
@@ -258,9 +258,9 @@ impl MsgIn {
                 let time = deadline.time().ok_or(new_format_error())?;
                 if let (Ok(seconds), Ok(nseconds)) = (
                     u64::try_from(time.seconds()),
-                    u32::try_from(time.useconds()).map_err(|_| ()).and_then(|usecs|
-                                                        if usecs < 1000000 {
-                                                            Ok(usecs * 1000)
+                    u32::try_from(time.nseconds()).map_err(|_| ()).and_then(|nsecs|
+                                                        if nsecs < 1_000_000_000 {
+                                                            Ok(nsecs)
                                                         } else {
                                                             Err(())
                                                         })
@@ -323,7 +323,7 @@ impl SendPacketBuilder {
     }
 
     pub fn finish(self, send_time: Duration) -> SendPacket {
-        let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_micros() as u64);
+        let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_nanos() as u64);
         let packet_meta = tansiv::PacketMeta::new(self.src, self.dst);
         let mut p = self.payload;
         let send_packet = tansiv::SendPacket::create(&mut p, &tansiv::SendPacketArgs {
@@ -403,9 +403,9 @@ impl MsgOut {
                 let metadata = send_packet.metadata().ok_or(new_format_error())?;
                 if let (Ok(seconds), Ok(nseconds)) = (
                     u64::try_from(time.seconds()),
-                    u32::try_from(time.useconds()).map_err(|_| ()).and_then(|usecs|
-                                                        if usecs < 1000000 {
-                                                            Ok(usecs * 1000)
+                    u32::try_from(time.nseconds()).map_err(|_| ()).and_then(|nsecs|
+                                                        if nsecs < 1_000_000_000 {
+                                                            Ok(nsecs)
                                                         } else {
                                                             Err(())
                                                         })

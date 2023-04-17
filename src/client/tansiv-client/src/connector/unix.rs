@@ -349,7 +349,7 @@ mod test {
     }
 
     static GO_TO_DEADLINE_SECONDS : u64 = 2;
-    static GO_TO_DEADLINE_USECONDS: u64 = 100;
+    static GO_TO_DEADLINE_NSECONDS: u64 = 100_000;
 
     // If types used to represent seconds change, the test will just not compile.
     // If types used to represent seconds have to differ between network representation and
@@ -382,12 +382,12 @@ mod test {
         // recv_go_to_deadline_oob_seconds_actor)
     // }
 
-    fn recv_go_to_deadline_oob_useconds_actor(actor: &mut TestActor) -> TestResult<()> {
+    fn recv_go_to_deadline_oob_nseconds_actor(actor: &mut TestActor) -> TestResult<()> {
         send_go_to_deadline(actor, 0, std::u64::MAX)
     }
 
     #[test]
-    fn recv_go_to_deadline_oob_useconds() {
+    fn recv_go_to_deadline_oob_nseconds() {
         run_client_and_actor(|mut connector| {
             let msg = connector.recv();
             match msg {
@@ -395,16 +395,16 @@ mod test {
                 Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
             }
         },
-        recv_go_to_deadline_oob_useconds_actor)
+        recv_go_to_deadline_oob_nseconds_actor)
     }
 
-    fn send_go_to_deadline(socket: &mut UnixStream, seconds: u64, useconds: u64) -> TestResult<()> {
+    fn send_go_to_deadline(socket: &mut UnixStream, seconds: u64, nseconds: u64) -> TestResult<()> {
         // we don't want to use the create_goto_deadline helper here since we
         // want to also test a potential overflow coming from the wire
         // Reminder: as for now we have a Time(u64, u64) on the wire while were
         // using a Duration(u64, u32) in the lib
         let mut builder = flatbuffers::FlatBufferBuilder::new();
-        let time = tansiv::Time::new(seconds, useconds);
+        let time = tansiv::Time::new(seconds, nseconds);
         let goto_deadline = tansiv::GotoDeadline::create(&mut builder, &tansiv::GotoDeadlineArgs {
             time: Some(&time)
         });
@@ -419,7 +419,7 @@ mod test {
     }
 
     fn recv_go_to_deadline_actor(actor: &mut TestActor) -> TestResult<()> {
-        send_go_to_deadline(actor, GO_TO_DEADLINE_SECONDS, GO_TO_DEADLINE_USECONDS)
+        send_go_to_deadline(actor, GO_TO_DEADLINE_SECONDS, GO_TO_DEADLINE_NSECONDS)
     }
 
     #[test]
@@ -432,8 +432,8 @@ mod test {
                 MsgIn::GoToDeadline(deadline) => {
                     let seconds = deadline.as_secs();
                     assert_eq!(seconds, GO_TO_DEADLINE_SECONDS);
-                    let useconds = deadline.subsec_micros();
-                    assert_eq!(useconds as u64, GO_TO_DEADLINE_USECONDS);
+                    let nseconds = deadline.subsec_nanos();
+                    assert_eq!(nseconds as u64, GO_TO_DEADLINE_NSECONDS);
                 },
                 _ => assert!(false),
             }

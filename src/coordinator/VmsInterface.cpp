@@ -32,25 +32,25 @@ vsg_time simgridToVmTime(double simgrid_time)
   // we use the code below to avoid conversion issue of DOUBLE_MAX to uint64_t.
   if (simgrid_time > std::numeric_limits<uint64_t>::max()) {
     vm_time.seconds  = std::numeric_limits<uint64_t>::max();
-    vm_time.useconds = std::numeric_limits<uint64_t>::max();
+    vm_time.nseconds = std::numeric_limits<uint64_t>::max();
   } else {
     // the simgrid time correspond to a double in second, so the number of seconds is the integer part
     vm_time.seconds = (uint64_t)(std::floor(simgrid_time));
     // and the number of usecond is the decimal number scaled accordingly
-    vm_time.useconds = (uint64_t)(std::floor((simgrid_time - std::floor(simgrid_time)) * 1e6));
+    vm_time.nseconds = (uint64_t)(std::floor((simgrid_time - std::floor(simgrid_time)) * 1e9));
   }
 
   return vm_time;
 }
 
-double vmToSimgridTime(uint64_t seconds, uint64_t useconds)
+double vmToSimgridTime(uint64_t seconds, uint64_t nseconds)
 {
-  return seconds + useconds * 1e-6;
+  return seconds + nseconds * 1e-9;
 }
 
 double vmToSimgridTime(vsg_time vm_time)
 {
-  return vmToSimgridTime(vm_time.seconds, vm_time.useconds);
+  return vmToSimgridTime(vm_time.seconds, vm_time.nseconds);
 }
 
 VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_stop)
@@ -174,7 +174,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
   // goto deadline message
-  auto time          = tansiv::Time(vm_deadline.seconds, vm_deadline.useconds);
+  auto time          = tansiv::Time(vm_deadline.seconds, vm_deadline.nseconds);
   auto goto_deadline = tansiv::CreateGotoDeadline(builder, &time);
   auto msg           = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_GotoDeadline, goto_deadline.Union());
   builder.FinishSizePrefixed(msg);
@@ -238,7 +238,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
             break;
           }
           // build our own internal message structure and add it to the list of flying messages
-          auto message = new Message(time->seconds(), time->useconds(), metadata->src(), metadata->dst(),
+          auto message = new Message(time->seconds(), time->nseconds(), metadata->src(), metadata->dst(),
                                      flatbuffers::VectorLength<uint8_t>(payload), (uint8_t*)payload->data());
           messages.push_back(message);
           break;
@@ -311,12 +311,12 @@ void VmsInterface::deliverMessage(Message* m)
   delete m;
 }
 
-Message::Message(uint64_t seconds, uint64_t useconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size,
+Message::Message(uint64_t seconds, uint64_t nseconds, in_addr_t src_enc, in_addr_t dst_enc, uint32_t size,
                  uint8_t* payload)
-    : seconds(seconds), useconds(useconds), src_enc(src_enc), dst_enc(dst_enc), size(size)
+    : seconds(seconds), nseconds(nseconds), src_enc(src_enc), dst_enc(dst_enc), size(size)
 {
   // -- compute sent time the sent_time
-  this->sent_time = vmToSimgridTime(seconds, useconds);
+  this->sent_time = vmToSimgridTime(seconds, nseconds);
 
   // -- then src and dest and make them a std::string
   char src_addr[INET_ADDRSTRLEN];
@@ -337,7 +337,7 @@ Message::Message(uint64_t seconds, uint64_t useconds, in_addr_t src_enc, in_addr
 };
 
 Message::Message(const Message& other)
-    : Message(other.seconds, other.useconds, other.src_enc, other.dst_enc, other.size, other.data)
+    : Message(other.seconds, other.nseconds, other.src_enc, other.dst_enc, other.size, other.data)
 {
 #ifdef LOG_MESSAGES
   printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
@@ -358,7 +358,7 @@ Message& Message::operator=(Message&& other)
   if (this != &other) {
     delete[] this->data;
     this->seconds   = other.seconds;
-    this->useconds  = other.useconds;
+    this->nseconds  = other.nseconds;
     this->src_enc   = other.src_enc;
     this->dst_enc   = other.dst_enc;
     this->size      = other.size;
