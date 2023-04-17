@@ -23,12 +23,10 @@
 
 #define DEVICE_NAME "tansiv_dev"
 #define DEFAULT_NUMBER_VCPUS 8
-#define DEFAULT_NUMBER_VMS 10
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE  500
 
 #define FORBIDDEN_MMAP_FLAG (VM_WRITE | VM_EXEC | VM_SHARED)
-#define TSC_INFOS_TIMER_DURATION 1000
 
 /* Data structures and enums */
 
@@ -116,7 +114,6 @@ struct tansiv_vm {
     u64 lapic_tsc_deadline; // tsc value stored in the tsc-deadline register
     struct page *page; // pointer to a page used to share the guest tsc offset and scaling ratio with userspace
     struct tansiv_vm_tsc_infos *tsc_infos; // data shared in the page
-    struct hrtimer tsc_infos_timer; // timer to update tsc infos in the page
 };
 
 /* Global variables */
@@ -248,25 +245,14 @@ void write_logs(struct work_struct *unused)
     }
 }
 
-/* Worker to write tsc infos */
-enum hrtimer_restart tsc_infos_cb(struct hrtimer *timer)
+void update_tsc_infos(void *opaque, u64 tsc_offset, u64 tsc_scaling_ratio)
 {
-    int overrun;
-    struct tansiv_vm *vm = container_of(timer, struct tansiv_vm, tsc_infos_timer);
-
-    // Dont do anything until the actual VM is started
-    if (vm->tsc_offset != 0 && vm->tsc_scaling_ratio != 0) {
-        vm->tsc_offset = kvm_get_tsc_offset(pid_nr(&vm->pid));
-        vm->tsc_scaling_ratio = kvm_get_tsc_scaling_ratio(pid_nr(&vm->pid));
-        // Should be OK as we do the mmap before starting to schedule deadlines
-        if (vm->tsc_infos != NULL) {
-            vm->tsc_infos->tsc_offset = vm->tsc_offset;
-            vm->tsc_infos->tsc_scaling_ratio = vm->tsc_scaling_ratio;
-        }
+    struct tansiv_vm *vm = (struct tansiv_vm*) opaque;
+    // Should be OK as we do the mmap before starting to schedule deadlines
+    if (vm->tsc_infos != NULL) {
+        vm->tsc_infos->tsc_offset = tsc_offset;
+        vm->tsc_infos->tsc_scaling_ratio = tsc_scaling_ratio;
     }
-    
-    overrun = hrtimer_forward_now(timer, ns_to_ktime(TSC_INFOS_TIMER_DURATION));
-    return HRTIMER_RESTART;
 }
 
 /* Initialize a new VM */
@@ -276,10 +262,8 @@ struct tansiv_vm * init_vm(void)
     struct page *page = alloc_page(GFP_KERNEL | __GFP_ZERO | __GFP_HIGHMEM);
 
     hrtimer_init(&vm->timer, CLOCK_REALTIME, HRTIMER_MODE_REL_PINNED_HARD);
-    hrtimer_init(&vm->tsc_infos_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
     vm->timer.function = &timer_handler;
     vm->timer.log_deadline = 1;
-    vm->tsc_infos_timer.function = &tsc_infos_cb;
     vm->init_status = false;
     vm->deadline = 0;
     vm->tsc_scaling_ratio = 0;
@@ -291,7 +275,6 @@ struct tansiv_vm * init_vm(void)
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
 
-    hrtimer_start(&vm->tsc_infos_timer, ns_to_ktime(TSC_INFOS_TIMER_DURATION), HRTIMER_MODE_REL);
     return vm;
 }
 
@@ -300,7 +283,6 @@ void free_vm(struct tansiv_vm *vm)
 {
     ssize_t i;
     hrtimer_cancel(&vm->timer);
-    hrtimer_cancel(&vm->tsc_infos_timer);
 
     unregister_target_pid(&vm->pid);
     
@@ -378,6 +360,11 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 
             if (copy_from_user(&deadline, tmp, sizeof(struct tansiv_deadline_ioctl))) {
                 return -EFAULT;
+            }
+
+            // First deadline : update hook to recover tsc infos
+            if (vm->deadline == 0) {
+                kvm_setup_tsc_infos(pid_nr(&vm->pid), vm, &update_tsc_infos);
             }
 
             last_deadline_tsc = vm->deadline_tsc;
