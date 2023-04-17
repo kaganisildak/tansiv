@@ -1,14 +1,16 @@
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/kvm_host.h>
+#include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/spinlock.h>
 #include <linux/pid.h>
 #include <linux/sched/signal.h>
+#include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
 #include <linux/timekeeping.h>
@@ -25,12 +27,15 @@
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE  500
 
+#define FORBIDDEN_MMAP_FLAG (VM_WRITE | VM_EXEC | VM_SHARED)
+#define TSC_INFOS_TIMER_DURATION 1000
 
 /* Data structures and enums */
 
-enum {
-    DEV_NOT_USED = 0,
-    DEV_EXCLUSIVE_OPEN = 1,
+/* VM TSC infos */
+struct tansiv_vm_tsc_infos {
+    u64 tsc_offset;
+    u64 tsc_scaling_ratio;
 };
 
 /* Array of pid structs */
@@ -109,63 +114,18 @@ struct tansiv_vm {
     u64 deadline_tsc; // Duration of current slot, in tsc ticks
     u64 timer_start; // tsc value at which the timer was started (estimated by rdtsc around hrtimer_start)
     u64 lapic_tsc_deadline; // tsc value stored in the tsc-deadline register
-};
-
-/* tansiv_vm dynamic array */
-struct tansiv_vm_array {
-    struct tansiv_vm *array;
-    ssize_t size;
-    ssize_t used;
+    struct page *page; // pointer to a page used to share the guest tsc offset and scaling ratio with userspace
+    struct tansiv_vm_tsc_infos *tsc_infos; // data shared in the page
+    struct hrtimer tsc_infos_timer; // timer to update tsc infos in the page
 };
 
 /* Global variables */
 
 static struct class *cls; // Class for the device
-static struct tansiv_vm_array tansiv_vm_array; // Global array of VMs
 static struct file *logs_file; // file descriptor for the VM logs
 static struct circular_buffer logs_buffer; // circular buffer for the VM logs
 static struct work_struct logs_work; // work struct to write in the logs file
 static spinlock_t logs_buffer_lock; // spinlock for the logs buffer
-
-/* Initialize the tansiv_vm_array */
-static int init_tansiv_vm_array(struct tansiv_vm_array *array, ssize_t size)
-{
-    array->array = kmalloc(sizeof(struct tansiv_vm) * size, GFP_KERNEL);
-    if (array->array == NULL) {
-        pr_err("tansiv-timer: failed to allocate memory for the tansiv vm array");
-        return -ENOMEM;
-    }
-    array->size = size;
-    array->used = 0;
-    return 0;
-}
-
-/* Insert a new VM in the tansiv_vm_array */
-static int insert_tansiv_vm_array(struct tansiv_vm_array *array, struct tansiv_vm *vm)
-{
-   if (array->used == array->size) {
-       array->array = krealloc(array->array, sizeof(struct tansiv_vm) * (2*array->size + 1), GFP_KERNEL);
-       if (array->array == NULL) {
-           return -ENOMEM;
-       }
-       array->size = 2*array->size + 1;
-   }
-   
-   array->array[array->used++] = *vm;
-   return 0;
-}
-
-/* Find a VM in the tansiv_vm_array with a given pid */
-static struct tansiv_vm *find_tansiv_vm_array(struct tansiv_vm_array *array, pid_t pid)
-{
-    ssize_t i;
-    for (i = 0; i < array->used; i++) {
-        if (pid_nr(&array->array[i].pid) == pid) {
-            return &array->array[i];
-        }
-    }
-    return NULL;
-}
 
 /* Init an array of struct pids */
 static int init_struct_pid_array(struct struct_pid_array *array, ssize_t size)
@@ -213,9 +173,6 @@ static int insert_struct_pid_array(struct struct_pid_array *array, pid_t pid)
     error = register_target_pid(pid, &array->array[array->used]);
     return error;
 }
-
-/* Is the device open now ? */
-static atomic_t already_open = ATOMIC_INIT(DEV_NOT_USED);
 
 /* Handler for the hrtimers */
 static enum hrtimer_restart timer_handler(struct hrtimer *timer)
@@ -291,36 +248,51 @@ void write_logs(struct work_struct *unused)
     }
 }
 
-/* Initialize a new VM */
-void init_vm(int pid)
+/* Worker to write tsc infos */
+enum hrtimer_restart tsc_infos_cb(struct hrtimer *timer)
 {
-    int error;
-    struct tansiv_vm vm;
+    int overrun;
+    struct tansiv_vm *vm = container_of(timer, struct tansiv_vm, tsc_infos_timer);
 
-    hrtimer_init(&vm.timer, CLOCK_REALTIME, HRTIMER_MODE_REL_PINNED_HARD);
-    vm.timer.function = &timer_handler;
-    vm.timer.log_deadline = 1;
-
-    error = register_target_pid(pid, &vm.pid);
-    if (error) {
-        unregister_target_pid(&vm.pid);
-        pr_err("Error while registering target pid\n");
-        return;
+    // Dont do anything until the actual VM is started
+    if (vm->tsc_offset != 0 && vm->tsc_scaling_ratio != 0) {
+        vm->tsc_offset = kvm_get_tsc_offset(pid_nr(&vm->pid));
+        vm->tsc_scaling_ratio = kvm_get_tsc_scaling_ratio(pid_nr(&vm->pid));
+        // Should be OK as we do the mmap before starting to schedule deadlines
+        if (vm->tsc_infos != NULL) {
+            vm->tsc_infos->tsc_offset = vm->tsc_offset;
+            vm->tsc_infos->tsc_scaling_ratio = vm->tsc_scaling_ratio;
+        }
     }
+    
+    overrun = hrtimer_forward_now(timer, ns_to_ktime(TSC_INFOS_TIMER_DURATION));
+    return HRTIMER_RESTART;
+}
 
-    vm.init_status = false;
-    vm.deadline = 0;
-    vm.tsc_scaling_ratio = 0;
-    vm.tsc_offset = 0;
-    vm.deadline_tsc = 0;
-    vm.timer_start = 0;
-    vm.lapic_tsc_deadline = 0;
+/* Initialize a new VM */
+struct tansiv_vm * init_vm(void)
+{
+    struct tansiv_vm *vm = kmalloc(sizeof(struct tansiv_vm), GFP_KERNEL);
+    struct page *page = alloc_page(GFP_KERNEL | __GFP_ZERO | __GFP_HIGHMEM);
 
-    init_struct_pid_array(&vm.vcpus_pids, DEFAULT_NUMBER_VCPUS);
-    error = insert_tansiv_vm_array(&tansiv_vm_array, &vm);
-    if (error < 0) {
-        pr_err("Error while inserting VM in array\n");
-    }
+    hrtimer_init(&vm->timer, CLOCK_REALTIME, HRTIMER_MODE_REL_PINNED_HARD);
+    hrtimer_init(&vm->tsc_infos_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
+    vm->timer.function = &timer_handler;
+    vm->timer.log_deadline = 1;
+    vm->tsc_infos_timer.function = &tsc_infos_cb;
+    vm->init_status = false;
+    vm->deadline = 0;
+    vm->tsc_scaling_ratio = 0;
+    vm->tsc_offset = 0;
+    vm->deadline_tsc = 0;
+    vm->timer_start = 0;
+    vm->lapic_tsc_deadline = 0;
+    vm->page = page;
+
+    init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
+
+    hrtimer_start(&vm->tsc_infos_timer, ns_to_ktime(TSC_INFOS_TIMER_DURATION), HRTIMER_MODE_REL);
+    return vm;
 }
 
 /* Free a VM */
@@ -328,6 +300,7 @@ void free_vm(struct tansiv_vm *vm)
 {
     ssize_t i;
     hrtimer_cancel(&vm->timer);
+    hrtimer_cancel(&vm->tsc_infos_timer);
 
     unregister_target_pid(&vm->pid);
     
@@ -335,28 +308,22 @@ void free_vm(struct tansiv_vm *vm)
         unregister_target_pid(&vm->vcpus_pids.array[i]);
     }
     kfree(vm->vcpus_pids.array);
+
+    kunmap(vm->page);
+    
 }
 
-/* Free the tansiv_vm_array */
-static void free_tansiv_vm_array(struct tansiv_vm_array *array)
-{
-    ssize_t i;
-    for (i = 0; i < array->used; i++) {
-        free_vm(&array->array[i]);
-    }
-    kfree(array->array);
-}
 
 /* Open the device */
 static int device_open(struct inode *inode, struct file *file)
 {
-    //pr_info("device_open(%p)\n", file);
+    struct tansiv_vm *vm;
+    pr_info("device_open(%p)\n", file);
 
-    /* Only one process at a time */
-    if (atomic_cmpxchg(&already_open, DEV_NOT_USED, DEV_EXCLUSIVE_OPEN))
-        return -EBUSY;
     try_module_get(THIS_MODULE);
-    //pr_info("device opened\n");
+    vm = init_vm();
+    file->private_data = vm;
+    pr_info("device opened\n");
     return 0;
 }
 
@@ -364,8 +331,9 @@ static int device_open(struct inode *inode, struct file *file)
 static int device_release(struct inode *inode, struct file *file)
 {
     // pr_info("device_release(%p, %p)\n", inode, file);
-
-    atomic_set(&already_open, DEV_NOT_USED);
+    struct tansiv_vm *vm = file->private_data;
+    free_vm(vm);
+    kfree(vm);
 
     module_put(THIS_MODULE);
     // pr_info("device closed\n");
@@ -376,21 +344,26 @@ static int device_release(struct inode *inode, struct file *file)
 static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
     //pr_info("device_ioctl(%p, %u, %lu)\n", file, ioctl_num, ioctl_param);
+    struct tansiv_vm *vm = file->private_data;
     switch (ioctl_num) {
         case TANSIV_REGISTER_VM: {
             struct tansiv_vm_ioctl __user *tmp = (struct tansiv_vm_ioctl *)ioctl_param;
             struct tansiv_vm_ioctl _vm_info;
+            int error;
 
             if (copy_from_user(&_vm_info, tmp, sizeof(struct tansiv_vm_ioctl))) {
                 return -EFAULT;
             }
-
             pr_info("TANSIV_REGISTER_VM: pid = %d\n", _vm_info.pid);
-            init_vm(_vm_info.pid);
+            error = register_target_pid(_vm_info.pid, &vm->pid);
+            if (error) {
+                unregister_target_pid(&vm->pid);
+                pr_err("Error while registering target pid\n");
+                return -EFAULT;
+            }
             break;
         }
         case TANSIV_REGISTER_DEADLINE: {
-            struct tansiv_vm *vm;
             struct tansiv_deadline_ioctl __user *tmp = (struct tansiv_deadline_ioctl *)ioctl_param;
             struct tansiv_deadline_ioctl deadline;
             int cpu;
@@ -407,18 +380,13 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
                 return -EFAULT;
             }
 
-            vm = find_tansiv_vm_array(&tansiv_vm_array, deadline.pid);
-            if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_REGISTER_DEADLINE: vm %d not found\n", deadline.pid);
-                return -EINVAL;
-            }
             last_deadline_tsc = vm->deadline_tsc;
             
             vm->deadline += deadline.deadline;
             vm->deadline_tsc = deadline.deadline_tsc;
             cpu = raw_smp_processor_id();
             if (hrtimer_active(&vm->timer)) {
-                pr_err("tansiv-timer: error, timer of vm %d is already active", deadline.pid);
+                pr_err("tansiv-timer: error, timer of vm %d is already active", pid_nr(&vm->pid));
             }
             tsc_before = rdtsc();
             // hrtimer_start(&vm->timer, ns_to_ktime(deadline.deadline), HRTIMER_MODE_REL_PINNED_HARD);
@@ -439,7 +407,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 
             // pr_info("tansiv-timer: TANSIV_REGISTER_DEADLINE: Starting hrtimer. CPU: %d ; VM: %d ; deadline : %llu ; tsc before: %llu; tsc after: %llu; scaling_ratio: %llu; offset: %llu; deadline value: %llu \n",
                     // cpu,
-                    // deadline.pid,
+                    // pid_nr(&vm->pid),
                     // vm->deadline,
                     // tsc_before_guest,
                     // tsc_after_guest,
@@ -452,7 +420,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
                 pr_err("tansiv-timer: Buffer is full\n");
             }
             sprintf(buffer, "register-deadline;%d;%d;%llu;%llu;%llu\n",
-                            deadline.pid,
+                            pid_nr(&vm->pid),
                             cpu,
                             vm->deadline,
                             tsc_before_guest,
@@ -469,7 +437,6 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
             break;
         }
         case TANSIV_REGISTER_VCPU: {
-            struct tansiv_vm *vm;
             struct tansiv_vcpu_ioctl __user *tmp = (struct tansiv_vcpu_ioctl *)ioctl_param;
             struct tansiv_vcpu_ioctl vcpu;
 
@@ -477,19 +444,13 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
                 return -EFAULT;
             }
 
-            pr_info("TANSIV_REGISTER_VCPU: pid = %d, vcpu pid = %d\n", vcpu.pid, vcpu.vcpu_pid);
-            vm = find_tansiv_vm_array(&tansiv_vm_array, vcpu.pid);
-            if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_REGISTER_VCPU: vm %d not found\n", vcpu.pid);
-                return -EINVAL;
-            }
+            pr_info("TANSIV_REGISTER_VCPU: pid = %d, vcpu pid = %d\n", pid_nr(&vm->pid), vcpu.vcpu_pid);
 
             insert_struct_pid_array(&vm->vcpus_pids, vcpu.vcpu_pid);
             pr_info("TANSIV_REGISTER_VCPU: success");
             break;
         }
         case TANSIV_INIT_END: {
-            struct tansiv_vm *vm;
             struct tansiv_init_end_ioctl __user *tmp = (struct tansiv_init_end_ioctl *)ioctl_param;
             struct tansiv_init_end_ioctl init_end;
 
@@ -497,63 +458,47 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
                 return -EFAULT;
             }
 
-            vm = find_tansiv_vm_array(&tansiv_vm_array, init_end.pid);
-            if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_INIT_END: vm %d not found\n", init_end.pid);
-                return -EINVAL;
-            }
             vm->init_status = true;
             break;
         }
         case TANSIV_INIT_CHECK: {
-            struct tansiv_vm *vm;
             struct tansiv_init_check_ioctl __user *tmp = (struct tansiv_init_check_ioctl *)ioctl_param;
             struct tansiv_init_check_ioctl init_check;
 
             if (copy_from_user(&init_check, tmp, sizeof(struct tansiv_init_check_ioctl))) {
                 return -EFAULT;
             }
-            pr_info("TANSIV_INIT_CHECK: pid = %d\n", init_check.pid);
 
-            vm = find_tansiv_vm_array(&tansiv_vm_array, init_check.pid);
-            if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_INIT_CHECK: vm %d not found\n", init_check.pid);
-                return -EINVAL;
-            }
             init_check.status = vm->init_status;
             if (copy_to_user(tmp, &init_check, sizeof(struct tansiv_init_check_ioctl))) {
                 return -EFAULT;
             }
             break;
         }
-        case TANSIV_SCALE_TSC: {
-            struct tansiv_vm *vm;
-            struct tansiv_scale_tsc_ioctl  __user *tmp = (struct tansiv_scale_tsc_ioctl *)ioctl_param;
-            struct tansiv_scale_tsc_ioctl  scale_tsc;
-
-            if (copy_from_user(&scale_tsc, tmp, sizeof(struct tansiv_scale_tsc_ioctl))) {
-                return -EFAULT;
-            }
-
-            vm = find_tansiv_vm_array(&tansiv_vm_array, scale_tsc.pid);
-             if (vm == NULL) {
-                pr_err("tansiv-timer: TANSIV_SCALE_TSC: vm %d not found\n", scale_tsc.pid);
-                return -EINVAL;
-            }
-
-            vm->tsc_offset = kvm_get_tsc_offset(pid_nr(&vm->pid));
-            vm->tsc_scaling_ratio = kvm_get_tsc_scaling_ratio(pid_nr(&vm->pid));
-            scale_tsc.scaled_tsc = kvm_scale_tsc(scale_tsc.tsc, vm->tsc_scaling_ratio) + vm->tsc_offset;
-            if (copy_to_user(tmp, &scale_tsc, sizeof(struct tansiv_scale_tsc_ioctl))) {
-                return -EFAULT;
-            }
-            break;
-
-        }
         default:
             pr_err("tansiv-timer: Unknown ioctl command\n");
             return -EINVAL;
     }
+    return 0;
+}
+
+/* mmap */
+static int device_mmap(struct file *file, struct vm_area_struct *vma)
+{
+    struct tansiv_vm *vm = file->private_data;
+    struct page *page = vm->page;
+    vma->vm_flags &= ~(VM_MAYWRITE | VM_MAYSHARE | VM_MAYEXEC);
+
+    vma->vm_ops = NULL;
+    vma->vm_private_data = vm;
+
+    /* Check that only one page at offset 0 is requested*/
+    if (!(vma->vm_pgoff == 0 && vma_pages(vma) == 1))
+        return -EINVAL;
+    
+    vm->tsc_infos = kmap(page);
+    vm_insert_page(vma, vma->vm_start, page);
+    
     return 0;
 }
 
@@ -564,6 +509,7 @@ static struct file_operations fops = {
     .unlocked_ioctl = device_ioctl,
     .open = device_open,
     .release = device_release,
+    .mmap = device_mmap,
 };
 
 /* sysfs file to export the tsc frequency
@@ -596,13 +542,6 @@ static int __init tansiv_timer_init(void)
     
     pr_info("tansiv-timer: Device created on /dev/%s\n", DEVICE_FILE_NAME);
 
-    error = init_tansiv_vm_array(&tansiv_vm_array, DEFAULT_NUMBER_VMS);
-    
-    if (error < 0) {
-        pr_err("tansiv-timer: failed to initialize tansiv_vm_array\n");
-        return error;
-    }
-
     /* Logs */
     s = kasprintf(GFP_KERNEL, "/tmp/tansiv_kernel.csv");
     logs_file = filp_open(s, O_CREAT | O_WRONLY | O_APPEND, 0644);
@@ -629,8 +568,6 @@ static void __exit cancel_tansiv_timer(void)
     device_destroy(cls, MKDEV(MAJOR_NUM, 0));
     class_destroy(cls);
     unregister_chrdev(MAJOR_NUM, DEVICE_FILE_NAME);
-    /* Array cleaning */
-    free_tansiv_vm_array(&tansiv_vm_array);
     /* Circular buffer */
     cb_free(&logs_buffer);
     /* Sysfs */

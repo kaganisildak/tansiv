@@ -22,7 +22,6 @@ module
 
 #define TANSIV_INIT_CHECK _IOWR(MAJOR_NUM, 4, int)
 
-#define TANSIV_SCALE_TSC _IOWR(MAJOR_NUM, 5, int)
 
 #define DEVICE_FILE_NAME "tansiv_dev"
 #define DEVICE_PATH "/dev/tansiv_dev"
@@ -37,7 +36,6 @@ struct tansiv_vm_ioctl {
 /* TANSIV_REGISTER_DEADLINE */
 struct tansiv_deadline_ioctl {
     /* Arguments */
-    pid_t pid; // pid of the VM
     unsigned long long int deadline; // Time until the next deadline (ns)
     unsigned long long int deadline_tsc; // Time until the next deadline (TSC ticks)
     /* Results */
@@ -46,23 +44,14 @@ struct tansiv_deadline_ioctl {
 
 /* TANSIV_REGISTER_VCPU */
 struct tansiv_vcpu_ioctl {
-    pid_t pid; // pid of the VM
     pid_t vcpu_pid; // pid of the vcpu thread
 };
 
 struct tansiv_init_end_ioctl {
-    pid_t pid; // pid of the VM
 };
 
 struct tansiv_init_check_ioctl {
-    pid_t pid; // pid of the VM
     bool status; // true if the initialization is done
-};
-
-struct tansiv_scale_tsc_ioctl {
-    pid_t pid; // pid of the VM
-    unsigned long long int tsc; //tsc to convert to guest scale
-    unsigned long long int scaled_tsc; // the tsc scaled to the guest
 };
 
 int ioctl_register_vm(pid_t pid);
@@ -70,6 +59,5 @@ unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int
 int ioctl_register_vcpu(pid_t pid, pid_t vcpu_pid);
 int ioctl_init_end(pid_t pid);
 bool ioctl_init_check(pid_t pid);
-int ioctl_scale_tsc(pid_t pid, unsigned long long int tsc);
 
 #endif

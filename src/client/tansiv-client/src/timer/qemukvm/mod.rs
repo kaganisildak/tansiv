@@ -1,10 +1,11 @@
 use chrono::Duration;
-use libc::{getpid};
+use libc::{c_int, mmap, PROT_READ, MAP_SHARED};
 use std::collections::LinkedList;
 use std::fs;
 use std::io::Result;
 use std::ops::Deref;
 use std::pin::Pin;
+use std::ptr::null_mut;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration as StdDuration;
 
@@ -15,11 +16,17 @@ use core::arch::x86_64::{_rdtsc};
 use log::debug;
 
 extern {
-    fn ioctl_register_deadline(pid: i32, deadline: u64, deadline_tsc: u64) -> u64;
-    fn ioctl_init_check(pid: i32) -> bool;
-    fn ioctl_scale_tsc(pid: i32, tsc: u64) -> i64;
+    fn open_device() -> c_int;
+    fn close_device(fd: c_int);
+    fn ioctl_register_deadline(fd: c_int, deadline: u64, deadline_tsc: u64) -> u64;
+    fn ioctl_init_check(fd: c_int) -> bool;
 }
 
+#[repr(C)]
+struct TimerTSCInfos {
+    tsc_offset: u64,
+    tsc_scaling_ratio: u64,
+}
 
 #[derive(Debug)]
 pub struct TimerContextInner {
@@ -34,7 +41,9 @@ pub struct TimerContextInner {
     next_deadline: Mutex<StdDuration>,
     guest_tsc : Mutex<u64>, // Value of the guest tsc register at the beginning of slot before the last deadline handled
     vmx_timer_value : Mutex<u64>, // Value of the deadline used to setup the VMX Preemption timer. It's the equivalent of next_deadline at the scale of the guest
-    tsc_freq : Mutex<f64> // frequency of guest TSC in GHz
+    tsc_freq : Mutex<f64>, // frequency of guest TSC in GHz,
+    fd: Mutex<c_int>, // file descriptor of the kernel module
+    tsc_infos: *mut TimerTSCInfos,
 }
 
 // Wrapper struct to avoid conflicts between Pin::new() and TimerContextInner::new()
@@ -64,13 +73,22 @@ impl TimerContextInner {
         let vmx_timer_value = Mutex::new(0);
         let tsc_freq = Mutex::new(0.0);
 
-        TimerContextInner {
-            context,
-            prev_deadline,
-            next_deadline,
-            guest_tsc,
-            vmx_timer_value,
-            tsc_freq
+        unsafe {
+            let fd_c_int = open_device();
+            let fd = Mutex::new(fd_c_int);
+
+            let tsc_infos = mmap(null_mut(), 4096, PROT_READ, MAP_SHARED, fd_c_int, 0) as *mut TimerTSCInfos;
+
+            TimerContextInner {
+                context,
+                prev_deadline,
+                next_deadline,
+                guest_tsc,
+                vmx_timer_value,
+                tsc_freq,
+                fd,
+                tsc_infos
+            }
         }
     }
 
@@ -85,7 +103,8 @@ impl TimerContextInner {
         // ioctls are unsafe 
         unsafe {
             // Send timer_deadline to the tansiv-timer kernel module
-            let vmx_timer_value =  ioctl_register_deadline(getpid(), timer_deadline, timer_deadline_tsc as u64);
+            let fd = *self.fd.lock().unwrap();
+            let vmx_timer_value =  ioctl_register_deadline(fd, timer_deadline, timer_deadline_tsc as u64);
             *self.vmx_timer_value.lock().unwrap() = vmx_timer_value;
         };
     }
@@ -96,7 +115,8 @@ impl TimerContextInner {
         // Check if the initialization of the kernel module has been done
         // ioctls are unsafe
         unsafe {
-            let init_done : bool = ioctl_init_check(getpid());
+            let fd = *self.fd.lock().unwrap();
+            let init_done : bool = ioctl_init_check(fd);
             if !init_done {
                 panic!("Kernel module is not correctly initialized!");
             }
@@ -127,6 +147,7 @@ impl TimerContextInner {
         // Safety: Arc::from_raw() gets back the ManuallyDrop'ed reference given by Arc::clone() in
         // ::start()
         unsafe {
+            close_device(*self.fd.lock().unwrap());
             drop(Arc::from_raw(ptr));
         }
     }
@@ -139,12 +160,11 @@ impl TimerContextInner {
 
     /// Returns the global simulation time
     pub fn simulation_now(&self) -> StdDuration {
-        // ioctls involved so everything is unsafe
         unsafe{
             // Get current timestamp
             let now = _rdtsc();
             // Convert it to guest tsc scale
-            let now_guest = ioctl_scale_tsc(getpid(), now) as f64;
+            let now_guest = (now + (*self.tsc_infos).tsc_offset) as f64;
             // Get the value of the deadline in guest tsc scale
             let next_deadline_guest = *self.vmx_timer_value.lock().unwrap() as f64;
             // Check that the timestamp is not greater than the deadline. In
@@ -228,4 +248,11 @@ pub extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void, guest_ts
     }
     // return timer_context.prev_deadline.lock().unwrap().as_nanos() as u64;
     return timer_context.next_deadline.lock().unwrap().as_nanos() as u64 - timer_context.prev_deadline.lock().unwrap().as_nanos() as u64;
+}
+
+#[no_mangle]
+pub extern fn get_tansiv_timer_fd(opaque: *mut ::std::os::raw::c_void) -> c_int {
+    let context_arg = unsafe { (opaque as *const crate::Context).as_ref().unwrap() };
+    let timer_context = &context_arg.timer_context;
+    return *timer_context.fd.lock().unwrap();
 }
