@@ -7,7 +7,6 @@ use libc;
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
 use std::collections::LinkedList;
-use std::cmp::Reverse;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
