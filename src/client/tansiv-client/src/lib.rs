@@ -414,7 +414,7 @@ pub mod test_helpers {
     pub fn dummy_deadline_callback(_deadline: Duration) -> () {
     }
 
-    pub const START_ACTOR_DEADLINE: Duration = Duration::from_nanos(100000);
+    pub const START_ACTOR_DEADLINE: Duration = Duration::from_nanos(100_000);
 
     pub fn start_actor(actor: &mut TestActor) -> TestResult<()> {
         actor.send(MsgIn::GoToDeadline(START_ACTOR_DEADLINE))?;

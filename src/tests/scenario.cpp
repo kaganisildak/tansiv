@@ -117,7 +117,7 @@ static int fb_send_goto_deadline(int socket)
 {
 
   flatbuffers::FlatBufferBuilder builder;
-  auto time          = tansiv::Time(0, 200);
+  auto time          = tansiv::Time(0, 200000);
   auto goto_deadline = tansiv::CreateGotoDeadline(builder, &time);
   auto msg           = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_GotoDeadline, goto_deadline.Union());
   builder.FinishSizePrefixed(msg);
