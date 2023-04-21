@@ -136,7 +136,10 @@ static void vm_coordinator()
       if (not dest_host_name.empty()) {
         auto src_host  = simgrid::s4u::Host::by_name(src_host_name);
         auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
-        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size);
+	// Ethernet adds an overhead of 24 bytes per packet: preamble + frame start delimiter =  8
+	//                                                   frame checksum (FCS)             =  4
+	//                                                   inter packet gap (IGP)           = 12
+        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24);
         pending_comms.push_back(comm);
         pending_messages.push_back(m);
       } else {
