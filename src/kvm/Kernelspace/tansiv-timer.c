@@ -267,6 +267,7 @@ struct tansiv_vm *init_vm(void)
     vm->timer_start = 0;
     vm->lapic_tsc_deadline = 0;
     vm->page = page;
+    vm->tsc_infos = kmap(page);
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
 
@@ -287,6 +288,7 @@ void free_vm(struct tansiv_vm *vm)
     kfree(vm->vcpus_pids.array);
 
     kunmap(vm->page);
+    __free_page(vm->page);
 }
 
 /* Open the device */
@@ -305,8 +307,8 @@ static int device_open(struct inode *inode, struct file *file)
 /* Close the device */
 static int device_release(struct inode *inode, struct file *file)
 {
-    pr_info("tansiv-timer: device_release(%p, %p)\n", inode, file);
     struct tansiv_vm *vm = file->private_data;
+    pr_info("tansiv-timer: device_release(%p, %p)\n", inode, file);
     free_vm(vm);
     kfree(vm);
 
@@ -482,7 +484,6 @@ static int device_mmap(struct file *file, struct vm_area_struct *vma)
     if (!(vma->vm_pgoff == 0 && vma_pages(vma) == 1))
         return -EINVAL;
 
-    vm->tsc_infos = kmap(page);
     vm_insert_page(vma, vma->vm_start, page);
 
     return 0;
