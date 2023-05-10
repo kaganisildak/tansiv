@@ -55,6 +55,12 @@ pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
 pub struct Context {
     // Read-only
     address: libc::in_addr_t,
+    // Read-only
+    // In bits per second
+    uplink_bandwidth: std::num::NonZeroUsize,
+    // Read-only
+    // Overhead in bytes per packet (preample, inter-frame gap...)
+    uplink_overhead: usize,
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     connector: Mutex<ConnectorImpl>,
@@ -71,6 +77,9 @@ pub struct Context {
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
+    // Concurrency:
+    // - read/write by application code only
+    last_send: Mutex<(usize, Duration, usize)>,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -107,11 +116,14 @@ impl Context {
 
         let context = Arc::new(Context {
             address: address,
+            uplink_bandwidth: config.uplink_bandwidth,
+            uplink_overhead: config.uplink_overhead,
             connector: Mutex::new(connector),
             input_queue: input_queue,
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
+            last_send: Mutex::new((0, Duration::ZERO, 0)),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -270,7 +282,19 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
+        let mut last_send = self.last_send.lock().unwrap();
+        let (last_send_size, last_send_time, mut delayed_count) = *last_send;
+        let next_send_floor = last_send_time + Duration::from_nanos(((last_send_size + self.uplink_overhead) * 8 * 1_000_000_000 / usize::from(self.uplink_bandwidth)) as u64);
+        let delay = next_send_floor.saturating_sub(send_time);
+        if !delay.is_zero() {
+            send_time = next_send_floor;
+            delayed_count += 1;
+        }
+
+        *last_send = (msg.len(), send_time, delayed_count);
+        drop(last_send);
+
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
@@ -389,21 +413,21 @@ pub mod test_helpers {
     #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 

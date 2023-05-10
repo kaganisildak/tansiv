@@ -368,12 +368,12 @@ mod test {
 
     macro_rules! valid_args {
         () => {
-            os_args!("-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
     macro_rules! invalid_args {
         () => {
-            os_args!("-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
 
