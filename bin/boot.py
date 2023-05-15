@@ -26,6 +26,7 @@ class VM(object):
         public_key: Optional[str] = None,
         autoconfig_net: bool = False,
         mem: str = "1g",
+        qemu_nictype: str = "virtio-net-pci",
     ):
         self.tantap = ip_tantap
         self.management = ip_management
@@ -38,6 +39,8 @@ class VM(object):
 
         self.__qemu_args = qemu_args
         self.__mem = mem
+
+        self.__qemu_nictype = qemu_nictype
 
     @property
     def qemu_args(self):
@@ -81,6 +84,10 @@ class VM(object):
             IPv4Interface(f"{str(next(self.tantap.network.hosts()))}/{t_cidr}"),
             IPv4Interface(f"{str(next(self.management.network.hosts()))}/{m_cidr}"),
         ]
+
+    @property
+    def nictype(self) -> List[str]:
+        return [f"{self.__qemu_nictype}", "virtio-net-pci"]
 
     @property
     def mac(self) -> List[str]:
@@ -232,9 +239,9 @@ class VM(object):
             f" -drive file={image} "
             f" -cdrom {iso}"
             f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
-            f" -device e1000,netdev=mynet0,mac={self.mac[0]}"
+            f" -device {self.nictype[0]},netdev=mynet0,mac={self.mac[0]}"
             f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no"
-            f" -device e1000,netdev=mynet1,mac={self.mac[1]}"
+            f" -device {self.nictype[1]},netdev=mynet1,mac={self.mac[1]}"
             f" -gdb tcp::{1234 + self.management_id},server,nowait"
         )
         stdout = (working_dir / "out").open("w")
@@ -370,6 +377,13 @@ done
     )
 
     parser.add_argument(
+        "--qemu_nictype",
+        type=str,
+        help="Model of the main vNIC (e.g. 'virtio-net-pci', 'e1000'). Default is virtio-net-pci.",
+        default="virtio-net-pci",
+    )
+
+    parser.add_argument(
         "--base_working_dir",
         type=str,
         help="base directory where the working dir will be stored",
@@ -401,6 +415,7 @@ The default value is too low for realistics benchmarks.""",
     qemu_image = Path(args.qemu_image)
     if not qemu_image:
         raise ValueError("qemu_image must be set")
+    qemu_nictype = args.qemu_nictype
     autoconfig_net = args.autoconfig_net
 
     num_buffers = args.num_buffers
@@ -424,6 +439,7 @@ The default value is too low for realistics benchmarks.""",
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
             num_buffers=num_buffers,
+            qemu_nictype=qemu_nictype,
         )
     else:
         vm = VM(
@@ -436,6 +452,7 @@ The default value is too low for realistics benchmarks.""",
             public_key=public_key,
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
+            qemu_nictype=qemu_nictype,
         )
 
     for cmd in vm.prepare_net_cmds():
