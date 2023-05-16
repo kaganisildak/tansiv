@@ -138,8 +138,12 @@ static void vm_coordinator()
         auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
 	// Ethernet adds an overhead of 24 bytes per packet: preamble + frame start delimiter =  8
 	//                                                   frame checksum (FCS)             =  4
-	//                                                   inter packet gap (IGP)           = 12
-        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24);
+	//                                                   inter packet gap (IGP)
+	//                                                   = 12
+
+  // NOTE/BUG: With the spacing of packets done in Context::send, there is no
+  // need to add the ethernet overhead here, otherwise packets are slowed down twice
+        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 0);
         pending_comms.push_back(comm);
         pending_messages.push_back(m);
       } else {
