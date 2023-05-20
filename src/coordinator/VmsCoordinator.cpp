@@ -166,8 +166,8 @@ static void vm_coordinator()
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dst.c_str(),
-               m->size);
+      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d). Current date is %f ; send_time is %f ; Delivery delay is %f ms", m->src.c_str(), m->dst.c_str(),
+               m->size, simgrid::s4u::Engine::get_clock(), m->sent_time, (simgrid::s4u::Engine::get_clock() - m->sent_time) * 1000);
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
@@ -225,14 +225,14 @@ int main(int argc, char* argv[])
 
   e.load_platform(argv[1]);
   // Mark the upload links in the cluster as serial. This won't work when we use something else than clusters.
-  for (auto l : e.get_all_links()) {
-     auto name = l->get_name();
-     const char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
-     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern)) == 0) {
-       XBT_INFO("Setting link '%s' as serial", name.c_str());
-       l->set_concurrency_limit(1);
-     }
-  }
+  // for (auto l : e.get_all_links()) {
+    //  auto name = l->get_name();
+    //  const char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
+    //  if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern)) == 0) {
+      //  XBT_INFO("Setting link '%s' as serial", name.c_str());
+      //  l->set_concurrency_limit(1);
+    //  }
+  // }
 
   vms_interface = new vsg::VmsInterface(socket_name);
 
