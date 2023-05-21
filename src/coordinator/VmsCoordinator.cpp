@@ -138,8 +138,13 @@ static void vm_coordinator()
         auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
 	// Ethernet adds an overhead of 24 bytes per packet: preamble + frame start delimiter =  8
 	//                                                   frame checksum (FCS)             =  4
-	//                                                   inter packet gap (IGP)           = 12
-        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24);
+	//                                                   inter packet gap (IGP)
+	//                                                   = 12
+  // Virtio-net adds an overhead of 12 bytes per packet
+  // https://elixir.bootlin.com/qemu/latest/source/include/standard-headers/linux/virtio_net.h#L186
+  // The virtio header is included in the packet, so we have to subtract 12 bytes if virtio-net is used
+  // TODO: This should be a parameter in order to work with e1000
+        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24 - 12);
         pending_comms.push_back(comm);
         pending_messages.push_back(m);
       } else {
