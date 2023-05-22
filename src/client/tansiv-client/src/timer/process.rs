@@ -239,6 +239,11 @@ impl TimerContext {
     pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
         return None;
     }
+
+    pub fn delay(&self, delay: StdDuration) {
+        // TODO: If really useful, use a more fine-grained algorithm like in qemukvm
+        std::thread::sleep(delay)
+    }
 }
 
 impl Drop for TimerContext {

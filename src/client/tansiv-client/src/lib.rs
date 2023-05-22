@@ -288,6 +288,16 @@ impl Context {
         let next_send_floor = last_send_time + Duration::from_nanos(((last_send_size + self.uplink_overhead) * 8 * 1_000_000_000 / usize::from(self.uplink_bandwidth)) as u64);
         let delay = next_send_floor.saturating_sub(send_time);
         if !delay.is_zero() {
+            // Avoid creating a bufferbloat by making sure that the vNIC TX queue is not drained
+            // too fast.
+            //
+            // Theoretically we should wait until next_send_floor but we might slow down too much
+            // and fail to use the available bandwidth. We rather just wait until the previous
+            // packet send time, which leaves a margin and leads to the same packet rate except
+            // possible bursts of 2 packets.
+            if send_time < last_send_time {
+                self.timer_context.delay(last_send_time - send_time);
+            }
             send_time = next_send_floor;
             delayed_count += 1;
         }

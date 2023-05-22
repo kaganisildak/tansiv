@@ -177,6 +177,11 @@ impl TimerContextInner {
     pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
         return None;
     }
+
+    pub fn delay(&self, delay: StdDuration) {
+        // A hacky impl based on a dirty support function added to Qemu exists [here](https://gitlab.inria.fr/tansiv/tansiv/-/commit/70e9d2e3c3389bbf260f7fc770c6476d8db4bd50)
+        unimplemented!()
+    }
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {

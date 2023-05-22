@@ -220,6 +220,15 @@ impl TimerContextInner {
         return None;
     }
 
+    pub fn delay(&self, delay: StdDuration) {
+        let now_tsc = unsafe { _rdtsc() };
+        let delay_nanos = delay.as_nanos();
+        let tsc_freq = *self.tsc_freq.lock().unwrap();
+        let target_tsc = now_tsc + (delay_nanos as f64 * tsc_freq) as u64;
+
+        while unsafe { _rdtsc() } < target_tsc {
+        }
+    }
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {
