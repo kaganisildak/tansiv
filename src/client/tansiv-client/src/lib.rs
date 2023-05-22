@@ -6,6 +6,7 @@ use libc;
 #[allow(unused_imports)]
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
+use rate_limiter::RateLimiter;
 use std::collections::LinkedList;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -80,6 +81,7 @@ pub struct Context {
     // Concurrency:
     // - read/write by application code only
     last_send: Mutex<(usize, Duration, usize)>,
+    rate_limiter: Mutex<RateLimiter>,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -124,6 +126,7 @@ impl Context {
             deadline_callback: deadline_callback,
             timer_context: timer_context,
             last_send: Mutex::new((0, Duration::ZERO, 0)),
+            rate_limiter: Mutex::new(RateLimiter::new(usize::from(config.uplink_bandwidth) as u64, 8_000_000, 8_000, 0, 0, 0).unwrap()),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -283,27 +286,12 @@ impl Context {
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         let mut send_time = self.timer_context.simulation_now();
-        let mut last_send = self.last_send.lock().unwrap();
-        let (last_send_size, last_send_time, mut delayed_count) = *last_send;
-        let next_send_floor = last_send_time + Duration::from_nanos(((last_send_size + self.uplink_overhead) * 8 * 1_000_000_000 / usize::from(self.uplink_bandwidth)) as u64);
-        let delay = next_send_floor.saturating_sub(send_time);
-        if !delay.is_zero() {
-            // Avoid creating a bufferbloat by making sure that the vNIC TX queue is not drained
-            // too fast.
-            //
-            // Theoretically we should wait until next_send_floor but we might slow down too much
-            // and fail to use the available bandwidth. We rather just wait until the previous
-            // packet send time, which leaves a margin and leads to the same packet rate except
-            // possible bursts of 2 packets.
-            if send_time < last_send_time {
-                return Err(Error::NoMessageAvailable);
-            }
-            send_time = next_send_floor;
-            delayed_count += 1;
-        }
+        let mut rate_limiter = self.rate_limiter.lock().unwrap();
 
-        *last_send = (msg.len(), send_time, delayed_count);
-        drop(last_send);
+        let tokens = (msg.len() + self.uplink_overhead) as u64 * 8;
+        if !rate_limiter.consume(tokens, rate_limiter::TokenType::Bytes, send_time) {
+            return Err(Error::NoMessageAvailable);
+        }
 
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
@@ -315,6 +303,7 @@ impl Context {
         let buffer = match self.output_buffer_pool.allocate_buffer(msg.len()) {
             Ok(b) => b,
             Err(e) => {
+                rate_limiter.manual_replenish(tokens, rate_limiter::TokenType::Bytes);
                 error!("send error at send_time {:?}: {:?}", send_time, e);
                 return Err(e.into());
             }
@@ -328,6 +317,7 @@ impl Context {
         // more complex).
         // We save the message in a Fifo, with the timestamp just taken
         // (which is accurate).
+        // TODO: call rate_limiter.manual_replenish() in case of an error
         match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
             Some(send_time_overrun) => {
                 let mut upcoming_messages = self.upcoming_messages.lock().unwrap();

@@ -380,6 +380,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rate_limiter"
+version = "0.1.0"
+
+[[package]]
 name = "redox_syscall"
 version = "0.1.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -550,6 +554,7 @@ dependencies = [
  "libc_timer",
  "log",
  "nix",
+ "rate_limiter",
  "seq_lock",
  "simple_logger",
  "static_assertions",
