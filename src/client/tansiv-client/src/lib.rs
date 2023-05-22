@@ -295,7 +295,8 @@ impl Context {
             // and fail to use the available bandwidth. We rather just wait until the previous
             // packet send time, which leaves a margin and leads to the same packet rate except
             // possible bursts of 2 packets.
-            if send_time < last_send_time {
+            // Waiting if the next deadline is already reached is useless.
+            if send_time < last_send_time && send_time < self.timer_context.simulation_next_deadline() {
                 self.timer_context.delay(last_send_time - send_time);
             }
             send_time = next_send_floor;
