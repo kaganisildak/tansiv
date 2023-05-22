@@ -286,9 +286,16 @@ impl Context {
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         let mut send_time = self.timer_context.simulation_now();
+        let mut last_send = self.last_send.lock().unwrap();
+        let (_, last_send_time, _) = *last_send;
         let mut rate_limiter = self.rate_limiter.lock().unwrap();
 
         let tokens = (msg.len() + self.uplink_overhead) as u64 * 8;
+        // Do not confuse rate_limiter with a clock going backward...
+        // Can happen if the previous packet was sent in a deadline overrun
+        if send_time < last_send_time {
+            send_time = last_send_time;
+        }
         if !rate_limiter.consume(tokens, rate_limiter::TokenType::Bytes, send_time) {
             return Err(Error::NoMessageAvailable);
         }
@@ -308,6 +315,7 @@ impl Context {
                 return Err(e.into());
             }
         };
+        *last_send = (0, send_time, 0);
         // It is possible that messages are timestamped after a deadline with KVM.
         // It can only happen when the delay of the network card emulation
         // exceeds a deadline.
