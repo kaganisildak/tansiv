@@ -290,7 +290,7 @@ impl Context {
         let (_, last_send_time, _) = *last_send;
         let mut rate_limiter = self.rate_limiter.lock().unwrap();
 
-        let tokens = (msg.len() + self.uplink_overhead) as u64 * 8;
+        let tokens = (msg.len() + self.uplink_overhead) as u64;
         // Do not confuse rate_limiter with a clock going backward...
         // Can happen if the previous packet was sent in a deadline overrun
         if send_time < last_send_time {
