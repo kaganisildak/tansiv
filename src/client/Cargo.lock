@@ -495,6 +495,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandocker"
+version = "0.1.0"
+dependencies = [
+ "tansiv-client",
+]
+
+[[package]]
+name = "tandocker_capi"
+version = "0.1.0"
+dependencies = [
+ "capi",
+]
+
+[[package]]
 name = "tanproc"
 version = "0.1.0"
 dependencies = [

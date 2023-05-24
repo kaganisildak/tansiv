@@ -6,6 +6,7 @@ edition = "2018"
 
 [features]
 default = []
+docker = ["tansiv-client/docker"]
 process = ["tansiv-client/process"]
 qemu = ["tansiv-client/qemu"]
 qemukvm = ["tansiv-client/qemukvm"]
