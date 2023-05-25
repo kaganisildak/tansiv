@@ -1,0 +1,9 @@
+[package]
+name = "tandocker"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+#tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["docker"]}
+tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["docker", "use-own-logger", "deadline-handler-debug"]}

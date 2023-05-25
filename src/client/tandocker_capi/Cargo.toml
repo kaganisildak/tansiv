@@ -1,0 +1,13 @@
+[package]
+name = "tandocker_capi"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+# capi = {version = "0.1.0", path = "../capi", features = ["docker"]}
+capi = {version = "0.1.0", path = "../capi", features = ["docker", "deadline-handler-debug", "use-own-logger"]}
+
+[lib]
+name = "tandocker"
+crate-type = ["staticlib"]
