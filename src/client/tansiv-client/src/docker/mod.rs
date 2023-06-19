@@ -18,7 +18,7 @@ const dockerpy_path : &str = "../../bin/docker.py";
 const offset_shm_prefix : &str = "/dev/shm/tansiv-time";
 const ldpreload_path : &str = "ldpreloadoffset/lib.so";
 const ldpreload_dest : &str = "/tansiv-preload.so";
-const tap_prefix : &str = "tapt";
+const tun_prefix : &str = "tunt";
 const cgroup_docker_prefix : &str = "/sys/fs/cgroup/unified/docker/";
 const stopper_path : &str = "../../container_stopper/container_stopper";
 
@@ -30,8 +30,8 @@ const nix_mmap_any_address : *mut core::ffi::c_void = 0 as *mut core::ffi::c_voi
 pub fn get_offset_shm_path(seqnum: u32) -> String {
     offset_shm_prefix.to_owned() + "-" + &seqnum.to_string()
 }
-pub fn get_tap_interface_name(seqnum: u32) -> String {
-    tap_prefix.to_owned() + &seqnum.to_string()
+pub fn get_tun_interface_name(seqnum: u32) -> String {
+    tun_prefix.to_owned() + &seqnum.to_string()
 }
 pub fn get_cgroup_freeze_path(container_id: &str) -> String {
     cgroup_docker_prefix.to_owned() + container_id + "/cgroup.freeze"
@@ -67,17 +67,17 @@ impl From<std::string::FromUtf8Error> for DockerPyError {
 
 // Returns container ID
 pub fn run_dockerpy(seqnum: u32, ipv4: &str, docker_image: &str) -> Result<String, DockerPyError> {
-    let tap_name : &str = &get_tap_interface_name(seqnum);
+    let tun_name : &str = &get_tun_interface_name(seqnum);
     let binding = std::fs::canonicalize(ldpreload_path)?;
     let ldpreload_source : &str = binding.to_str().ok_or("invalid path to preloaded library")?;
     let output =
         std::process::Command::
             new("python3").args([
                 dockerpy_path,
-                "--create-tap",
-                tap_name,
+                "--create-tun",
+                tun_name,
                 "--create-docker-network",
-                &("tansiv-".to_owned() + tap_name),
+                &("tansiv-".to_owned() + tun_name),
                 "--use-ip",
                 ipv4,
                 "--docker-mounts",

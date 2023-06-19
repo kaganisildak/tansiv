@@ -11,14 +11,14 @@ const MYPOLL_TAP  : u64 = 0;
 const MYPOLL_STOP : u64 = 1;
 
 fn print_usage(args: Vec<String>) {
-    eprintln!("Usage: {} <tansiv socket> <unique sequence number> <container tap ipv4 address> <docker image name>", args[0]);
+    eprintln!("Usage: {} <tansiv socket> <unique sequence number> <container tun ipv4 address> <docker image name>", args[0]);
 }
 
-fn handle_tap_read(context : &crate::Context, tap_file : &Mutex<std::fs::File>) {
-    let mut buf : [u8; crate::tap::MTU] = [0; crate::tap::MTU];
-    let bytes_read = tap_file.lock().unwrap().read(&mut buf).unwrap();
+fn handle_tun_read(context : &crate::Context, tun_file : &Mutex<std::fs::File>) {
+    let mut buf : [u8; crate::tun::MTU] = [0; crate::tun::MTU];
+    let bytes_read = tun_file.lock().unwrap().read(&mut buf).unwrap();
     let packet = &buf[..bytes_read];
-    let dest = match crate::tap::packet::get_destination_ipv4(packet) {
+    let dest = match crate::tun::packet::get_destination_ipv4(packet) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("{}", e);
@@ -49,7 +49,7 @@ fn handle_stop(context : &crate::Context) -> bool {
 
 pub fn run () {
     static context : OnceCell<Arc<crate::Context>> = OnceCell::new();
-    static tap_file : OnceCell<Mutex<std::fs::File>> = OnceCell::new();
+    static tun_file : OnceCell<Mutex<std::fs::File>> = OnceCell::new();
     static address_in_addr : OnceCell<u32> = OnceCell::new();
 
     let mut args: Vec<String> = std::env::args().collect();
@@ -100,7 +100,7 @@ pub fn run () {
         }
     };
 
-    tap_file.set(Mutex::new(match crate::tap::get_rw_tap_file(&crate::docker::get_tap_interface_name(seqnum)) {
+    tun_file.set(Mutex::new(match crate::tun::get_rw_tun_file(&crate::docker::get_tun_interface_name(seqnum)) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("{:?}", e);
@@ -121,12 +121,12 @@ pub fn run () {
             tansiv_args,
             Box::new(|| { // receive callback
                 let real_context = context.get().unwrap();
-                let mut writable_tap = tap_file.get().unwrap().lock().unwrap();
-                let mut buf = [0u8; crate::tap::MTU];
+                let mut writable_tun = tun_file.get().unwrap().lock().unwrap();
+                let mut buf = [0u8; crate::tun::MTU];
                 while real_context.poll().is_some() {
                     let (src, dst, contents) = real_context.recv(&mut buf).unwrap();
                     if dst==*address_in_addr.get().unwrap() {
-                        writable_tap.write(contents).unwrap(); // TODO: could this block when sending/receiving too many packets?
+                        writable_tun.write(contents).unwrap(); // TODO: could this block when sending/receiving too many packets?
                     }
                 }
             }),
@@ -156,7 +156,7 @@ pub fn run () {
             process::exit(1);
         }
     };
-    match epoll::ctl(pollfd, epoll::ControlOptions::EPOLL_CTL_ADD, tap_file.get().unwrap().lock().unwrap().as_raw_fd(), epoll::Event{events: epoll::Events::EPOLLIN.bits(), data: MYPOLL_TAP}) {
+    match epoll::ctl(pollfd, epoll::ControlOptions::EPOLL_CTL_ADD, tun_file.get().unwrap().lock().unwrap().as_raw_fd(), epoll::Event{events: epoll::Events::EPOLLIN.bits(), data: MYPOLL_TAP}) {
         Ok(()) => (),
         Err(e) => {
             eprintln!("{}", e);
@@ -179,13 +179,13 @@ pub fn run () {
                 0 => eprintln!("epoll::wait returned 0 events"),
                 1 => {
                     if epoll_events[0].data==MYPOLL_TAP {
-                        handle_tap_read(real_context, tap_file.get().unwrap())
+                        handle_tun_read(real_context, tun_file.get().unwrap())
                     } else {
                         if handle_stop(real_context) { break; }
                     }
                 },
                 2 => { // presumably this means that both are available
-                    handle_tap_read(real_context, tap_file.get().unwrap());
+                    handle_tun_read(real_context, tun_file.get().unwrap());
                     //if handle_stop(real_context) { break; } // handle it next time, once there
                     //are no more packets, having 2 here means the container is already stopped:
                     //no need to rush
