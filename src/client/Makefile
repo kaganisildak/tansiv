@@ -1,4 +1,4 @@
-LIB_CRATES := tanproc_capi tanqemu_capi tanqemukvm_capi tandocker_capi
+LIB_CRATES := tanproc_capi tanqemu_capi tanqemukvm_capi tandocker
 
 CARGO := cargo
 CARGO_ENV ?=

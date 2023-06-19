@@ -1,17 +1,45 @@
 use chrono::Duration;
 use std::io::Result;
+use std::io::Read;
 use std::collections::LinkedList;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration as StdDuration;
+use std::os::unix::net::UnixStream;
+use std::os::fd::AsRawFd;
+use std::os::fd::RawFd;
 
 use crate::output_msg_set::{OutputMsg};
 
 use core::arch::x86_64::{_rdtsc};
 
 use log::debug;
+
+#[derive(Debug)]
+struct StopperContext {
+    // Socket used for communication with container stopper process.
+    stopper_stream: UnixStream,
+    // Child structure of spawned stopper process
+    stopper_process: std::process::Child,
+    // Time offset (shared memory)
+    offset: crate::docker::SharedTimespec,
+}
+
+#[derive(Debug)]
+struct DockerConfigElements {
+    sequence_number: u32,
+    container_id: String,
+}
+impl From<&crate::Config> for DockerConfigElements {
+    fn from(item: &crate::Config) -> Self {
+        Self {
+            sequence_number: item.docker_sequence_number,
+            container_id: item.docker_container_id.clone(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct TimerContextInner {
@@ -24,6 +52,9 @@ pub struct TimerContextInner {
     // No concurrency: (mut) accessed only by the deadline handler
     // Mutex is used to show interior mutability despite sharing.
     next_deadline: Mutex<StdDuration>,
+
+    config: DockerConfigElements,
+    stopper: Mutex<Option<StopperContext>>,
 }
 
 // Wrapper struct to avoid conflicts between Pin::new() and TimerContextInner::new()
@@ -31,8 +62,8 @@ pub struct TimerContextInner {
 pub struct TimerContext(Pin<Arc<TimerContextInner>>);
 
 impl TimerContext {
-    pub(crate) fn new(_config: &crate::Config) -> Result<TimerContext> {
-        Ok(TimerContext(Arc::pin(TimerContextInner::new())))
+    pub(crate) fn new(config: &crate::Config) -> Result<TimerContext> {
+        Ok(TimerContext(Arc::pin(TimerContextInner::new(config))))
     }
 }
 
@@ -45,27 +76,52 @@ impl Deref for TimerContext {
 }
 
 impl TimerContextInner {
-    fn new() -> TimerContextInner {
+    fn new(config : &crate::Config) -> TimerContextInner {
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
         let next_deadline = Mutex::new(StdDuration::new(0, 0));
+        let stopper = Mutex::new(None);
 
         TimerContextInner {
             context,
             prev_deadline,
             next_deadline,
+            config: config.into(),
+            stopper,
         }
     }
 
     pub fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration) {
-        unimplemented!()
+        let next_deadline_val = *self.next_deadline.lock().unwrap();
+
+        let timer_deadline = deadline - next_deadline_val;
+        *self.prev_deadline.lock().unwrap() = next_deadline_val;
+        *self.next_deadline.lock().unwrap() = deadline;
+
+        let mut stopper = self.stopper.lock().unwrap();
+        let mut some_stopper = stopper.as_mut().expect("set_next_deadline called before start");
+
+        crate::docker::write_timespec(&timer_deadline, &mut some_stopper.stopper_stream).expect("communication with stopper failed");
     }
 
     pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<Duration> {
-        // TODO: Make sure ::start() is not called again before ::stop()
+        let mut stopper = self.stopper.lock().unwrap();
+        // Make sure ::start() is not called again before ::stop()
+        if !stopper.is_none() {
+            panic!("TimerContextInner::start called twice");
+        }
 
-        unimplemented!();
+        // TODO: should probably try to avoid unwrap here
+        let (stopper_process, stopper_stream) = crate::docker::start_stopper(self.config.sequence_number, &self.config.container_id).unwrap();
+        //let offset = crate::docker::wait_and_mmap_offset(self.config.sequence_number).unwrap();
+        let offset = crate::docker::mmap_offset(self.config.sequence_number).unwrap();
+        *stopper = Some(StopperContext{
+            stopper_stream,
+            stopper_process,
+            offset,
+        });
 
+        std::mem::drop(stopper);
         self.set_next_deadline(deadline);
 
         Ok(Duration::zero())
@@ -74,6 +130,14 @@ impl TimerContextInner {
     // TODO: Currently unsafe! Assumes that start() has been called before and that stop() is never
     // called twice. Otherwise calling stop() prematurately drops self!
     pub fn stop(self: &Pin<Arc<Self>>) {
+        let mut stopper = self.stopper.lock().unwrap();
+        if stopper.is_none() {
+            panic!("TimerContextInner::start called before start");
+        }
+        let mut some_stopper = stopper.as_mut().unwrap();
+        some_stopper.stopper_stream.shutdown(std::net::Shutdown::Both);
+        some_stopper.stopper_process.wait().unwrap();
+
         // Safety: TODO
         // Drop the reference given to qemu_timer
         // It is easier to use the opaque pointer from self than using the one from qemu_timer
@@ -125,31 +189,34 @@ impl TimerContextInner {
         }
         return None;
     }
+
+    pub fn get_stopper_fd(&self) -> RawFd {
+        self.stopper.lock().unwrap().as_ref().unwrap().stopper_stream.as_raw_fd()
+    }
+
+    pub fn flush_one_stopper_byte(&self) -> bool {
+        let binding = self.stopper.lock().unwrap();
+        let mut stopper_stream = &binding.as_ref().unwrap().stopper_stream;
+        //TODO: copy-pasted from docker/mod.rs, make a function
+        loop {
+            let mut buf : [u8; 1] = Default::default();
+            match stopper_stream.read(&mut buf) {
+                Ok(1) => break,
+                Ok(0) => return false,
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::Interrupted => (),
+                    _ => return false,
+                },
+                _ => return false,
+            }
+        }
+
+        return true;
+    }
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {
     let timer_context = &context.timer_context;
     *timer_context.context.lock().unwrap() = Arc::downgrade(context);
     Ok(())
-}
-
-#[no_mangle]
-pub extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void, guest_tsc: u64) -> u64 {
-    use crate::AfterDeadline;
-    // Safety: TODO
-    let context_arg = unsafe { (opaque as *const crate::Context).as_ref().unwrap() };
-    let timer_context = &context_arg.timer_context;
-    if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
-        match context_arg.at_deadline() {
-            AfterDeadline::NextDeadline(deadline) => {
-                context.timer_context.set_next_deadline(deadline);
-
-            },
-            AfterDeadline::EndSimulation => {
-                panic!("Ending simulation, at_deadline_failed!");
-            }
-        }
-    }
-    // return timer_context.prev_deadline.lock().unwrap().as_nanos() as u64;
-    return timer_context.next_deadline.lock().unwrap().as_nanos() as u64 - timer_context.prev_deadline.lock().unwrap().as_nanos() as u64;
 }

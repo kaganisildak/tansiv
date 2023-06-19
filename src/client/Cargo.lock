@@ -68,6 +68,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bytemuck"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17febce684fd15d89027105661fec94afb475cb995fbc59d2865198446ba2eea"
+
+[[package]]
 name = "capi"
 version = "0.1.0"
 dependencies = [
@@ -180,6 +186,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "epoll"
+version = "4.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20df693c700404f7e19d4d6fae6b15215d2913c27955d2b9d6f2c0f537511cd0"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
 name = "flatbuffers"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -246,9 +262,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.68"
+version = "0.2.146"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dea0c0405123bba743ee3f91f49b1c7cfb684eef0da0a50110f758ccf24cdff0"
+checksum = "f92be4933c13fd498862a9e02a3055f8a8d9c039ce33db97306fd5a6caa7f29b"
 
 [[package]]
 name = "libc_timer"
@@ -330,6 +346,12 @@ checksum = "c62be47e61d1842b9170f0fdeec8eba98e60e90e5446449a0545e5152acd7096"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "once_cell"
+version = "1.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "peeking_take_while"
@@ -502,13 +524,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tandocker_capi"
-version = "0.1.0"
-dependencies = [
- "capi",
-]
-
-[[package]]
 name = "tanproc"
 version = "0.1.0"
 dependencies = [
@@ -555,8 +570,10 @@ name = "tansiv-client"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "bytemuck",
  "chrono",
  "crossbeam-queue",
+ "epoll",
  "flatbuffers",
  "flatc-rust",
  "lazy_static",
@@ -564,6 +581,7 @@ dependencies = [
  "libc_timer",
  "log",
  "nix",
+ "once_cell",
  "seq_lock",
  "simple_logger",
  "static_assertions",

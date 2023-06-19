@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate nix;
+
 use buffer_pool::BufferPool;
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, DeliverPacket, FbBuffer, MsgIn, MsgOut};
@@ -11,6 +14,8 @@ use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
 use waitfree_array_queue::WaitfreeArrayQueue;
+#[cfg(feature = "docker")]
+use std::os::fd::RawFd;
 
 pub const MAX_PACKET_SIZE: usize = 2048;
 
@@ -26,6 +31,9 @@ mod output_msg_set;
 mod timer;
 mod vsg_address;
 mod waitfree_array_queue;
+#[cfg(feature = "docker")]
+pub mod docker;
+mod tap;
 
 impl From<buffer_pool::Error> for Error {
     fn from(error: buffer_pool::Error) -> Error {
@@ -330,6 +338,15 @@ impl Context {
         } else {
             Some(())
         }
+    }
+
+    #[cfg(feature = "docker")]
+    pub fn get_stopper_fd(&self) -> RawFd {
+        self.timer_context.get_stopper_fd()
+    }
+    #[cfg(feature = "docker")]
+    pub fn flush_one_stopper_byte(&self) -> bool {
+        self.timer_context.flush_one_stopper_byte()
     }
 }
 

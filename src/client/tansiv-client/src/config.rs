@@ -22,9 +22,17 @@ pub(crate) struct Config {
     /// Number of packet buffers available for received packets, must not be 0
     #[structopt(short = "b", long = "num_buffers", default_value = "100")]
     pub num_buffers: NonZeroUsize,
+
+    #[structopt(long)]
+    #[cfg(feature = "docker")]
+    pub docker_container_id: String,
+
+    #[structopt(long)]
+    #[cfg(feature = "docker")]
+    pub docker_sequence_number: u32,
 }
 
-#[cfg(test)]
+#[cfg(all(test,not(feature = "docker")))] // TODO
 mod test {
     use structopt::StructOpt;
     use super::*;
