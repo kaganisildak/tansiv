@@ -4,24 +4,7 @@ import ipaddress
 import subprocess
 import sys
 
-docker_cgroup_base="/sys/fs/cgroup/unified/docker"
-
 parser = argparse.ArgumentParser()
-#parser.add_argument(
-#    "socket_name",
-#    type=str,
-#    help="The (unix) socket name to use for commicating with Tansiv",
-#)
-#parser.add_argument(
-#    "--run-stopper-with-socket",
-#    type=str,
-#    help="The (unix) socket name to use for communication between network and stopper processes"
-#)
-#parser.add_argument(
-#    "--offset-file",
-#    type=str,
-#    help="The path to use for shared-memory setting of simulation/real-time offset"
-#)
 parser.add_argument(
     "--create-tap",
     type=str,
@@ -69,7 +52,6 @@ def run_container():
          "--network", docker_network_name, "--ip", str(used_ip.ip)]
         + sum((["--mount", margs] for margs in args.docker_mounts), start=[])
         + [args.docker_image, "/bin/sh", "-c", args.docker_program],
-        #capture_output=True,
         stdout=subprocess.PIPE, # should still show stderr in case of error
     )
     r.check_returncode()
@@ -78,9 +60,6 @@ def run_container():
 def create_tap():
      subprocess.run(["ip", "tuntap", "add", args.create_tap, "mode", "tap"]).check_returncode()
      try:
-         #subprocess.run(["ip", "address", "add", args.use_ip,
-         #    #str(used_ip.ip) + "/32",
-         #    "dev", args.create_tap]).check_returncode()
          subprocess.run(["ip", "link", "set", args.create_tap, "up"])
      except e:
          print(e)
@@ -92,12 +71,10 @@ def create_docker_network():
     r = subprocess.run([
         "docker", "network", "create", "--driver=macvlan",
         "--subnet", str(used_ip.network),
-        #str(used_ip.ip) + "/32",
         "--gateway", str(next(used_ip.network.hosts())),
         "-o", "parent="+tap_name,
         docker_network_name
-    ], #capture_output=True)
-       stdout=subprocess.PIPE) # should still show stderr in case of error
+    ], stdout=subprocess.PIPE) # should still show stderr in case of error
     r.check_returncode()
     return r.stdout.decode('utf-8').strip()
 
@@ -128,5 +105,3 @@ except:
 #    raise
 #cleanup() # Would be cleaner with `with`
 # This should be replaced by a cleaner script, or a forked process calling `docker wait`
-
-#~~TODO: run network process and stopper process (started by network process?)~~ this script will actually be started by one of them
