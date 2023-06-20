@@ -6,7 +6,6 @@ pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static s
         Err("Not an IPv4 packet or not an Ethernet II frame")
     } else {
         let ipv4_bytes = &packet[14+12..14+16];
-        eprintln!("Destination IPv4 is {}", *bytemuck::from_bytes::<libc::in_addr_t>(ipv4_bytes));
         return Ok(*bytemuck::from_bytes(ipv4_bytes));
         // If I understand correctly in_addr_t is in network byte order
     }

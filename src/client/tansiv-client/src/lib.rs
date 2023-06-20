@@ -34,7 +34,6 @@ mod waitfree_array_queue;
 #[cfg(feature = "docker")]
 pub mod docker;
 mod tap;
-mod tun;
 
 impl From<buffer_pool::Error> for Error {
     fn from(error: buffer_pool::Error) -> Error {
