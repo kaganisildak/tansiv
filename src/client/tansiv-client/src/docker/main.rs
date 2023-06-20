@@ -16,22 +16,33 @@ fn print_usage(args: Vec<String>) {
 
 fn handle_tap_read(context : &crate::Context, tap_file : &Mutex<std::fs::File>) {
     let mut buf : [u8; crate::tap::MTU] = [0; crate::tap::MTU];
-    let bytes_read = tap_file.lock().unwrap().read(&mut buf).unwrap();
-    let packet = &buf[..bytes_read];
-    let dest = match crate::tap::packet::get_destination_ipv4(packet) {
-        Ok(result) => result,
-        Err(e) => {
-            eprintln!("{}", e);
-            return;
-        }
-    };
-    match context.send(dest, packet) {
-        Ok(()) => (),
-        Err(e) => {
-            eprintln!("{}", e);
-            return;
-        }
-    };
+    let mut locked_tap = tap_file.lock().unwrap();
+    let bytes_read = locked_tap.read(&mut buf).unwrap();
+    let mut packet = &mut buf[..bytes_read];
+    match crate::tap::packet::get_ethertype(packet).unwrap() {
+        crate::tap::packet::EtherType::IPv4 => {
+            let dest = match crate::tap::packet::get_destination_ipv4(packet) {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    return;
+                }
+            };
+            crate::tap::packet::determinize_macs(packet).unwrap();
+            match context.send(dest, packet) {
+                Ok(()) => (),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    return;
+                }
+            };
+        },
+        crate::tap::packet::EtherType::ARP => {
+            let response = crate::tap::packet::spoof_arp_response(packet).unwrap();
+            locked_tap.write_all(&response).unwrap();
+        },
+        _ => eprintln!("Unsupported packet type read")
+    }
 }
 // see deadline_handler in timer/qemu
 fn handle_stop(context : &crate::Context) -> bool {
@@ -126,6 +137,7 @@ pub fn run () {
                 while real_context.poll().is_some() {
                     let (src, dst, contents) = real_context.recv(&mut buf).unwrap();
                     if dst==*address_in_addr.get().unwrap() {
+                        crate::tap::packet::broadcast_dest_mac(contents); // TODO: it might be enough (better?) to determinize if the scheme is the same as docker
                         writable_tap.write(contents).unwrap(); // TODO: could this block when sending/receiving too many packets?
                     }
                 }
