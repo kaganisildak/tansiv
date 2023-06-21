@@ -55,6 +55,8 @@ pub struct TimerContextInner {
 
     config: DockerConfigElements,
     stopper: Mutex<Option<StopperContext>>,
+    // std::time::Instant used to get current simulation time (this + prev_deadline)
+    last_thawing_instant: Mutex<std::time::Instant>,
 }
 
 // Wrapper struct to avoid conflicts between Pin::new() and TimerContextInner::new()
@@ -81,6 +83,7 @@ impl TimerContextInner {
         let prev_deadline = Mutex::new(Default::default());
         let next_deadline = Mutex::new(StdDuration::new(0, 0));
         let stopper = Mutex::new(None);
+        let last_thawing_instant = Mutex::new(std::time::Instant::now());
 
         TimerContextInner {
             context,
@@ -88,6 +91,7 @@ impl TimerContextInner {
             next_deadline,
             config: config.into(),
             stopper,
+            last_thawing_instant,
         }
     }
 
@@ -100,8 +104,10 @@ impl TimerContextInner {
 
         let mut stopper = self.stopper.lock().unwrap();
         let mut some_stopper = stopper.as_mut().expect("set_next_deadline called before start");
+        let mut last_thawing_instant = self.last_thawing_instant.lock().unwrap();
 
         crate::docker::write_timespec(&timer_deadline, &mut some_stopper.stopper_stream).expect("communication with stopper failed");
+        *last_thawing_instant = std::time::Instant::now();
     }
 
     pub fn start(self: &Pin<Arc<Self>>, deadline: StdDuration) -> Result<Duration> {
@@ -158,7 +164,10 @@ impl TimerContextInner {
 
     /// Returns the global simulation time
     pub fn simulation_now(&self) -> StdDuration {
-        unimplemented!()
+        // TODO: assumes simulation is RUNNING when this is called, check if true
+        let prev_deadline = self.prev_deadline.lock().unwrap();
+        let last_thawing_instant = self.last_thawing_instant.lock().unwrap();
+        return last_thawing_instant.elapsed()+*prev_deadline;
     }
 
     pub fn simulation_previous_deadline(&self) -> StdDuration {
