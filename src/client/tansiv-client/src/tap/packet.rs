@@ -28,7 +28,7 @@ fn copy_slice(buf: &mut [u8], start: usize, end: usize, data: &[u8]) {
     }
 }
 
-pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
+pub fn get_source_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
     // Assumes Ethernet II frames and IPv4
     if packet.len()<14 {
         Err("malformed packet")
@@ -42,7 +42,7 @@ pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static s
         // If I understand correctly in_addr_t is in network byte order
     }
 }
-pub fn get_source_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
+pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
     // Assumes Ethernet II frames and IPv4
     if packet.len()<14 {
         Err("malformed packet")
