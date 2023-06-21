@@ -58,16 +58,18 @@ pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static s
 }
 
 fn get_unique_mac_from_ip(ipv4: libc::in_addr_t) -> [u8; 6] {
-    let mut buf = [0u8; 6]; // TODO: docker seems to do this for macvlan, but mac addresses start with 02:42
+    //let mut buf = [0u8; 6]; // TODO: docker seems to do this for macvlan, but mac addresses start with 02:42
+    let mut buf : [u8; 6] = [0x02, 0x42, 0, 0, 0, 0];
     copy_slice(&mut buf, 2, 6, bytemuck::bytes_of(&ipv4));
     return buf;
 }
 
 pub fn broadcast_dest_mac(packet: &mut [u8]) -> Result<(), &'static str> {
-    if packet.len()<14 {
-        return Err("malformed packet");
-    }
-    copy_slice(packet, 0, 6, &[0xffu8; 6]);
+    //if packet.len()<14 {
+    //    return Err("malformed packet");
+    //}
+    //copy_slice(packet, 0, 6, &[0xffu8; 6]);
+    // attempting NOP, should be fine if get_unique_mac_from_ip is the same
     Ok(())
 }
 
