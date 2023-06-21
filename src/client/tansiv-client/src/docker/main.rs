@@ -139,6 +139,7 @@ pub fn run () {
                     if dst==*address_in_addr.get().unwrap() {
                         crate::tap::packet::broadcast_dest_mac(contents); // TODO: it might be enough (better?) to determinize if the scheme is the same as docker
                         writable_tap.write(contents).unwrap(); // TODO: could this block when sending/receiving too many packets?
+                        writable_tap.flush().unwrap();
                     }
                 }
             }),
