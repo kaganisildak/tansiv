@@ -11,7 +11,7 @@ use std::os::fd::AsRawFd; // requires rust 1.66.0 at least
 ioctl_write_ptr!(tunsetiff, b'T', 202, libc::c_int); // from /usr/include/linux/if_tun.h
 
 const DEV_NET_TUN : &str = "/dev/net/tun";
-pub const MTU : usize = 1500; // Ethernet II frames, excluding things like jumbo frames
+pub const PACKET_MAX_SIZE : usize = 1500+14; // Ethernet II frames, excluding things like jumbo frames
 
 #[derive(Debug)]
 pub enum TapError {

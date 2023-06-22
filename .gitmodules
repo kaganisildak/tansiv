@@ -9,3 +9,9 @@
 [submodule "tools/packer"]
 	path = tools/packer
 	url = https://gitlab.inria.fr/tansiv/packer.git
+[submodule "src/offset-ld_preload"]
+	path = src/offset-ld_preload
+	url = https://gitlab.inria.fr/tansiv/offset-ld_preload.git
+[submodule "src/container-stopper"]
+	path = src/container-stopper
+	url = https://gitlab.inria.fr/tansiv/container-stopper.git

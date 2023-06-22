@@ -15,7 +15,7 @@ fn print_usage(args: Vec<String>) {
 }
 
 fn handle_tap_read(context : &crate::Context, tap_file : &Mutex<std::fs::File>) {
-    let mut buf : [u8; crate::tap::MTU] = [0; crate::tap::MTU];
+    let mut buf : [u8; crate::tap::PACKET_MAX_SIZE] = [0; crate::tap::PACKET_MAX_SIZE];
     let mut locked_tap = tap_file.lock().unwrap();
     let bytes_read = locked_tap.read(&mut buf).unwrap();
     let mut packet = &mut buf[..bytes_read];
@@ -133,7 +133,7 @@ pub fn run () {
             Box::new(|| { // receive callback
                 let real_context = context.get().unwrap();
                 let mut writable_tap = tap_file.get().unwrap().lock().unwrap();
-                let mut buf = [0u8; crate::tap::MTU];
+                let mut buf = [0u8; crate::tap::PACKET_MAX_SIZE];
                 while real_context.poll().is_some() {
                     let (src, dst, contents) = real_context.recv(&mut buf).unwrap();
                     if dst==*address_in_addr.get().unwrap() {
