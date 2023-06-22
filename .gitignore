@@ -23,6 +23,7 @@ cloud-init*
 *.mod.c
 *.der
 *.priv
+*.pyc
 
 # Binaries
 libtansiv-timer.a
