@@ -25,6 +25,7 @@ TEST_DIRS := $(TOP_DIR)/tanproc_capi/tests
 
 DEST_LIB_DIR := $(PREFIX)/lib
 DEST_INC_DIR := $(PREFIX)/include
+DEST_BIN_DIR := $(PREFIX)/bin
 
 .PHONY: build
 build: $(LIB_CRATES)
@@ -50,8 +51,9 @@ $(TEST_DIRS):
 install: build
 	install -d -m 755 $(DEST_LIB_DIR)
 	install -d -m 755 $(DEST_INC_DIR)
+	install -d -m 755 $(DEST_BIN_DIR)
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanproc.a
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanqemu.a
 	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtanqemukvm.a
-	install -m 0644 -t $(DEST_LIB_DIR) $(OUT_DIR)/libtandocker.a
+	install -m 0755 -t $(DEST_BIN_DIR) $(OUT_DIR)/tandocker
 	install -m 0644 -t $(DEST_INC_DIR) $(TOP_DIR)/capi/src/tansiv-client.h
