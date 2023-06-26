@@ -30,7 +30,7 @@ impl From<std::io::Error> for TapError {
     }
 }
 
-pub fn get_rw_tap_file(tap_interface_name: &str) -> Result<std::fs::File, TapError> {
+pub fn get_rw_tap_file(tap_interface_name: &str, nonblocking: bool) -> Result<std::fs::File, TapError> {
     let mut ifr = libc::ifreq {
         ifr_name : Default::default(),
         ifr_ifru : libc::__c_anonymous_ifr_ifru {
@@ -50,6 +50,10 @@ pub fn get_rw_tap_file(tap_interface_name: &str) -> Result<std::fs::File, TapErr
     let mut tun_file = OpenOptions::new().read(true).write(true).open(DEV_NET_TUN)?;
 
     unsafe{tunsetiff(tun_file.as_raw_fd(), &ifr as *const _ as *const i32)}?;
+
+    if nonblocking {
+        nix::fcntl::fcntl(tun_file.as_raw_fd(), nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK))?;
+    }
 
     Ok(tun_file)
 }

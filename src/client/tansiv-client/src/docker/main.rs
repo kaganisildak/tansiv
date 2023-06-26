@@ -17,31 +17,39 @@ fn print_usage(args: Vec<String>) {
 fn handle_tap_read(context : &crate::Context, tap_file : &Mutex<std::fs::File>) {
     let mut buf : [u8; crate::tap::PACKET_MAX_SIZE] = [0; crate::tap::PACKET_MAX_SIZE];
     let mut locked_tap = tap_file.lock().unwrap();
-    let bytes_read = locked_tap.read(&mut buf).unwrap();
-    let mut packet = &mut buf[..bytes_read];
-    match crate::tap::packet::get_ethertype(packet).unwrap() {
-        crate::tap::packet::EtherType::IPv4 => {
-            let dest = match crate::tap::packet::get_destination_ipv4(packet) {
-                Ok(result) => result,
-                Err(e) => {
-                    eprintln!("{}", e);
-                    return;
-                }
-            };
-            crate::tap::packet::determinize_macs(packet).unwrap();
-            match context.send(dest, packet) {
-                Ok(()) => (),
-                Err(e) => {
-                    eprintln!("{}", e);
-                    return;
-                }
-            };
-        },
-        crate::tap::packet::EtherType::ARP => {
-            let response = crate::tap::packet::spoof_arp_response(packet).unwrap();
-            locked_tap.write_all(&response).unwrap();
-        },
-        _ => eprintln!("Unsupported packet type read")
+    loop {
+        let bytes_read = match locked_tap.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::WouldBlock => break,
+                _ => panic!("{}", e)
+            }
+        };
+        let mut packet = &mut buf[..bytes_read];
+        match crate::tap::packet::get_ethertype(packet).unwrap() {
+            crate::tap::packet::EtherType::IPv4 => {
+                let dest = match crate::tap::packet::get_destination_ipv4(packet) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                };
+                crate::tap::packet::determinize_macs(packet).unwrap();
+                match context.send(dest, packet) {
+                    Ok(()) => (),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                };
+            },
+            crate::tap::packet::EtherType::ARP => {
+                let response = crate::tap::packet::spoof_arp_response(packet).unwrap();
+                locked_tap.write_all(&response).unwrap();
+            },
+            _ => eprintln!("Unsupported packet type read")
+        }
     }
 }
 // see deadline_handler in timer/qemu
@@ -111,7 +119,7 @@ pub fn run () {
         }
     };
 
-    tap_file.set(Mutex::new(match crate::tap::get_rw_tap_file(&crate::docker::get_tap_interface_name(seqnum)) {
+    tap_file.set(Mutex::new(match crate::tap::get_rw_tap_file(&crate::docker::get_tap_interface_name(seqnum), true) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("{:?}", e);
