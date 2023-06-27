@@ -131,6 +131,7 @@ pub fn run () {
         "--actor", &tansiv_socket,
         "--name", &ipv4_address_only,
         "--initial_time", epoch_date,
+        "--num_buffers", "10000",
         "--docker_container_id", &docker_container_id,
         "--docker_sequence_number", &seqnum.to_string()
     ];
