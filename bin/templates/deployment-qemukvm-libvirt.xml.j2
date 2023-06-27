@@ -1,8 +1,9 @@
 <domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
   <name>tansiv-{{ descriptor }}</name>
+  <seclabel type='dynamic' model='none'/>
   <memory unit='GiB'>{{ qemu_mem }}</memory>
   <vcpu placement='static' cpuset='{{ qemu_cpuset }}'>{{ qemu_vcpus }}</vcpu>
-  <cpu mode='host-passthrough' check='none' migratable='off'/>
+  <cpu mode='host-passthrough' check='none' migratable='off' match='exact'/>
   <os>
     <type arch='x86_64'>hvm</type>
   </os>
@@ -13,7 +14,7 @@
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-   <pm>
+  <pm>
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
   </pm>
@@ -33,7 +34,7 @@
       <target port='0'/>
     </console>
     <interface type='ethernet'>
-      <target dev='mynet1'/>
+      <target dev='{{ qemu_mantap_name }}'/>
       <model type='virtio'/>
       <mac address='{{ qemu_mantap_mac }}'/>
     </interface>
@@ -41,23 +42,19 @@
   <qemu:commandline>
     <qemu:arg value='-object'/>
     <qemu:arg value='memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem{{ descriptor }},id=hostmem{{ descriptor }}'/>
-    <qemu:arg value='-name'/>
-    <qemu:arg value='debug-threads=on'/>
-    <qemu:arg value='-device'/>
-    <qemu:arg value='intel-iommu,intremap=on,caching-mode=on'/>
-    <qemu:arg value='-chardev'/>
-    <qemu:arg value='socket,path=/tmp/introspector-{{ descriptor }},id=chardev0,reconnect=10'/>
-    <qemu:arg value='-object'/>
-    <qemu:arg value='introspection,id=kvmi,chardev=chardev0'/>
     <qemu:arg value='-gdb'/>
-    <qemu:arg value='-tcp::{{ qemu_gdb_port }},server,nowait'/>
+    <qemu:arg value='tcp::{{ qemu_gdb_port }},server,nowait'/>
     <qemu:arg value='-netdev'/>
-    <qemu:arg value='tantap,id=mynet0,ifname=tantap10,script=no,downscript=no'/>
+    <qemu:arg value='tantap,id=mynet0,ifname={{ qemu_tantap_name }},script=no,downscript=no'/>
     <qemu:arg value='-device'/>
     <qemu:arg value='virtio-net-pci,netdev=mynet0,mac={{ qemu_tantap_mac }}'/>
     <qemu:arg value='-cdrom'/>
     <qemu:arg value='{{ qemu_cdrom }}'/>
     <qemu:arg value='--vsg'/>
     <qemu:arg value='mynet0,socket={{ qemu_socket_name }},src={{ qemu_tantap_ip }},num_buffers={{ qemu_num_buffers }}'/>
+    <qemu:arg value='-chardev'/>
+    <qemu:arg value='socket,path=/tmp/introspector-{{ descriptor }},id=chardev0,reconnect=10'/>
+    <qemu:arg value='-object'/>
+    <qemu:arg value='introspection,id=kvmi,chardev=chardev0'/>
   </qemu:commandline>
 </domain>

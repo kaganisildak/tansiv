@@ -277,7 +277,12 @@ class VMLibvirt(object):
             qemu_cpuset=self.qemu_cpuset,
             qemu_cdrom=iso,
             qemu_tantap_mac=self.mac[0],
-            qemu_mantap_mac=self.mac[1]
+            qemu_mantap_mac=self.mac[1],
+            qemu_num_buffers=self.num_buffers,
+            qemu_tantap_ip=self.tantap.ip,
+            qemu_socket_name=self.socket_name,
+            qemu_mantap_name=self.tapname[1],
+            qemu_tantap_name=self.tapname[0]
         )
 
         cmd = f"virsh create domain-{self.descriptor}.xml"
