@@ -8,6 +8,7 @@ const SOME_CHECKS : bool = true;
 // other functions)
 const MORE_CHECKS : bool = true;
 
+#[non_exhaustive]
 #[derive(PartialEq)]
 pub enum EtherType {
     Other,
