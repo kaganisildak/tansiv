@@ -196,7 +196,7 @@ static enum hrtimer_restart timer_handler(struct hrtimer *timer)
         vm->lapic_tsc_deadline = timer->tsc_deadline;
     }
     programmed_tsc =
-        kvm_scale_tsc(vm->lapic_tsc_deadline, vm->tsc_scaling_ratio) + vm->tsc_offset;
+        kvm_scale_tsc(NULL, vm->lapic_tsc_deadline, vm->tsc_scaling_ratio) + vm->tsc_offset;
 
     // pr_info("timer-handler;%d;%d;%lld;%lld;%llu;%llu\n",
     // pid_nr(vm->pid),
@@ -390,9 +390,9 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         // Deadline_tsc: %llu \n", vmx_timer_value, vm->deadline_tsc);
 
         tsc_before_guest =
-            kvm_scale_tsc(tsc_before, vm->tsc_scaling_ratio) + vm->tsc_offset;
+            kvm_scale_tsc(NULL, tsc_before, vm->tsc_scaling_ratio) + vm->tsc_offset;
         tsc_after_guest =
-            kvm_scale_tsc(tsc_after, vm->tsc_scaling_ratio) + vm->tsc_offset;
+            kvm_scale_tsc(NULL, tsc_after, vm->tsc_scaling_ratio) + vm->tsc_offset;
 
         // pr_info("tansiv-timer: TANSIV_REGISTER_DEADLINE: Starting hrtimer. CPU: %d ;
         // VM: %d ; deadline : %llu ; tsc before: %llu; tsc after: %llu; scaling_ratio:
