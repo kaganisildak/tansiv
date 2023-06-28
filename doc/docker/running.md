@@ -52,7 +52,7 @@ Docker won’t allow multiple “docker networks” on the same subnet.
 As each container has its own tap interface, and therefore its own docker network, this means we need one subnet per container.
 
 It’s possible to use `/30` netmasks: this will fit the network address (the two least significant bits are 0), the broadcast address (the two least significant bits are 1), the default gateway address (01), and the container address (10)
-So available addresses are ones ending in `.a/30`, where *a* is 4*x*+2, for x an integer.
+So available addresses are ones ending in `.a/30`, where *a* is 4*x*+2, for *x* an integer.
 
 
 ## Running experiments
@@ -62,9 +62,9 @@ When running `tansiv`, with the deployment files running `tandocker`s, container
 `docker exec` can be used to run programs in these existing containers.
 For example, `docker exec -it <container ID> /bin/bash` can run a `bash` shell.
 
-The container IDs can be obtained from `docker ps`, they will appear in the reverse order of starting the containers (which follow the order in the deployment file).
+The container IDs can be obtained from `docker ps`, they will appear in the reverse order of starting the containers (which follows the order of appearance in the deployment file).
 
-Note that the `LD_PRELOAD` shim, has been placed in `/tansiv-preload.so` in all containers, but won’t be used automatically.
-You will need to define the environment variable correctly, for example using `export LD_PRELOAD=/tansiv-preload.so` for next programs run in a shell (note that this will not include builtins such as `time`), or `env LD_PRELOAD=/tansiv-preload.so <program>`.
+Note that the `LD_PRELOAD` shim has been placed in `/tansiv-preload.so` in all containers, but won’t be used automatically.
+You will need to define the environment variable correctly, for example using `export LD_PRELOAD=/tansiv-preload.so` will use it for the next programs run in the current shell (note that this will not include builtins such as `time`), or `env LD_PRELOAD=/tansiv-preload.so <program>` for a single program.
 It is possible to do `docker exec -it /usr/bin/env LD_PRELOAD=/tansiv-preload.so bash` or similar, or run programs from `docker exec` without using a shell.
 This means that programs can be run from a script, after getting the list of containers from, e.g. `containers=( $(docker ps -q) )` in `bash`.
