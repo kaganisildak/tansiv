@@ -2,8 +2,9 @@ To run TANSIV with the `docker` backend, you will need to put `tandocker` and it
 An example of this can be found in `examples/docker`.
 
 After this, you should be able to run `tansiv` with the wanted network and deployment files.
+(The order of arguments can be determined by running `tansiv` with no arguments.)
 
-You should add `--cfg=network/model:CM02 --cfg=network/TCP-gamma:0` to `tansiv` for the latencies to be consistent with the network description.
+You should add `--cfg=network/model:CM02 --cfg=network/TCP-gamma:0` to `tansiv`’s arguments for the latencies to be consistent with the network description.
 
 
 ## Making sure `tandocker` can find the necessary files
