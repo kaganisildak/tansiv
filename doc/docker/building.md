@@ -3,7 +3,7 @@ Adding `-DCMAKE_INSTALL_PREFIX=<path to some folder where tansiv files will be p
 
 `tandocker` is an executable built from `tansiv-client`, instead of a library.
 To rebuild `tandocker`, without rebuilding anything else, you can go to the `src/client` directory and run `make tandocker`.
-You can add `RELEASE=<anything>` to `make`’s command line to compile in release mode.
+You can add `RELEASE=<anything>` to `make`’s command line to compile in release mode. The default when running `make tandocker` is to build in debug mode, and the default when building from `cmake` is to build in release mode.
 When using `make tandocker`, executables will be placed in `target/(debug|release)/tandocker` depending on compilation target.
 
 The `LD_PRELOAD` shim and the container stopper have `Makefile`s, that respect the `CC` and `CFLAGS` variables, if given.
