@@ -29,18 +29,6 @@ pub fn get_ethertype(packet: &[u8]) -> Result<EtherType, &'static str> {
     )
 }
 
-fn copy_slice(buf: &mut [u8], start: usize, end: usize, data: &[u8]) {
-    if MORE_CHECKS {
-        assert!(end>start);
-        assert_eq!(end-start, data.len());
-        assert!(end<=buf.len());
-    }
-
-    for i in start..end {
-        buf[i] = data[i-start];
-    }
-}
-
 pub fn get_source_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
     // Assumes Ethernet II frames and IPv4
     if MORE_CHECKS && packet.len()<14 {
@@ -52,7 +40,7 @@ pub fn get_source_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static str> {
     } else {
         let ipv4_bytes = &packet[14+12..14+16];
         let mut bytes_buf : [u8; 4] = Default::default(); // needed for alignment
-        copy_slice(&mut bytes_buf, 0, 4, ipv4_bytes);
+        bytes_buf.copy_from_slice(ipv4_bytes);
         return Ok(*bytemuck::from_bytes(&bytes_buf));
         // If I understand correctly in_addr_t is in network byte order
     }
@@ -68,7 +56,7 @@ pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static s
     } else {
         let ipv4_bytes = &packet[14+16..14+20];
         let mut bytes_buf : [u8; 4] = Default::default(); // needed for alignment
-        copy_slice(&mut bytes_buf, 0, 4, ipv4_bytes);
+        bytes_buf.copy_from_slice(ipv4_bytes);
         return Ok(*bytemuck::from_bytes(&bytes_buf));
         // If I understand correctly in_addr_t is in network byte order
     }
@@ -77,7 +65,7 @@ pub fn get_destination_ipv4(packet: &[u8]) -> Result<libc::in_addr_t, &'static s
 fn get_unique_mac_from_ip(ipv4: libc::in_addr_t) -> [u8; 6] {
     //let mut buf = [0u8; 6]; // TODO: docker seems to do this for macvlan, but mac addresses start with 02:42
     let mut buf : [u8; 6] = [0x02, 0x42, 0, 0, 0, 0];
-    copy_slice(&mut buf, 2, 6, bytemuck::bytes_of(&ipv4));
+    buf[2..6].copy_from_slice(bytemuck::bytes_of(&ipv4));
     return buf;
 }
 
@@ -85,7 +73,7 @@ pub fn broadcast_dest_mac(packet: &mut [u8]) -> Result<(), &'static str> {
     //if packet.len()<14 {
     //    return Err("malformed packet");
     //}
-    //copy_slice(packet, 0, 6, &[0xffu8; 6]);
+    //packet.copy_from_slice(&[0xffu8; 6]);
     // attempting NOP, should be fine if get_unique_mac_from_ip is the same
     Ok(())
 }
@@ -96,8 +84,8 @@ pub fn determinize_macs(packet: &mut [u8]) -> Result<(), &'static str> {
     }
     let destination = get_destination_ipv4(packet).unwrap();
     let source = get_source_ipv4(packet).unwrap();
-    copy_slice(packet, 0, 6, &get_unique_mac_from_ip(destination));
-    copy_slice(packet, 6, 12, &get_unique_mac_from_ip(source));
+    packet[0..6].copy_from_slice(&get_unique_mac_from_ip(destination));
+    packet[6..12].copy_from_slice(&get_unique_mac_from_ip(source));
     Ok(())
 }
 
@@ -118,7 +106,7 @@ pub fn spoof_arp_response(packet: &[u8]) -> Result<[u8; 14+28], &'static str> {
     let sender_proto = &packet[14+14..14+18];
     // target_hard should be ignored in requests
     let mut target_proto : [u8; 4] = Default::default();
-    copy_slice(&mut target_proto, 0, 4, &packet[14+24..14+28]);
+    target_proto.copy_from_slice(&packet[14+24..14+28]);
 
     if MORE_CHECKS && (
         htype != [0u8, 1u8] ||
@@ -136,17 +124,17 @@ pub fn spoof_arp_response(packet: &[u8]) -> Result<[u8; 14+28], &'static str> {
     let target_mac = get_unique_mac_from_ip(target_proto_cast);
 
     let mut response = [0u8; 14+28];
-    copy_slice(&mut response, 0, 6, sender_hard); // lower-layer destination address
-    copy_slice(&mut response, 6, 12, &target_mac); // lower-layer source address
-    copy_slice(&mut response, 12, 14, &mac_ethertype);
-    copy_slice(&mut response, 14, 14+2, htype);
-    copy_slice(&mut response, 14+2, 14+4, ptype);
+    response[..6].copy_from_slice(sender_hard); // lower-layer destination address
+    response[6..12].copy_from_slice(&target_mac); // lower-layer source address
+    response[12..14].copy_from_slice(&mac_ethertype);
+    response[14..14+2].copy_from_slice(htype);
+    response[14+2..14+4].copy_from_slice(ptype);
     response[14+4] = hlen;
     response[14+5] = plen;
     response[14+7] = 2; // operation: reply
-    copy_slice(&mut response, 14+8, 14+14, &target_mac); // sender hardware address
-    copy_slice(&mut response, 14+14, 14+18, &target_proto); // sender protocol address
-    copy_slice(&mut response, 14+18, 14+24, sender_hard); // target hardware address
-    copy_slice(&mut response, 14+24, 14+28, sender_proto); // target protocol address
+    response[14+8..14+14].copy_from_slice(&target_mac); // sender hardware address
+    response[14+14..14+18].copy_from_slice(&target_proto); // sender protocol address
+    response[14+18..14+24].copy_from_slice(sender_hard); // target hardware address
+    response[14+24..14+28].copy_from_slice(sender_proto); // target protocol address
     Ok(response)
 }
