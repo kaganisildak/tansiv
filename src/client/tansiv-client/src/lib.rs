@@ -1,6 +1,7 @@
 use buffer_pool::BufferPool;
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, DeliverPacket, FbBuffer, MsgIn, MsgOut};
+use dynamic_queue_limits;
 pub use error::Error;
 use libc;
 #[allow(unused_imports)]
@@ -71,6 +72,18 @@ pub struct Context {
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
+    // Concurrency: accessed by application only
+    // Read/write by ::send()
+    send_queue_slots: Mutex<VecDeque<(usize, Duration)>>,
+    // Read-only
+    // In bits per second
+    uplink_bandwidth: std::num::NonZeroUsize,
+    // Read-only
+    // Overhead in bytes per packet (preample, inter-frame gap...)
+    uplink_overhead: usize,
+    // Concurrency: accessed by application only
+    // Read/write by ::send()
+    dql: Mutex<dynamic_queue_limits::Dql>,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -101,17 +114,22 @@ impl Context {
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(config)?;
+        let send_queue_slots = Mutex::new(VecDeque::with_capacity(config.num_buffers.get()));
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
         let upcoming_messages = VecDeque::with_capacity(config.num_buffers.get());
 
         let context = Arc::new(Context {
             address: address,
+            uplink_bandwidth: config.uplink_bandwidth,
+            uplink_overhead: config.uplink_overhead,
             connector: Mutex::new(connector),
             input_queue: input_queue,
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
+            send_queue_slots: send_queue_slots,
+            dql: Mutex::new(dynamic_queue_limits::Dql::new(Duration::ZERO, Duration::from_secs(1))),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -270,7 +288,8 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
+
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
@@ -285,6 +304,47 @@ impl Context {
                 return Err(e.into());
             }
         };
+
+        let mut dql = self.dql.lock().unwrap();
+        let mut slots = self.send_queue_slots.lock().unwrap();
+
+        // Refill DQL budget
+        let mut completed = 0usize;
+        loop {
+            match slots.front() {
+                Some((ref size, ref xmit_end)) => {
+                    if *xmit_end <= send_time {
+                        completed += *size;
+                        slots.pop_front();
+                    } else {
+                        break;
+                    }
+                },
+                _ => break,
+            }
+        }
+        if completed > 0 {
+            dql.completed(completed, send_time);
+        }
+
+        // Check DQL budget
+        let accounted_size = msg.len();
+        // if dql.available() < accounted_size {
+        // Going over budget at least once is required to make DQL increase the budget
+        // Like in Linux, do it just once before the budget is refilled or re-calculated.
+        if dql.available().is_none() {
+            return Err(Error::FlowControlLimited);
+        }
+
+        // Cap NIC speed to the simulated bandwidth
+        if let Some((_, next_send_floor)) = slots.back() {
+            if send_time < *next_send_floor {
+                send_time = *next_send_floor;
+            }
+        }
+
+        let message = OutputMsg::new(self.address, dst, send_time, msg, buffer)?;
+
         // It is possible that messages are timestamped after a deadline with KVM.
         // It can only happen when the delay of the network card emulation
         // exceeds a deadline.
@@ -296,13 +356,20 @@ impl Context {
         // (which is accurate).
         match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
             Some(send_time_overrun) => {
-                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
-                upcoming_messages.push_back(OutputMsg::new(self.address, dst, send_time_overrun, msg, buffer)?);
+                // With NIC speed capping send_time is monotonic
+                assert_eq!(send_time, send_time_overrun);
+                self.upcoming_messages.lock().unwrap().push_back(message);
             },
-            None => {
-                self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-            }
+            None => self.outgoing_messages.insert(message)?,
         }
+
+        // Cap NIC speed to the simulated bandwidth
+        let wire_size = msg.len() + self.uplink_overhead;
+        let xmit_end = send_time + Duration::from_nanos((wire_size * 8 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
+        slots.push_back((accounted_size, xmit_end));
+
+        // Consume DQL budget
+        dql.queued(accounted_size);
 
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
 
@@ -389,21 +456,21 @@ pub mod test_helpers {
     #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
