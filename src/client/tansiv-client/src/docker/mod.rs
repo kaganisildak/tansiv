@@ -192,7 +192,7 @@ pub struct SharedTimespec {
 }
 impl SharedTimespec {
     pub fn get_timespec(&self) -> libc::timespec {
-        unsafe { *self.pointer }
+        unsafe { self.pointer.read_volatile() }
     }
 }
 impl std::fmt::Debug for SharedTimespec {
