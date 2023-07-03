@@ -3,6 +3,7 @@ use std::{error, fmt, io};
 #[derive(Debug)]
 pub enum Error {
     AlreadyStarted,
+    FlowControlLimited,
     NoMemoryAvailable,
     NoMessageAvailable,
     ProtocolViolation,
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
             simple => {
                 let msg = match simple {
                     Error::AlreadyStarted => "Already Started",
+                    Error::FlowControlLimited => "Flow Control Limited",
                     Error::NoMemoryAvailable => "No memory available",
                     Error::NoMessageAvailable => "No message available",
                     Error::ProtocolViolation => "Protocol violation",

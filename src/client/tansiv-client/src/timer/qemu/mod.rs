@@ -174,8 +174,14 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
-    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
-        return None;
+    pub fn check_deadline_overrun(&self, send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
+        if send_time > self.simulation_next_deadline() {
+            // Contrary to the KVM case, we control whether packets are timestamped out-of-order
+            // across deadlines or not. No need to fix the ordering here.
+            Some(send_time)
+        } else {
+            None
+        }
     }
 }
 

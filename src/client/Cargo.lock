@@ -167,6 +167,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynamic_queue_limits"
+version = "0.1.0"
+
+[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -543,6 +547,7 @@ dependencies = [
  "bindgen",
  "chrono",
  "crossbeam-queue",
+ "dynamic_queue_limits",
  "flatbuffers",
  "flatc-rust",
  "lazy_static",

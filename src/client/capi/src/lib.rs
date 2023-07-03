@@ -184,6 +184,8 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 ///   vsg can handle.
 ///
 /// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
+///
+/// * Fails with `libc::EAGAIN` whenever sender should back off.
 #[no_mangle]
 pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
@@ -202,6 +204,7 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
         match (*context).send(dst, payload) {
             Ok(_) => 0,
             Err(e) => match e {
+                Error::FlowControlLimited => libc::EAGAIN,
                 Error::NoMemoryAvailable => libc::ENOMEM,
                 Error::SizeTooBig => libc::EMSGSIZE,
                 _ => // Unknown error, fallback to EIO
@@ -368,12 +371,12 @@ mod test {
 
     macro_rules! valid_args {
         () => {
-            os_args!("-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
     macro_rules! invalid_args {
         () => {
-            os_args!("-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
 
