@@ -5,7 +5,7 @@ variables:
   GIT_SUBMODULE_STRATEGY: normal
   # Was here to fix a TLS proxy issue we had (this disable the custom hook implemented in the CI infrastructure)
   # LD_PRELOAD: ""
-  RUST_VERSION: 1.46.0
+  RUST_VERSION: 1.66.0
 
 workflow:
   rules:
