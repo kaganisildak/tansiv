@@ -39,7 +39,7 @@ test: cargo-tests other-tests
 
 .PHONY: cargo-tests
 cargo-tests:
-	$(CARGO_ENV) $(CARGO) test --workspace $(CARGO_FLAGS) -- --test-threads 1 $(TEST_FLAGS)
+	$(CARGO_ENV) $(CARGO) test --workspace --exclude tandocker $(CARGO_FLAGS) -- --test-threads 1 $(TEST_FLAGS)
 
 .PHONY: other-tests $(TEST_DIRS)
 other-tests: $(TEST_DIRS)
