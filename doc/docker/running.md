@@ -68,3 +68,42 @@ Note that the `LD_PRELOAD` shim has been placed in `/tansiv-preload.so` in all c
 You will need to define the environment variable correctly, for example using `export LD_PRELOAD=/tansiv-preload.so` will use it for the next programs run in the current shell (note that this will not include builtins such as `time`), or `env LD_PRELOAD=/tansiv-preload.so <program>` for a single program.
 It is possible to do `docker exec -it /usr/bin/env LD_PRELOAD=/tansiv-preload.so bash` or similar, or run programs from `docker exec` without using a shell.
 This means that programs can be run from a script, after getting the list of containers from, e.g. `containers=( $(docker ps -q) )` in `bash`.
+
+
+## Cleaning up
+
+If you interrupt `tansiv`, it won’t currently clean up what it created.
+This means you can’t run `tansiv` again as it won’t try to replace what is already present.
+
+Here are the steps to follow to ensure that no side effects remain (some steps aren’t always necessary):
+ - Stop the containers started by tansiv using `docker stop <container IDs…>`.
+   To get a list of running containers, run `docker ps`.
+    - In the case of a crash, you might need to find the container’s cgroup directory and `echo 0 > cgroup.freeze` (or `echo 0 | sudo tee cgroup.freeze` to run as root) before the container is actually stopped
+ - Ensure no `tansiv` or `tandocker` process remains (this should not normally happen)
+    - `killall tandocker` can be used
+ - Remove `/tmp/simgrid_connection_socket`, if still present.
+ - Remove the containers started by tansiv with `docker rm <container IDs…>`.
+   To get a list of running and stopped containers, run `docker ps -a`
+   Alternatively, use `docker container prune` to remove all your containers (this can have side-effects if you used docker for other reasons)
+ - Remove the docker networks created by tansiv using `docker network rm <network names…>`.
+   They should start with `tansiv-`
+   To get a list of docker networks, run `docker network ls`.
+ - Remove the tap interfaces created by tansiv using `ip link del <interface name>`.
+   The docker networks had the names of the interfaces as a suffix in their name.
+   Their naming scheme is `taptN`, with N being a number (which can span multiple digits)
+   A list can be obtained with `ip link`.
+ - Remove stray `/dev/shm/tansiv-time-*` files, if necessary
+
+For example, for a two container experiment, I used this ugly cleanup script:
+```sh
+#!/bin/sh
+set -x
+docker stop $(docker ps -q)
+killall tandocker
+rm -f /tmp/simgrid_connection_socket
+docker container prune
+docker network rm tansiv-tapt0 tansiv-tapt1
+ip l del tapt0
+ip l del tapt1
+rm -f /dev/shm/tansiv-time-*
+```
