@@ -63,10 +63,13 @@ WORKDIR /app/build/examples/benchs
 RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
 
 # build qemu with the new network backend (tantap)
-WORKDIR /app/src/qemu
-RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemu.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemu-system-x86_64
-RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemukvm.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemukvm-system-x86_64
+# WORKDIR /app/src/qemu
+# RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemu.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemu-system-x86_64
+# RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemukvm.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemukvm-system-x86_64
 
+# Get the precompiled qemu binary
+RUN curl https://gitlab.inria.fr/lcossero/qemu-vmi/-/package_files/112755/download --output /usr/local/bin/tanqemukvmvmi-system-x86_64
+ 
 # make some room
 # RUN rm -rf /app
 
