@@ -12,8 +12,6 @@ use std::time::Duration as StdDuration;
 
 use crate::output_msg_set::{OutputMsg};
 
-mod qemu_timer_sys;
-
 #[derive(Debug)]
 pub struct TimerContextInner {
     qemu_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
