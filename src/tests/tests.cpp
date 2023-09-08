@@ -20,6 +20,10 @@ void deadline_cb(uintptr_t arg, struct timespec deadline)
   write(STDOUT_FILENO, hey, sizeof(hey));
 }
 
+void poll_send_cb(uintptr_t arg)
+{
+}
+
 void recv_cb_atomic(uintptr_t arg)
 {
   std::atomic<bool>* message_delivered = (std::atomic<bool>*)arg;
@@ -36,7 +40,7 @@ TEST_CASE("initialize the vsg client", "[vsg]")
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
     int argc                 = sizeof(argv) / sizeof(argv[0]);
 
-    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0);
+    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0, poll_send_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -55,7 +59,7 @@ TEST_CASE("VSG receive one message", "[vsg]")
 
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
     int argc                 = sizeof(argv) / sizeof(argv[0]);
-    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0);
+    vsg_context* context     = vsg_init(argc, argv, NULL, recv_cb, 0, deadline_cb, 0, poll_send_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -80,7 +84,7 @@ TEST_CASE("VSG deliver one message with atomic", "[vsg]")
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
     int argc                 = sizeof(argv) / sizeof(argv[0]);
     std::atomic<bool> message_delivered(false);
-    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered, deadline_cb, 0);
+    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb_atomic, (uintptr_t)&message_delivered, deadline_cb, 0, poll_send_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);
@@ -129,7 +133,7 @@ TEST_CASE("VSG deliver one message with vsg_poll", "[vsg]")
     const char* const argv[] = {"-a", SOCKET_ACTOR, "-n", SRC, "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
     int argc                 = sizeof(argv) / sizeof(argv[0]);
     std::atomic<bool> message_delivered(false);
-    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&message_delivered, deadline_cb, 0);
+    vsg_context* context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&message_delivered, deadline_cb, 0, poll_send_cb, 0);
     REQUIRE(context != NULL);
 
     int ret = vsg_start(context, NULL);

@@ -1,8 +1,13 @@
 use chrono::Duration;
 use libc::{c_int, mmap, PROT_READ, MAP_SHARED};
+use qemu_timer_sys::QEMUClockType;
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::fs;
 use std::io::Result;
+use std::marker::PhantomPinned;
+use std::mem::ManuallyDrop;
+use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::ptr::null_mut;
@@ -30,6 +35,8 @@ struct TimerTSCInfos {
 
 #[derive(Debug)]
 pub struct TimerContextInner {
+    poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
+    phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Previous deadline in global simulation time
     // No concurrency: (mut) accessed only by the deadline handler
@@ -66,6 +73,8 @@ impl Deref for TimerContext {
 
 impl TimerContextInner {
     fn new() -> TimerContextInner {
+        let poll_send_timer = Mutex::new(MaybeUninit::uninit());
+        let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
         let next_deadline = Mutex::new(StdDuration::new(0, 0));
@@ -80,6 +89,8 @@ impl TimerContextInner {
             let tsc_infos = mmap(null_mut(), 4096, PROT_READ, MAP_SHARED, fd_c_int, 0) as *mut TimerTSCInfos;
 
             TimerContextInner {
+                poll_send_timer,
+                phantom_pinned,
                 context,
                 prev_deadline,
                 next_deadline,
@@ -131,6 +142,24 @@ impl TimerContextInner {
                 Ok(tsc_khz_int) => tsc_freq = (tsc_khz_int as f64) / 1000000.0,
             }
         }
+
+        // Count a new reference to self in poll_send_timer
+        // We cannot use Arc::into_raw() to keep the reference after the end of the function so we
+        // combine ManuallyDrop and Pin::as_ref().get_ref().
+        let opaque = ManuallyDrop::new(self.clone());
+        let opaque = opaque.as_ref().get_ref() as *const TimerContextInner as *mut std::os::raw::c_void;
+        // Safety: TODO
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        unsafe {
+            qemu_timer_sys::timer_init_full(poll_send_timer,
+                std::ptr::null_mut(),
+                QEMUClockType::QEMU_CLOCK_VIRTUAL,
+                qemu_timer_sys::SCALE_NS,
+                0,
+                Some(poll_send_handler),
+                opaque);
+        }
+
         *self.tsc_freq.lock().unwrap() = tsc_freq;
         self.set_next_deadline(deadline);
 
@@ -141,8 +170,13 @@ impl TimerContextInner {
     // called twice. Otherwise calling stop() prematurately drops self!
     pub fn stop(self: &Pin<Arc<Self>>) {
         // Safety: TODO
-        // Drop the reference given to qemu_timer
-        // It is easier to use the opaque pointer from self than using the one from qemu_timer
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        unsafe {
+            qemu_timer_sys::timer_del(poll_send_timer);
+            qemu_timer_sys::timer_deinit(poll_send_timer);
+        }
+        // Drop the reference given to poll_send_timer
+        // It is easier to use the opaque pointer from self than using the one from poll_send_timer
         let ptr = self.deref() as *const TimerContextInner;
         // Safety: Arc::from_raw() gets back the ManuallyDrop'ed reference given by Arc::clone() in
         // ::start()
@@ -220,6 +254,47 @@ impl TimerContextInner {
         return None;
     }
 
+    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>) {
+        // Use QEMU_VIRTUAL_CLOCK to schedule the timer and try to be close to the desired scheduled
+        // time
+        // If a deadline occurs before the timer expires, the timer will appear as expiring before
+        // the desired scheduled time. The polling entity may thus poll a bit more frequently than
+        // needed but hopefully not too much.
+
+        let later = later.unwrap_or(now);
+        let delay_ns = i64::try_from((later-now).as_nanos())
+            .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
+        // Safety:
+        // - Qemu clocks are assumed initialized when self is created
+        // - qemu_clock_get_ns() only accesses Qemu's internal data
+        // - qemu_clock_get_ns() does not require locking
+        let qemu_now = unsafe { qemu_timer_sys::qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
+        let expire = qemu_now.checked_add(delay_ns)
+            .expect("schedule_poll_send_callback: expire as i64 overflow");
+
+        // Code that could be used for TSC-based expiry calculation
+        //
+        // // Safety:
+        // // Called with the IO thread locked, either in the vCPU thread or in the IO thread
+        // // self.tsc_infos is modified only in the vCPU thread while holding the IO thread lock.
+        // //
+        // // Although tsc_infos.tsc_offset is u64 it is used as an i64, that is it encodes a negative
+        // // value that the CPU adds with an overflow to a host TSC value in order to actually substract
+        // // a positive offset.
+        // let tsc_offset = unsafe { (*self.tsc_infos).tsc_offset as i64 } as f64;
+        // assert!(tsc_offset < 0.0);
+
+        // let offset_ns = -(tsc_offset / *self.tsc_freq.lock().unwrap()) as i64;
+        // assert!(offset_ns > 0);
+        // let expire = i64::try_from(later.as_nanos())
+            // .expect("schedule_poll_send_callback: guest later as i64 overflow")
+            // .checked_add(offset_ns)
+            // .expect("schedule_poll_send_callback: uncompensated guest later i64 overflow");
+
+        // Safety: similar arguments to qemu_timer in ::set_next_deadline
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
+    }
 }
 
 pub fn register(context: &Arc<crate::Context>) -> Result<()> {
@@ -255,4 +330,12 @@ pub extern fn get_tansiv_timer_fd(opaque: *mut ::std::os::raw::c_void) -> c_int 
     let context_arg = unsafe { (opaque as *const crate::Context).as_ref().unwrap() };
     let timer_context = &context_arg.timer_context;
     return *timer_context.fd.lock().unwrap();
+}
+
+extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
+    // Safety: TODO
+    let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
+    if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
+        (context.poll_send_callback)();
+    }
 }
