@@ -144,6 +144,7 @@ impl Dql {
         let limit = usize::min(usize::max(limit, self.min_limit), self.max_limit);
 
         if limit != self.limit {
+            println!("[{:?}] DQL old limit={} new limit={}", now, self.limit, limit);
             self.limit = limit;
             ovlimit = 0;
         }
