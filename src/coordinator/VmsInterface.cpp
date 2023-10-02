@@ -3,9 +3,22 @@
 #include <limits>
 #include <signal.h>
 #include <unistd.h>
-#include <xbt/log.hpp>
+
+#include "simgrid/s4u.hpp"
+
+#include <iostream>
 
 #include "socket.hpp"
+
+#include "ns3/applications-module.h"
+#include "ns3/core-module.h"
+#include "ns3/internet-module.h"
+// #include "ns3/netanim-module.h"
+#include "ns3/network-module.h"
+#include "ns3/point-to-point-layout-module.h"
+#include "ns3/point-to-point-module.h"
+
+#define LOG(msg) std::clog << "[Interface:] " << msg << std::endl
 
 // big enough buffer for incoming messages
 #define SCRATCH_BUFFER_LEN 2048
@@ -14,8 +27,6 @@
 
 // Enable to get some log about message create/copy/move
 // #define LOG_MESSAGES 1
-
-XBT_LOG_NEW_DEFAULT_CATEGORY(vm_interface, "Logging specific to the VmsInterface");
 
 namespace vsg {
 
@@ -62,7 +73,7 @@ VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_
 
   remove(c_socket_name);
   connection_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
-  XBT_INFO("socket created");
+  LOG("socket created");
 
   struct sockaddr_un address;
   address.sun_family = AF_LOCAL;
@@ -72,13 +83,13 @@ VmsInterface::VmsInterface(std::string connection_socket_name, bool stop_at_any_
     std::perror("unable to bind connection socket");
     end_simulation();
   }
-  XBT_VERB("socket binded");
+  LOG("socket binded");
 
   if (listen(connection_socket, 1) != 0) {
     std::perror("unable to listen on connection socket");
     end_simulation();
   }
-  XBT_VERB("listen on socket");
+  LOG("listen on socket");
 
   signal(SIGPIPE, SIG_IGN);
 }
@@ -91,7 +102,6 @@ VmsInterface::~VmsInterface()
 void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::string file,
                                std::vector<std::string> argv)
 {
-
   vm_deployments[vm_name] = host_name;
 
   std::vector<char*> command;
@@ -107,7 +117,7 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
   auto it = command.begin();
   command.insert(it + 1, (char*)socket_name.c_str());
 
-  // XBT_INFO("fork and exec of [%s]", exec_line.c_str());
+  LOG("fork and exec of " << exec_line);
 
   switch (fork()) {
     case -1:
@@ -126,7 +136,7 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
     default:
       break;
   }
-  XBT_VERB("fork done for VM %s", vm_name.c_str());
+  LOG("fork done for VM " << vm_name);
 
   struct sockaddr_un vm_address = {0};
   unsigned int len              = sizeof(vm_address);
@@ -135,7 +145,7 @@ void VmsInterface::register_vm(std::string host_name, std::string vm_name, std::
     std::perror("unable to accept connection on socket");
 
   vm_sockets[vm_name] = vm_socket;
-  XBT_INFO("connection for VM %s established", vm_name.c_str());
+  LOG("connection for VM " << vm_name << " established");
 }
 
 void VmsInterface::end_simulation(bool must_unlink, bool must_exit)
@@ -144,7 +154,7 @@ void VmsInterface::end_simulation(bool must_unlink, bool must_exit)
   for (auto it : vm_sockets) {
     close(it.second);
   }
-  XBT_VERB("vm sockets are down");
+  LOG("vm sockets are down");
 
   if (must_unlink)
     unlink(socket_name.c_str());
@@ -169,7 +179,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   flatbuffers::FlatBufferBuilder builder(128);
 
   // first, we ask all the VMs to go to deadline
-  XBT_DEBUG("Sending: go to deadline %f", deadline);
+  LOG("Sending: go to deadline " << deadline);
   // FIXME(msimonin)
   struct vsg_time vm_deadline = simgridToVmTime(deadline);
 
@@ -180,13 +190,13 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   builder.FinishSizePrefixed(msg);
 
   for (auto it : vm_sockets) {
-    XBT_DEBUG("-- to %s(size=%d)", it.first.c_str(), builder.GetSize());
+    // LOG("-- to " << it.first << "(size=" << builder << ")");
     vsg_protocol_send(it.second, builder.GetBufferPointer(), builder.GetSize());
   }
 
   // then, we pick up all the messages send by the VM until they reach the deadline
   std::vector<Message*> messages;
-  XBT_INFO("getting the message send by the VMs");
+  LOG("getting the message send by the VMs");
 
   uint8_t scratch_buffer[SCRATCH_BUFFER_LEN];
 
@@ -198,8 +208,8 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
     bool finished = false;
     while (!finished) {
       if (fb_recv(vm_socket, scratch_buffer, SCRATCH_BUFFER_LEN) < 0) {
-        XBT_INFO("can not receive the flags of VM %s. Forget about the socket that seem closed at the system level.",
-                 vm_name.c_str());
+        LOG("can not receive the flags of VM "
+                        << vm_name << ". Forget about the socket that seem closed at the system level.");
         close_vm_socket(vm_name);
         break;
       }
@@ -216,7 +226,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
           // the content_type is inconsistent with the actual type of the
           // content yes fbb doesn't prevent this inconsistency (fbb 2.0.0)
           if (send_packet == nullptr) {
-            XBT_ERROR("Deserialization error: type of content must be SendPacket");
+            LOG("Deserialization error: type of content must be SendPacket");
             break;
           }
           // Our schema use an fbb table (see packets.fbs) Fields on a table can
@@ -224,17 +234,17 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
           // checking every single field before accepting the message
           auto metadata = send_packet->metadata();
           if (metadata == nullptr) {
-            XBT_ERROR("Deserialization error: metadata can't be empty");
+            LOG("Deserialization error: metadata can't be empty");
             break;
           }
           auto time = send_packet->time();
           if (time == nullptr) {
-            XBT_ERROR("Deserialization error: time can't be empty");
+            LOG("Deserialization error: time can't be empty");
             break;
           }
           const flatbuffers::Vector<uint8_t>* payload = send_packet->payload();
           if (payload == nullptr) {
-            XBT_ERROR("Deserialization error: payload can't be empty");
+            LOG("Deserialization error: payload can't be empty");
             break;
           }
           // build our own internal message structure and add it to the list of flying messages
@@ -244,7 +254,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
           break;
         }
         default:
-          XBT_ERROR("Unknown message received from VM %s", vm_name.c_str());
+          LOG("Unknown message received from VM " << vm_name);
           end_simulation();
           finished = true;
           break;
@@ -256,7 +266,7 @@ std::vector<Message*> VmsInterface::goTo(double deadline)
   for (auto sock_name : vm_sockets_trash)
     vm_sockets.erase(sock_name);
 
-  XBT_DEBUG("forwarding all the %lu messages to SimGrid", messages.size());
+  LOG("forwarding all the " << messages.size() << " messages to the simulator");
   std::sort(messages.begin(), messages.end(), sortMessages);
 
   return messages;
@@ -302,11 +312,10 @@ void VmsInterface::deliverMessage(Message* m)
     builder.FinishSizePrefixed(msg);
     vsg_protocol_send(socket, builder.GetBufferPointer(), builder.GetSize());
 
-    XBT_VERB("message from vm %s delivered to vm %s size=%u (on the wire size=%d)", m->src.c_str(), m->dst.c_str(),
-             m->size, builder.GetSize());
+    LOG("message from vm " << m->src << " delivered to vm " << m->dst << " size=" << m->size);
   } else {
-    XBT_WARN("message from vm %s was not delivered to vm %s because it already stopped its execution", m->src.c_str(),
-             m->dst.c_str());
+    LOG("message from vm " << m->src << " was not delivered to vm " << m->dst
+                                   << " because it already stopped its execution");
   }
   delete m;
 }
