@@ -264,6 +264,8 @@ impl TimerContextInner {
         let later = later.unwrap_or(now);
         let delay_ns = i64::try_from((later-now).as_nanos())
             .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
+        // The QEMU timer may have up to 10µs latency and we prefer being (just) a bit aggressive
+        let delay_ns = i64::max(0, delay_ns - 10);
         // Safety:
         // - Qemu clocks are assumed initialized when self is created
         // - qemu_clock_get_ns() only accesses Qemu's internal data
