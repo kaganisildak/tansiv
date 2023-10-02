@@ -295,7 +295,7 @@ impl TimerContextInner {
         // Safety: similar arguments to qemu_timer in ::set_next_deadline
         let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
         unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
-        info!("[{:?}] schedule_poll_send_callback: {:?}", now, later);
+        info!("[{:?}] schedule_poll_send_callback: {:?} {} {}", now, later, qemu_now, expire);
     }
 }
 
