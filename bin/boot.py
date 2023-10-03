@@ -51,8 +51,8 @@ class VM(object):
 
     @property
     def tantap_id(self):
-        _, _, _, t = self.tantap.ip.packed
-        return t
+        _, _, s, t = self.tantap.ip.packed
+        return s
 
     @property
     def management_id(self):
