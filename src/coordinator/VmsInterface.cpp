@@ -4,8 +4,6 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include "simgrid/s4u.hpp"
-
 #include <iostream>
 
 #include "socket.hpp"
