@@ -35,14 +35,14 @@ find_package(FlatBuffers REQUIRED)
 build_flatbuffers("${WIRE_INCLUDE_DIR}/packets.fbs" "" "fbs_packets" "" "${WIRE_INCLUDE_DIR}/" "" "")
 
 # Search for SimGrid
-find_package(SimGrid REQUIRED)
+#find_package(SimGrid REQUIRED)
 
 # Search for ns3
-set(NS3_HINT /home/leo/Thèse/Dev/ns-3-dev/build)
+#set(NS3_HINT /ns3/build)
 find_package(NS3 REQUIRED)
 
 # include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
-include_directories("${SimGrid_INCLUDE_DIR}" "${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+include_directories("${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
 # as part of 7.2.0 the file is generated at configure phase
@@ -73,7 +73,8 @@ string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
 message(STATUS ${NS3_LIBRARIES})
 message(STATUS ${NS3_LIBRARY_PATH})
 
-target_link_libraries(tansiv ${NS3_LIBRARIES} ${SimGrid_LIBRARY} flatbuffers)
+#target_link_libraries(tansiv ${SimGrid_LIBRARY} flatbuffers)
+target_link_libraries(tansiv ${NS3_LIBRARIES} flatbuffers)
 target_include_directories(tansiv PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
 add_dependencies(tansiv fbs_packets)
 

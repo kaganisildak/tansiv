@@ -1,5 +1,5 @@
 # tansiv in docker :)
-FROM simgrid/unstable:latest
+FROM registry.gitlab.inria.fr/tansiv/ns-3-dev/ns3-master
 
 RUN apt-get update
 # putting all in one layer make us hit
@@ -42,7 +42,7 @@ WORKDIR /app
 COPY . /app
 
 WORKDIR /app/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
+RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DNS3_HINT=/ns3/build .. && make && make install
 
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1
