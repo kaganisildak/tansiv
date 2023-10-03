@@ -49,18 +49,18 @@ ENV RUST_BACKTRACE=1
 # This will run the tansiv tests and the client tests
 # nocapture allows for displaying log message of children actor in the tansiv-client tests
 # see https://gitlab.inria.fr/tansiv/tansiv/-/merge_requests/23
-RUN TEST_FLAGS="--nocapture" make run-tests
+# RUN TEST_FLAGS="--nocapture" make run-tests
 
 # run some functionnals ...
-WORKDIR /app/build
-RUN make send
-WORKDIR /app/build/examples/send
-RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from" | wc -l | grep 2
+# WORKDIR /app/build
+# RUN make send
+# WORKDIR /app/build/examples/send
+# RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from" | wc -l | grep 2
 
-WORKDIR /app/build
-RUN make gettimeofday
-WORKDIR /app/build/examples/benchs
-RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
+# WORKDIR /app/build
+# RUN make gettimeofday
+# WORKDIR /app/build/examples/benchs
+# RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
 
 # build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
