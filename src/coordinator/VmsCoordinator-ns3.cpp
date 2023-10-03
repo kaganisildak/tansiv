@@ -191,6 +191,17 @@ static void vm_coordinator()
       vsg::Message* m = ready_to_deliver.back();
       ready_to_deliver.pop_back();
 
+      // Edit the message to correct the destination mac
+      ptrdiff_t pos_dst =
+          std::find(tansiv_addresses.begin(), tansiv_addresses.end(), ns3::Ipv4Address(m->dst.c_str())) -
+          tansiv_addresses.begin();
+
+      uint8_t mac_dst[6];
+      ns3::Mac48Address::ConvertFrom(tansiv_actors[pos_dst]->GetAddress()).CopyTo(mac_dst);
+      for (auto i = 0; i < 6; i++) {
+        m->data[12+i] = mac_dst[i];
+      }
+
       LOG("[coordinator]: delivering data from vm [" << m->src << "] to vm [" << m->dst << "] (size=" << m->size
                                                      << ")");
       vms_interface->deliverMessage(m);
@@ -233,35 +244,20 @@ std::string lookup_args_str(std::string argname, std::string default_value, int 
   return std::string(argv[idx]);
 }
 
-int main(int argc, char* argv[])
+void star()
 {
-  ns3::Time::SetResolution(ns3::Time::NS);
-  ns3::Config::SetDefault ("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue (0));
-  ns3::Config::SetDefault ("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue (0));
-
-
-  // xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
-
-  std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
-
-  force_min_latency = lookup_args_double("--force", -1, argc, argv);
-
-  LOG("Forcing the minimum latency to " << force_min_latency);
-
-  vms_interface = new vsg::VmsInterface(socket_name);
-
   std::string host_name1 = "nova-1.lyon.grid5000.fr";
   std::string host_name2 = "nova-2.lyon.grid5000.fr";
   std::string host_name3 = "nova-3.lyon.grid5000.fr";
   std::string ip1        = "192.168.120.2";
-  std::string ip2        = "192.168.120.4";
-  std::string ip3        = "192.168.120.6";
+  std::string ip2        = "192.168.121.2";
+  std::string ip3        = "192.168.122.2";
   std::string file1      = "boot.py";
   std::string file2      = "boot.py";
   std::string file3      = "boot.py";
-  std::string mac1       = "02:ca:fe:f0:0d:0a";
-  std::string mac2       = "02:ca:fe:f0:0d:0b";
-  std::string mac3       = "02:ca:fe:f0:0d:0c";
+  std::string mac1       = "02:ca:fe:f0:0d:78";
+  std::string mac2       = "02:ca:fe:f0:0d:79";
+  std::string mac3       = "02:ca:fe:f0:0d:7a";
 
   std::vector<std::string> cmd_line1 = {
       "boot.py",
@@ -306,7 +302,7 @@ int main(int argc, char* argv[])
       "memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1 -cpu host,invtsc=on -name "
       "debug-threads=on -device intel-iommu,intremap=on,caching-mode=on",
       "--autoconfig_net",
-      "192.168.120.4/24",
+      "192.168.121.2/24",
       "10.0.0.11/24"};
 
   std::vector<std::string> cmd_line3 = {
@@ -329,7 +325,7 @@ int main(int argc, char* argv[])
       "memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1 -cpu host,invtsc=on -name "
       "debug-threads=on -device intel-iommu,intremap=on,caching-mode=on",
       "--autoconfig_net",
-      "192.168.120.6/24",
+      "192.168.122.2/24",
       "10.0.0.12/24"};
 
   LOG("Set default queue size");
@@ -341,12 +337,9 @@ int main(int argc, char* argv[])
   LOG("Build topology.");
   int nSpokes = 3;
 
-  ns3::NodeContainer nodes;
-  nodes.Create(nSpokes);
-
   ns3::PointToPointHelper pointToPoint;
   pointToPoint.SetDeviceAttribute("DataRate", ns3::StringValue(bandwidth));
-  // USe MTU > 1500 to avoid having packets splitted by ns-3
+  // Use MTU > 1500 to avoid having packets splitted by ns-3
   pointToPoint.SetDeviceAttribute("Mtu", ns3::UintegerValue(3000));
   pointToPoint.SetChannelAttribute("Delay", ns3::StringValue(latency));
   pointToPoint.DisableFlowControl();
@@ -377,6 +370,7 @@ int main(int argc, char* argv[])
   for (auto i = 0; i < nSpokes; i++) {
     hub_interfaces.Add(address.Assign(hub_devices.Get(i)));
     spokes_interfaces.Add(address.Assign(spokes_devices.Get(i)));
+    address.NewNetwork();
   }
 
   ns3::Ptr<ns3::PointToPointNetDevice> net_device1 = ns3::StaticCast<ns3::PointToPointNetDevice>(spokes_devices.Get(0));
@@ -420,9 +414,9 @@ int main(int argc, char* argv[])
   ns3::Address address2 = spokes_interfaces.GetAddress(1);
   ns3::Address address3 = spokes_interfaces.GetAddress(2);
 
-  LOG("Address is " << address1);
-  LOG("Address is " << address2);
-  LOG("Address is " << address3);
+  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address1));
+  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address2));
+  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address3));
 
   ns3::Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
@@ -453,6 +447,26 @@ int main(int argc, char* argv[])
   tansiv_actor(net_device1, address1, mac_address1, host_name1, ip1, file1, cmd_line1);
   tansiv_actor(net_device2, address2, mac_address2, host_name2, ip2, file2, cmd_line2);
   tansiv_actor(net_device3, address3, mac_address3, host_name3, ip3, file3, cmd_line3);
+}
+
+
+int main(int argc, char* argv[])
+{
+  ns3::Time::SetResolution(ns3::Time::NS);
+  ns3::Config::SetDefault("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue(0));
+  ns3::Config::SetDefault("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue(0));
+
+  // xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
+
+  std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
+
+  force_min_latency = lookup_args_double("--force", -1, argc, argv);
+
+  LOG("Forcing the minimum latency to " << force_min_latency);
+
+  vms_interface = new vsg::VmsInterface(socket_name);
+
+  star();
 
   vm_coordinator();
 
