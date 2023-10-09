@@ -1,0 +1,8 @@
+<?xml version='1.0'?>
+<platform>
+    <bandwidth   value="100Mbps"/>
+    <latency     value="1ms"/>
+    <min_latency value="0.002"/> <!-- min latency between two nodes on the
+    topology -->
+    <header_size value="26"/> <!-- Ethernet header: +14; virtio-net header: +12 -->
+</platform>

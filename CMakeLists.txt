@@ -36,6 +36,7 @@ build_flatbuffers("${WIRE_INCLUDE_DIR}/packets.fbs" "" "fbs_packets" "" "${WIRE_
 
 # Search for SimGrid
 #find_package(SimGrid REQUIRED)
+find_package(tinyxml2 REQUIRED)
 
 # Search for ns3
 #set(NS3_HINT /ns3/build)
@@ -69,6 +70,7 @@ target_compile_options(tansiv-timer PUBLIC -fPIE)
 # Tansiv (coordinator of the simulation)
 link_directories(${NS3_LIBRARY_PATH})
 add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+target_link_libraries(tansiv tinyxml2)
 string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
 message(STATUS ${NS3_LIBRARIES})
 message(STATUS ${NS3_LIBRARY_PATH})
@@ -114,5 +116,6 @@ install(TARGETS tansiv-timer DESTINATION lib)
 install(FILES src/kvm/tansiv-timer/tansiv-timer.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
 install(PROGRAMS bin/boot.py DESTINATION bin)
+install(PROGRAMS bin/boot_ns3.py DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")
 install(CODE "execute_process(COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client )")

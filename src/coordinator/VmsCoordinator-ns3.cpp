@@ -2,11 +2,12 @@
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
 #include "ns3/internet-module.h"
-// #include "ns3/netanim-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-layout-module.h"
 #include "ns3/point-to-point-module.h"
 #include "ns3/traffic-control-helper.h"
+
+#include "tinyxml2.h"
 
 #include <cassert>
 #include <limits.h>
@@ -14,6 +15,8 @@
 #define LOG(msg) std::clog << "[" << ns3::Simulator::Now().ToDouble(ns3::Time::S) << "s] " << msg << std::endl
 
 #define DEFAULT_SOCKET_NAME "/tmp/ns3_connection_socket"
+
+#define MAX_NODES 100
 
 vsg::VmsInterface* vms_interface;
 
@@ -32,13 +35,23 @@ std::vector<ns3::Address> tansiv_mac_addresses;
 const std::string vsg_vm_name = "vsg_vm";
 
 double force_min_latency = -1;
+double min_latency;
 
-std::string latency   = "1ms";
-std::string bandwidth = "100Mbps";
+int header_size;
+
+ns3::InternetStackHelper internet;
+ns3::PointToPointHelper pointToPoint;
+ns3::NodeContainer hub;
+ns3::NodeContainer spokes;
+ns3::NetDeviceContainer hub_devices;
+ns3::NetDeviceContainer spokes_devices;
+ns3::Ipv4InterfaceContainer hub_interfaces;
+ns3::Ipv4InterfaceContainer spokes_interfaces;
+int nSpokes = 0;
 
 static double compute_min_latency()
 {
-  return 0.001;
+  return min_latency;
 }
 
 static double get_next_event()
@@ -53,10 +66,12 @@ static bool packet_received(ns3::Ptr<ns3::NetDevice> device, ns3::Ptr<const ns3:
   int packet_id = packet->GetUid();
   auto it       = std::find_if(pending_packets.begin(), pending_packets.end(),
                                [&packet_id](ns3::Ptr<ns3::Packet>& arg) { return arg->GetUid() == packet_id; });
+
   if (it == pending_packets.end()) {
     // Packet not in pending_packets
     LOG("Received packet is not in pending_packets!");
   } else {
+    LOG("Packet arrived at device " << device->GetAddress());
     int index             = std::distance(pending_packets.begin(), it);
     vsg::Message* message = pending_messages[index];
     ready_to_deliver.push_back(message);
@@ -128,26 +143,15 @@ static void vm_coordinator()
         LOG("Message dest is " << m->dst);
         LOG("The VM tries to send a message but we do not know its PM");
       }
-      // Size Adjustment (in bytes)
-      // IPG is already set during initialization
-      // + 8 (Preamble)
-      // + 4 (CRC)
-      // -2 (ns-3 PPP header)
-      // -20 (ns-3 Ipv4 header)
-      // -12 (virtio-net header)
-      // = -22
-
-      // assert(m->size >= 22);
-
       // To have usable pcap traces, let's copy the buffer content into the ns-3
       // packet
       // Do not copy:
       // virtio-net header (12 bytes)
       // the ethernet header (14 next bytes)
       // The IP header (20 next bytes)
-      const uint8_t* buffer = m->data + 46;
+      const uint8_t* buffer = m->data + header_size + 20;
 
-      ns3::Ptr<ns3::Packet> p = ns3::Create<ns3::Packet>(buffer, m->size - 46);
+      ns3::Ptr<ns3::Packet> p = ns3::Create<ns3::Packet>(buffer, m->size - header_size - 20);
 
       // Useless to copy the other fields?
       ns3::Ipv4Header ipHeader;
@@ -168,8 +172,8 @@ static void vm_coordinator()
         ns3::Ipv4Address src_ipv4_address  = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_src]);
         ipHeader.SetDestination(dest_ipv4_address);
         ipHeader.SetSource(src_ipv4_address);
-        ipHeader.SetTtl(m->data[26 + 8]);      // TTL is the 9th byte of the ip header
-        ipHeader.SetProtocol(m->data[26 + 9]); // Protocol is the 10th byte of the ip header
+        ipHeader.SetTtl(m->data[header_size + 8]);      // TTL is the 9th byte of the ip header
+        ipHeader.SetProtocol(m->data[header_size + 9]); // Protocol is the 10th byte of the ip header
         ipHeader.SetPayloadSize(p->GetSize());
         p->AddHeader(ipHeader);
 
@@ -199,7 +203,7 @@ static void vm_coordinator()
       uint8_t mac_dst[6];
       ns3::Mac48Address::ConvertFrom(tansiv_actors[pos_dst]->GetAddress()).CopyTo(mac_dst);
       for (auto i = 0; i < 6; i++) {
-        m->data[12+i] = mac_dst[i];
+        m->data[12 + i] = mac_dst[i];
       }
 
       LOG("[coordinator]: delivering data from vm [" << m->src << "] to vm [" << m->dst << "] (size=" << m->size
@@ -244,220 +248,119 @@ std::string lookup_args_str(std::string argname, std::string default_value, int 
   return std::string(argv[idx]);
 }
 
-void star()
+void create_star(std::string latency, std::string bandwidth)
 {
-  std::string host_name1 = "nova-1.lyon.grid5000.fr";
-  std::string host_name2 = "nova-2.lyon.grid5000.fr";
-  std::string host_name3 = "nova-3.lyon.grid5000.fr";
-  std::string ip1        = "192.168.120.2";
-  std::string ip2        = "192.168.121.2";
-  std::string ip3        = "192.168.122.2";
-  std::string file1      = "boot.py";
-  std::string file2      = "boot.py";
-  std::string file3      = "boot.py";
-  std::string mac1       = "02:ca:fe:f0:0d:78";
-  std::string mac2       = "02:ca:fe:f0:0d:79";
-  std::string mac3       = "02:ca:fe:f0:0d:7a";
-
-  std::vector<std::string> cmd_line1 = {
-      "boot.py",
-      "--mode",
-      "tantap",
-      "--num_buffers",
-      "100000",
-      "--qemu_cmd",
-      "tanqemukvm-system-x86_64",
-      "--qemu_nictype",
-      "virtio-net-pci",
-      "--virtio_net_nb_queues",
-      "1",
-      "--qemu_image",
-      "/srv/image.qcow2",
-      "--qemu_args",
-      "-machine q35,accel=kvm,kernel-irqchip=split -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor "
-      "unix:/tmp/qemu-monitor-1,server,nowait -object "
-      "memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1 -cpu host,invtsc=on -name "
-      "debug-threads=on -device intel-iommu,intremap=on,caching-mode=on",
-      "--autoconfig_net",
-      "192.168.120.2/24",
-      "10.0.0.10/24"};
-
-  std::vector<std::string> cmd_line2 = {
-      "boot.py",
-      "--mode",
-      "tantap",
-      "--num_buffers",
-      "100000",
-      "--qemu_cmd",
-      "tanqemukvm-system-x86_64",
-      "--qemu_nictype",
-      "virtio-net-pci",
-      "--virtio_net_nb_queues",
-      "1",
-      "--qemu_image",
-      "/srv/image.qcow2",
-      "--qemu_args",
-      "-machine q35,accel=kvm,kernel-irqchip=split -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor "
-      "unix:/tmp/qemu-monitor-2,server,nowait -object "
-      "memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1 -cpu host,invtsc=on -name "
-      "debug-threads=on -device intel-iommu,intremap=on,caching-mode=on",
-      "--autoconfig_net",
-      "192.168.121.2/24",
-      "10.0.0.11/24"};
-
-  std::vector<std::string> cmd_line3 = {
-      "boot.py",
-      "--mode",
-      "tantap",
-      "--num_buffers",
-      "100000",
-      "--qemu_cmd",
-      "tanqemukvm-system-x86_64",
-      "--qemu_nictype",
-      "virtio-net-pci",
-      "--virtio_net_nb_queues",
-      "1",
-      "--qemu_image",
-      "/srv/image.qcow2",
-      "--qemu_args",
-      "-machine q35,accel=kvm,kernel-irqchip=split -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor "
-      "unix:/tmp/qemu-monitor-3,server,nowait -object "
-      "memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1 -cpu host,invtsc=on -name "
-      "debug-threads=on -device intel-iommu,intremap=on,caching-mode=on",
-      "--autoconfig_net",
-      "192.168.122.2/24",
-      "10.0.0.12/24"};
+  ns3::Time::SetResolution(ns3::Time::NS);
+  ns3::Config::SetDefault("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue(0));
+  ns3::Config::SetDefault("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue(0));
 
   LOG("Set default queue size");
   // Global
   ns3::Config::SetDefault(
       "ns3::DropTailQueue<Packet>::MaxSize",
       ns3::QueueSizeValue(ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, 100))); // ns-3 supports either bytes or packets
-
-  LOG("Build topology.");
-  int nSpokes = 3;
-
-  ns3::PointToPointHelper pointToPoint;
   pointToPoint.SetDeviceAttribute("DataRate", ns3::StringValue(bandwidth));
-  // Use MTU > 1500 to avoid having packets splitted by ns-3
+  // Use MTU > 1500 to avoid having packets splitted by ns-3 (Possible with the
+  // added PPP header)
+  // We assume the default 1500 MTU is enforced somewhere else
   pointToPoint.SetDeviceAttribute("Mtu", ns3::UintegerValue(3000));
+  LOG("Setting latency " << latency);
   pointToPoint.SetChannelAttribute("Delay", ns3::StringValue(latency));
   pointToPoint.DisableFlowControl();
 
-  // Build the star topology by hand
-  ns3::NodeContainer hub;
-  ns3::NodeContainer spokes;
   hub.Create(1);
-  spokes.Create(nSpokes);
-
-  ns3::NetDeviceContainer spokes_devices;
-  ns3::NetDeviceContainer hub_devices;
-  for (auto i = 0; i < nSpokes; i++) {
-    ns3::NetDeviceContainer nd = pointToPoint.Install(hub.Get(0), spokes.Get(i));
-    hub_devices.Add(nd.Get(0));
-    spokes_devices.Add(nd.Get(1));
-  }
-
-  ns3::InternetStackHelper internet;
+  spokes.Create(MAX_NODES);
   internet.Install(hub);
   internet.Install(spokes);
-
-  LOG("Assign IP Addresses.");
-  ns3::Ipv4InterfaceContainer hub_interfaces;
-  ns3::Ipv4InterfaceContainer spokes_interfaces;
-  ns3::Ipv4AddressHelper address;
-  address.SetBase("192.168.120.0", "255.255.255.0");
-  for (auto i = 0; i < nSpokes; i++) {
-    hub_interfaces.Add(address.Assign(hub_devices.Get(i)));
-    spokes_interfaces.Add(address.Assign(spokes_devices.Get(i)));
-    address.NewNetwork();
-  }
-
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device1 = ns3::StaticCast<ns3::PointToPointNetDevice>(spokes_devices.Get(0));
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device2 = ns3::StaticCast<ns3::PointToPointNetDevice>(spokes_devices.Get(1));
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device3 = ns3::StaticCast<ns3::PointToPointNetDevice>(spokes_devices.Get(2));
-
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device_hub1 =
-      ns3::StaticCast<ns3::PointToPointNetDevice>(hub_devices.Get(0));
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device_hub2 =
-      ns3::StaticCast<ns3::PointToPointNetDevice>(hub_devices.Get(1));
-  ns3::Ptr<ns3::PointToPointNetDevice> net_device_hub3 =
-      ns3::StaticCast<ns3::PointToPointNetDevice>(hub_devices.Get(2));
-
-  ns3::Address mac_address1 = ns3::Mac48Address(mac1.c_str());
-  ns3::Address mac_address2 = ns3::Mac48Address(mac2.c_str());
-  ns3::Address mac_address3 = ns3::Mac48Address(mac3.c_str());
-
-  net_device1->SetAddress(mac_address1);
-  net_device2->SetAddress(mac_address2);
-  net_device3->SetAddress(mac_address3);
-
-  /* Inter-packet Gap
-   * In ns-3, we send IP packets with a PPP Header
-   * We use the InterFrameGap to compensate the PPP header and add the ethernet delays
-   * PPP header (-2 bytes)
-   * Ethernet Preamble (+8 bytes)
-   * Ethernet MAC (+14 bytes )
-   * Ethernet CRC (+4 bytes)
-   * Ethernet IFG (+12 bytes)
-   * Total: +36 bytes
-   */
-  net_device1->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-  net_device2->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-  net_device3->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-
-  net_device_hub1->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-  net_device_hub2->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-  net_device_hub3->SetInterframeGap(ns3::Time::FromDouble((36 * 8) / 100e6, ns3::Time::S));
-
-  ns3::Address address1 = spokes_interfaces.GetAddress(0);
-  ns3::Address address2 = spokes_interfaces.GetAddress(1);
-  ns3::Address address3 = spokes_interfaces.GetAddress(2);
-
-  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address1));
-  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address2));
-  LOG("Address is " << ns3::Ipv4Address::ConvertFrom(address3));
-
-  ns3::Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-
-  // Set infinite TX queues on hosts
-  ns3::QueueSizeValue queue_size = ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, UINT32_MAX);
-  ns3::PointerValue ptr1;
-  ns3::PointerValue ptr2;
-  ns3::PointerValue ptr3;
-
-  net_device1->GetAttribute("TxQueue", ptr1);
-  net_device2->GetAttribute("TxQueue", ptr2);
-  net_device3->GetAttribute("TxQueue", ptr3);
-
-  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue1 = ptr1.Get<ns3::Queue<ns3::Packet>>();
-  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue2 = ptr2.Get<ns3::Queue<ns3::Packet>>();
-  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue3 = ptr3.Get<ns3::Queue<ns3::Packet>>();
-
-  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq1 = txQueue1->GetObject<ns3::DropTailQueue<ns3::Packet>>();
-  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq2 = txQueue2->GetObject<ns3::DropTailQueue<ns3::Packet>>();
-  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq3 = txQueue3->GetObject<ns3::DropTailQueue<ns3::Packet>>();
-
-  dtq1->SetAttribute("MaxSize", queue_size);
-  dtq2->SetAttribute("MaxSize", queue_size);
-  dtq3->SetAttribute("MaxSize", queue_size);
-
-  // pointToPoint.EnablePcapAll("star");
-
-  tansiv_actor(net_device1, address1, mac_address1, host_name1, ip1, file1, cmd_line1);
-  tansiv_actor(net_device2, address2, mac_address2, host_name2, ip2, file2, cmd_line2);
-  tansiv_actor(net_device3, address3, mac_address3, host_name3, ip3, file3, cmd_line3);
 }
 
+void add_star_spoke(std::string host_name, std::string ip_subnet, std::string mask, ns3::Time ifg, std::string mac,
+                    std::string boot_command, std::vector<std::string> boot_args)
+{
+  // Create P2P link with the hub
+  LOG("Creating P2P link between node and hub");
+  ns3::NetDeviceContainer nd = pointToPoint.Install(hub.Get(0), spokes.Get(nSpokes));
+  hub_devices.Add(nd.Get(0));
+  spokes_devices.Add(nd.Get(1));
+
+  // Assign addresses to node and hub
+  LOG("Assigning IP addresses");
+  ns3::Ipv4AddressHelper address;
+  address.SetBase(ip_subnet.c_str(), mask.c_str());
+  hub_interfaces.Add(address.Assign(hub_devices.Get(nSpokes)));
+  spokes_interfaces.Add(address.Assign(spokes_devices.Get(nSpokes)));
+
+  // Get net_devices
+  LOG("Getting net devices");
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(spokes_devices.Get(nSpokes));
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device_hub =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(hub_devices.Get(nSpokes));
+
+  // Set MAC address
+  LOG("Setting MAC addresses");
+  ns3::Address mac_address = ns3::Mac48Address(mac.c_str());
+  net_device->SetAddress(mac_address);
+
+  // Set Inter Frame Gap
+  LOG("Setting IFG");
+  net_device->SetInterframeGap(ifg);
+  net_device_hub->SetInterframeGap(ifg);
+
+  // Get address
+  LOG("Getting IP address");
+  ns3::Address ip_ns3 = spokes_interfaces.GetAddress(nSpokes);
+
+  // Set infinite queue size on node
+  LOG("Setting infinite queue size on node");
+  ns3::QueueSizeValue queue_size = ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, UINT32_MAX);
+  ns3::PointerValue ptr;
+  net_device->GetAttribute("TxQueue", ptr);
+  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue     = ptr.Get<ns3::Queue<ns3::Packet>>();
+  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq = txQueue->GetObject<ns3::DropTailQueue<ns3::Packet>>();
+  dtq->SetAttribute("MaxSize", queue_size);
+
+  nSpokes++;
+
+  LOG("Converting IP to string");
+  ns3::Ipv4Address ip_ns3_ipv4 = ns3::Ipv4Address::ConvertFrom(ip_ns3);
+  uint8_t buf[4];
+  ip_ns3_ipv4.Serialize(buf);
+  std::string ip_str = std::to_string(buf[0]) + "." + std::to_string(buf[1]) + "." + std::to_string(buf[2]) + "." +
+                       std::to_string(buf[3]);
+  LOG("IP string is " << ip_str);
+
+  // Create TANSIV actor
+  tansiv_actor(net_device, ip_ns3, mac_address, host_name, ip_str, boot_command, boot_args);
+}
+
+std::string parse_actor_field(tinyxml2::XMLElement* actor, const char* field)
+{
+  tinyxml2::XMLElement* element = actor->FirstChildElement(field);
+  std::string element_text      = element->Attribute("value");
+  LOG(field << " is " << element_text);
+  return element_text;
+}
+
+double bandwidth_str_to_double(std::string bandwidth)
+{
+  if (bandwidth.find("Gbps") != std::string::npos) {
+    return std::stod(bandwidth.substr(0, bandwidth.size() - 4)) * 1e9;
+  }
+  if (bandwidth.find("Mbps") != std::string::npos) {
+    return std::stod(bandwidth.substr(0, bandwidth.size() - 4)) * 1e6;
+  }
+  if (bandwidth.find("Kbps") != std::string::npos) {
+    return std::stod(bandwidth.substr(0, bandwidth.size() - 4)) * 1e3;
+  }
+  if (bandwidth.find("bps") != std::string::npos) {
+    return std::stod(bandwidth.substr(0, bandwidth.size() - 4));
+  }
+  return 1.0;
+}
 
 int main(int argc, char* argv[])
 {
-  ns3::Time::SetResolution(ns3::Time::NS);
-  ns3::Config::SetDefault("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue(0));
-  ns3::Config::SetDefault("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue(0));
-
-  // xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
-
   std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
 
   force_min_latency = lookup_args_double("--force", -1, argc, argv);
@@ -466,7 +369,61 @@ int main(int argc, char* argv[])
 
   vms_interface = new vsg::VmsInterface(socket_name);
 
-  star();
+  // Parse platform file
+  tinyxml2::XMLDocument platform;
+  auto err = platform.LoadFile(argv[1]);
+  if (err != tinyxml2::XML_SUCCESS) {
+    LOG("Error: failed to platform deployment file!");
+    return 1;
+  }
+  tinyxml2::XMLElement* platform_elem = platform.FirstChildElement("platform");
+  std::string bandwidth               = parse_actor_field(platform_elem, "bandwidth");
+  std::string latency                 = parse_actor_field(platform_elem, "latency");
+  min_latency                         = std::stod(parse_actor_field(platform_elem, "min_latency"));
+  header_size                         = std::stoi(parse_actor_field(platform_elem, "header_size"));
+
+  create_star(latency, bandwidth);
+
+  // Parse deployment file
+  tinyxml2::XMLDocument deployment;
+  err = deployment.LoadFile(argv[2]);
+  if (err != tinyxml2::XML_SUCCESS) {
+    LOG("Error: failed to load deployment file!");
+    return 1;
+  }
+  // Iterate over all actors
+  tinyxml2::XMLElement* deployment_platform_elem = deployment.FirstChildElement("platform");
+  tinyxml2::XMLElement* actor                    = deployment_platform_elem->FirstChildElement("actor");
+  LOG("Starting to parse deployment file");
+  while (actor != nullptr) {
+    std::string host_name = actor->Attribute("host");
+    LOG("Host name is " << host_name);
+
+    std::string subnet = parse_actor_field(actor, "subnet");
+
+    std::string mask = parse_actor_field(actor, "mask");
+
+    double ifg = std::stod(parse_actor_field(actor, "ifg"));
+
+    std::string mac = parse_actor_field(actor, "mac");
+
+    std::string boot_script = parse_actor_field(actor, "boot_script");
+
+    std::vector<std::string> boot_args;
+    boot_args.push_back(boot_script);
+    tinyxml2::XMLElement* argument = actor->FirstChildElement("argument");
+    while (argument != nullptr) {
+      std::string argument_text = argument->Attribute("value");
+      boot_args.push_back(argument_text);
+      LOG("Argument value is " << argument_text);
+      argument = argument->NextSiblingElement("argument");
+    }
+    ns3::Time ifg_time = ns3::Time::FromDouble((ifg * 8) / bandwidth_str_to_double(bandwidth), ns3::Time::S);
+    LOG("ifg_time is " << ifg_time);
+    add_star_spoke(host_name, subnet, mask, ifg_time, mac, boot_script, boot_args);
+
+    actor = actor->NextSiblingElement("actor");
+  }
 
   vm_coordinator();
 

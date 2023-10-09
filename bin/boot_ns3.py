@@ -20,6 +20,7 @@ class VM(object):
         self,
         ip_tantap: IPv4Interface,
         ip_management: IPv4Interface,
+        mac_address: str,
         qemu_cmd: str,
         qemu_image: Path,
         qemu_args: str = "",
@@ -30,6 +31,7 @@ class VM(object):
         qemu_nictype: str = "virtio-net-pci",
         virtio_net_nb_queues: int = 1,
     ):
+        self.mac_address = mac_address
         self.tantap = ip_tantap
         self.management = ip_management
 
@@ -51,7 +53,7 @@ class VM(object):
 
     @property
     def tantap_id(self):
-        _, _, _, t = self.tantap.ip.packed
+        _, _, t, _ = self.tantap.ip.packed
         return t
 
     @property
@@ -98,10 +100,9 @@ class VM(object):
 
     @property
     def mac(self) -> List[str]:
-        t = self.tantap_id
         m = self.management_id
         return [
-            f"02:ca:fe:f0:0d:{hex(t).lstrip('0x').rjust(2, '0')}",
+            self.mac_address,
             f"54:52:fe:f0:0d:{hex(m).lstrip('0x').rjust(2, '0')}",
         ]
 
@@ -364,6 +365,11 @@ done
         type=str,
         help="The hostname of the virtual machine",
     )
+    parser.add_argument(
+        "--mac",
+        type=str,
+        help="The MAC address of the tantap interface",
+    )
     parser.add_argument("--mode", type=str, help="mode (tap | tantap)", default="tap")
     parser.add_argument(
         "--qemu_cmd",
@@ -432,6 +438,7 @@ The default value is too low for realistics benchmarks.""",
 
     args = parser.parse_args()
 
+    mac = args.mac
     socket_name = args.socket_name
 
     ip_tantap = IPv4Interface(args.ip_tantap)
@@ -463,6 +470,7 @@ The default value is too low for realistics benchmarks.""",
             socket_name,
             ip_tantap,
             ip_management,
+            mac_address=mac,
             qemu_cmd=qemu_cmd,
             qemu_image=qemu_image,
             qemu_args=qemu_args,
