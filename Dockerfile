@@ -10,6 +10,7 @@ RUN apt-get install -y build-essential \
     libflatbuffers-dev \
     libcppunit-dev \
     libglib2.0-dev \
+    libtinyxml2-dev \
     cargo \
     clang \
     && rm -rf /var/lib/apt/lists/* \
