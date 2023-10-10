@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import __common
 import argparse
 from ipaddress import IPv4Interface
 import logging

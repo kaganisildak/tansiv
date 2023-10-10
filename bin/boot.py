@@ -8,7 +8,6 @@ from subprocess import check_call
 import tempfile
 from typing import Dict, List, Optional
 import yaml
-from __common import *
 
 LOGGER = logging.getLogger(__name__)
 
