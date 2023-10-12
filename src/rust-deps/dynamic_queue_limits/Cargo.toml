@@ -1,0 +1,7 @@
+[package]
+name = "dynamic_queue_limits"
+version = "0.1.0"
+authors = ["Louis Rilling <louis.rilling@irisa.fr>"]
+edition = "2021"
+
+[dependencies]

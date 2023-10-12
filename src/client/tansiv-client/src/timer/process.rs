@@ -4,7 +4,7 @@ use chrono::{Duration, NaiveDateTime};
 use lazy_static::lazy_static;
 use libc_timer::{clock, timer, ClockId};
 use seq_lock::SeqLock;
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::io::Result;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 #[cfg(not(any(test, feature = "test-helpers")))]
@@ -236,8 +236,12 @@ impl TimerContext {
         *self.next_deadline.lock().unwrap()
     }
 
-    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
+    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
         return None;
+    }
+
+    pub fn schedule_poll_send_callback(&self, _now: StdDuration, _later: Option<StdDuration>) {
+        unimplemented!()
     }
 }
 

@@ -1,6 +1,6 @@
 use chrono::Duration;
 use qemu_timer_sys::{QEMUClockType, qemu_clock_get_ns};
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::mem::MaybeUninit;
 use std::io::Result;
 use std::marker::PhantomPinned;
@@ -12,11 +12,10 @@ use std::time::Duration as StdDuration;
 
 use crate::output_msg_set::{OutputMsg};
 
-mod qemu_timer_sys;
-
 #[derive(Debug)]
 pub struct TimerContextInner {
     qemu_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
+    poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Constant offset from simulation time to VM time
@@ -56,6 +55,7 @@ impl Deref for TimerContext {
 impl TimerContextInner {
     fn new() -> TimerContextInner {
         let qemu_timer = Mutex::new(MaybeUninit::uninit());
+        let poll_send_timer = Mutex::new(MaybeUninit::uninit());
         let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let offset = Mutex::new(Duration::zero());
@@ -64,6 +64,7 @@ impl TimerContextInner {
 
         TimerContextInner {
             qemu_timer,
+            poll_send_timer,
             phantom_pinned,
             context,
             offset,
@@ -104,8 +105,13 @@ impl TimerContextInner {
         // combine ManuallyDrop and Pin::as_ref().get_ref().
         let opaque = ManuallyDrop::new(self.clone());
         let opaque = opaque.as_ref().get_ref() as *const TimerContextInner as *mut std::os::raw::c_void;
+        // Count a new reference to self in poll_send_timer
+        let opaque2 = ManuallyDrop::new(self.clone());
+        assert_eq!(opaque2.as_ref().get_ref() as *const TimerContextInner as *mut std::os::raw::c_void, opaque);
+
         // Safety: TODO
         let qemu_timer = self.qemu_timer.lock().unwrap().as_mut_ptr();
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
         unsafe {
             qemu_timer_sys::timer_init_full(qemu_timer,
                 std::ptr::null_mut(),
@@ -113,6 +119,13 @@ impl TimerContextInner {
                 qemu_timer_sys::SCALE_NS,
                 0,
                 Some(deadline_handler),
+                opaque);
+            qemu_timer_sys::timer_init_full(poll_send_timer,
+                std::ptr::null_mut(),
+                QEMUClockType::QEMU_CLOCK_VIRTUAL,
+                qemu_timer_sys::SCALE_NS,
+                0,
+                Some(poll_send_handler),
                 opaque);
         }
 
@@ -134,9 +147,12 @@ impl TimerContextInner {
     pub fn stop(self: &Pin<Arc<Self>>) {
         // Safety: TODO
         let qemu_timer = self.qemu_timer.lock().unwrap().as_mut_ptr();
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
         unsafe {
             qemu_timer_sys::timer_del(qemu_timer);
             qemu_timer_sys::timer_deinit(qemu_timer);
+            qemu_timer_sys::timer_del(poll_send_timer);
+            qemu_timer_sys::timer_deinit(poll_send_timer);
         }
         // Drop the reference given to qemu_timer
         // It is easier to use the opaque pointer from self than using the one from qemu_timer
@@ -144,6 +160,7 @@ impl TimerContextInner {
         // Safety: Arc::from_raw() gets back the ManuallyDrop'ed reference given by Arc::clone() in
         // ::start()
         unsafe {
+            drop(Arc::from_raw(ptr));
             drop(Arc::from_raw(ptr));
         }
     }
@@ -174,8 +191,23 @@ impl TimerContextInner {
         *self.next_deadline.lock().unwrap()
     }
 
-    pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<LinkedList<OutputMsg>>) -> Option<StdDuration> {
-        return None;
+    pub fn check_deadline_overrun(&self, send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
+        if send_time > self.simulation_next_deadline() {
+            // Contrary to the KVM case, we control whether packets are timestamped out-of-order
+            // across deadlines or not. No need to fix the ordering here.
+            Some(send_time)
+        } else {
+            None
+        }
+    }
+
+    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>) {
+        let later = later.unwrap_or(now);
+        let expire = (self.offset.lock().unwrap().to_std().unwrap() + later).as_nanos() as i64;
+
+        // Safety: similar arguments to qemu_timer in ::set_next_deadline
+        let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
     }
 }
 
@@ -197,5 +229,13 @@ extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void) {
             },
             AfterDeadline::EndSimulation => (),
         }
+    }
+}
+
+extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
+    // Safety: TODO
+    let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
+    if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
+        (context.poll_send_callback)();
     }
 }
