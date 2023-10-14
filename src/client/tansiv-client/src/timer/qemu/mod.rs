@@ -204,7 +204,8 @@ impl TimerContextInner {
     }
 
     pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>) {
-        let later = later.unwrap_or(now);
+        // In icount mode rescheduling exactly now may start an infinite loop
+        let later = later.unwrap_or(now + StdDuration::from_nanos(1));
         let expire = (self.offset.lock().unwrap().to_std().unwrap() + later).as_nanos() as i64;
 
         // Safety: similar arguments to qemu_timer in ::set_next_deadline
