@@ -417,14 +417,18 @@ impl Context {
         let slots = self.send_queue_slots.lock().unwrap();
         let now = self.timer_context.simulation_now();
         let later = if let Some((_, xmit_end)) = slots.back() {
-            if *xmit_end > now {
-                // Avoid starvation by only waiting for half of the queue to be available
-                let half_queue_xmit = Duration::from_nanos((self.dql.lock().unwrap().get_limit() * 8 / 2 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
-                if now + half_queue_xmit < *xmit_end {
-                    Some(*xmit_end - half_queue_xmit)
-                } else {
-                    None
-                }
+            // Avoid starvation by only waiting for half of the queue to be available
+            // But don't be too aggressive and wait for at least one more packet to be removed from the queue
+            let half_queue_xmit = Duration::from_nanos((self.dql.lock().unwrap().get_limit() * 8 / 2 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
+            let half_queue_free = xmit_end.saturating_sub(half_queue_xmit);
+            let (_, next_xmit_end) = slots.front().unwrap();
+            let min_wait = if half_queue_free > *next_xmit_end {
+                half_queue_free
+            } else {
+                *next_xmit_end
+            };
+            if min_wait > now {
+                Some(min_wait)
             } else {
                 None
             }
