@@ -58,6 +58,11 @@ impl Dql {
         self.num_queued += count;
     }
 
+    /// Returns the current limit of the queue
+    pub fn get_limit(&self) -> usize {
+        self.limit
+    }
+
     /// Returns how many objects can be queued, None indicates over limit.
     pub fn available(&self) -> Option<usize> {
             self.adj_limit.checked_sub(self.num_queued)
