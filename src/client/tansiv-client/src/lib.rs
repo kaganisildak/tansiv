@@ -314,35 +314,32 @@ impl Context {
 
         // Refill DQL budget
         // Don't refill much more than half the limit, to prevent unnecessary limit increases
-        let mut completed = 0usize;
-        let mut last_xmit_end: Option<Duration> = None;
-        let threshold = dql.get_limit() / 2;
+        // let mut completed = 0usize;
+        // let mut last_xmit_end: Option<Duration> = None;
+        // let threshold = dql.get_limit() / 2;
         loop {
             match slots.front() {
-                Some((ref size, ref xmit_end)) => {
-                    if *xmit_end <= send_time {
-                        completed += *size;
-                        last_xmit_end = Some(*xmit_end);
-                        slots.pop_front();
-                        if completed > threshold {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
+                Some((ref size, ref xmit_end)) if *xmit_end <= send_time => {
+                    // completed += *size;
+                    // last_xmit_end = Some(*xmit_end);
+                    dql.completed(*size, *xmit_end);
+                    slots.pop_front();
+                    // if completed > threshold {
+                        // break;
+                    // }
                 },
                 _ => break,
             }
         }
-        if let Some(last_xmit_end) = last_xmit_end {
-            if completed > threshold {
-                dql.completed(completed, last_xmit_end);
-            } else { // completed > 0
-                // Keep the dql limit adjustment for later
-                // Group the packets seen in a single blob to avoid walking the list again
-                slots.push_front((completed, last_xmit_end));
-            }
-        }
+        // if let Some(last_xmit_end) = last_xmit_end {
+            // if completed > threshold {
+                // dql.completed(completed, last_xmit_end);
+            // } else { // completed > 0
+                // // Keep the dql limit adjustment for later
+                // // Group the packets seen in a single blob to avoid walking the list again
+                // slots.push_front((completed, last_xmit_end));
+            // }
+        // }
 
         // Check DQL budget
         let accounted_size = msg.len();
@@ -422,7 +419,7 @@ impl Context {
         let later = if let Some((_, xmit_end)) = slots.back() {
             if *xmit_end > now {
                 // Avoid starvation by only waiting for half of the queue to be available
-                let half_queue_xmit = Duration::from_nanos((self.dql.lock().unwrap().get_limit() / 2 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
+                let half_queue_xmit = Duration::from_nanos((self.dql.lock().unwrap().get_limit() * 8 / 2 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
                 if now + half_queue_xmit < *xmit_end {
                     Some(*xmit_end - half_queue_xmit)
                 } else {
