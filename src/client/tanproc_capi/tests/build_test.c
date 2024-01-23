@@ -18,10 +18,6 @@ void deadline_cb(uintptr_t arg, struct timespec deadline)
     *recorded_deadline = deadline;
 }
 
-void poll_send_cb(uintptr_t arg)
-{
-}
-
 void die(const char* msg, int error)
 {
   fprintf(stderr, "%s", msg);
@@ -40,7 +36,7 @@ int main(int argc, const char* argv[])
   unsigned char msg[] = "Foo msg";
   int res;
 
-  context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&flag, deadline_cb, (uintptr_t)&deadline, poll_send_cb, 0);
+  context = vsg_init(argc, argv, NULL, recv_cb, (uintptr_t)&flag, deadline_cb, (uintptr_t)&deadline);
   if (!context)
     die("vsg_init() failed", 0);
 

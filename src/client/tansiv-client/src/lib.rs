@@ -1,7 +1,6 @@
 use buffer_pool::BufferPool;
 pub(crate) use config::Config;
 use connector::{Connector, ConnectorImpl, DeliverPacket, FbBuffer, MsgIn, MsgOut};
-use dynamic_queue_limits;
 pub use error::Error;
 use libc;
 #[allow(unused_imports)]
@@ -49,7 +48,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
 pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
-pub type PollSendCallback = Box<dyn Fn() -> () + Send + Sync>;
+pub type PollSendCallback = dyn Fn() -> () + Send + Sync;
 
 // Context must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
@@ -69,14 +68,13 @@ pub struct Context {
     recv_callback: RecvCallback,
     // No concurrency, read-only: called only by ::start() and the deadline handler
     deadline_callback: DeadlineCallback,
-    // No concurrency, read-only: called only by the poll send timer
-    poll_send_callback: PollSendCallback,
     // Concurrency:
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
     // Concurrency: accessed by application only
-    // Read/write by ::send()
+    // - read-write by ::send()
+    // - read-only by ::may_start_send(), ::may_stop_send(), ::poll_send()
     send_queue_slots: Mutex<VecDeque<(usize, Duration)>>,
     // Read-only
     // In bits per second
@@ -84,9 +82,6 @@ pub struct Context {
     // Read-only
     // Overhead in bytes per packet (preample, inter-frame gap...)
     uplink_overhead: usize,
-    // Concurrency: accessed by application only
-    // Read/write by ::send()
-    dql: Mutex<dynamic_queue_limits::Dql>,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -112,7 +107,7 @@ enum AfterDeadline {
 }
 
 impl Context {
-    fn new(config: &Config, recv_callback: RecvCallback, deadline_callback: DeadlineCallback, poll_send_callback: PollSendCallback) -> Result<Arc<Context>> {
+    fn new(config: &Config, recv_callback: RecvCallback, deadline_callback: DeadlineCallback) -> Result<Arc<Context>> {
         let address = config.address;
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
@@ -130,10 +125,8 @@ impl Context {
             input_queue: input_queue,
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
-            poll_send_callback: poll_send_callback,
             timer_context: timer_context,
             send_queue_slots: send_queue_slots,
-            dql: Mutex::new(dynamic_queue_limits::Dql::new(Duration::ZERO, Duration::from_secs(1))),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -291,6 +284,28 @@ impl Context {
         }
     }
 
+    pub fn may_start_send(&self, callback: &Arc<PollSendCallback>) -> bool {
+        let slots = self.send_queue_slots.lock().unwrap();
+        let now = self.timer_context.simulation_now();
+        let poll_send_time = if let Some((_, xmit_end)) = slots.back() {
+            if *xmit_end > now + self.timer_context.poll_send_latency() {
+                Some(*xmit_end)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        drop(slots);
+
+        if poll_send_time.is_some() {
+            self.timer_context.schedule_poll_send_callback(now, poll_send_time, callback);
+            false
+        } else {
+            true
+        }
+    }
+
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         let mut send_time = self.timer_context.simulation_now();
 
@@ -309,45 +324,16 @@ impl Context {
             }
         };
 
-        let mut dql = self.dql.lock().unwrap();
         let mut slots = self.send_queue_slots.lock().unwrap();
 
-        // Refill DQL budget
-        // Don't refill much more than half the limit, to prevent unnecessary limit increases
-        // let mut completed = 0usize;
-        // let mut last_xmit_end: Option<Duration> = None;
-        // let threshold = dql.get_limit() / 2;
+        // Collect transmitted slots
         loop {
             match slots.front() {
                 Some((ref size, ref xmit_end)) if *xmit_end <= send_time => {
-                    // completed += *size;
-                    // last_xmit_end = Some(*xmit_end);
-                    dql.completed(*size, *xmit_end);
                     slots.pop_front();
-                    // if completed > threshold {
-                        // break;
-                    // }
                 },
                 _ => break,
             }
-        }
-        // if let Some(last_xmit_end) = last_xmit_end {
-            // if completed > threshold {
-                // dql.completed(completed, last_xmit_end);
-            // } else { // completed > 0
-                // // Keep the dql limit adjustment for later
-                // // Group the packets seen in a single blob to avoid walking the list again
-                // slots.push_front((completed, last_xmit_end));
-            // }
-        // }
-
-        // Check DQL budget
-        let accounted_size = msg.len();
-        // if dql.available() < accounted_size {
-        // Going over budget at least once is required to make DQL increase the budget
-        // Like in Linux, do it just once before the budget is refilled or re-calculated.
-        if dql.available().is_none() {
-            return Err(Error::FlowControlLimited);
         }
 
         // Cap NIC speed to the simulated bandwidth
@@ -380,14 +366,17 @@ impl Context {
         // Cap NIC speed to the simulated bandwidth
         let wire_size = msg.len() + self.uplink_overhead;
         let xmit_end = send_time + Duration::from_nanos((wire_size * 8 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
-        slots.push_back((accounted_size, xmit_end));
-
-        // Consume DQL budget
-        dql.queued(accounted_size);
+        slots.push_back((wire_size, xmit_end));
 
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
 
         Ok(())
+    }
+
+    pub fn stop_send(&self, callback: Option<&Arc<PollSendCallback>>) {
+        if let Some(callback) = callback {
+            self.poll_send(callback);
+        }
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
@@ -413,34 +402,20 @@ impl Context {
         }
     }
 
-    pub fn poll_send(&self) {
+    pub fn poll_send(&self, callback: &Arc<PollSendCallback>) {
         let slots = self.send_queue_slots.lock().unwrap();
         let now = self.timer_context.simulation_now();
-        let later = if let Some((_, xmit_end)) = slots.back() {
-            // Avoid starvation by only waiting for half of the queue to be available
-            // But don't be too aggressive and wait for at least one more packet to be removed from the queue
-            let half_queue_xmit = Duration::from_nanos((self.dql.lock().unwrap().get_limit() * 8 / 2 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
-            let half_queue_free = xmit_end.saturating_sub(half_queue_xmit);
-            let (_, next_xmit_end) = slots.front().unwrap();
-            let min_wait = if half_queue_free > *next_xmit_end {
-                half_queue_free
-            } else {
-                *next_xmit_end
-            };
-            if min_wait > now {
-                Some(min_wait)
-            } else {
-                None
-            }
-        } else {
-            None
+        let later = match slots.back() {
+            Some((_, ref xmit_end)) if *xmit_end > now => Some(*xmit_end),
+            _ => None,
         };
+        drop(slots);
 
-        self.timer_context.schedule_poll_send_callback(now, later);
+        self.timer_context.schedule_poll_send_callback(now, later, callback);
     }
 }
 
-pub fn init<I>(args: I, recv_callback: RecvCallback, deadline_callback: DeadlineCallback, poll_send_callback: PollSendCallback) -> Result<Arc<Context>>
+pub fn init<I>(args: I, recv_callback: RecvCallback, deadline_callback: DeadlineCallback) -> Result<Arc<Context>>
     where I: IntoIterator,
           I::Item: Into<std::ffi::OsString> + Clone {
     use structopt::StructOpt;
@@ -457,7 +432,7 @@ pub fn init<I>(args: I, recv_callback: RecvCallback, deadline_callback: Deadline
     let config = Config::from_iter_safe(args).or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     debug!("{:?}", config);
 
-    Context::new(&config, recv_callback, deadline_callback, poll_send_callback)
+    Context::new(&config, recv_callback, deadline_callback)
 }
 
 #[cfg(any(test, feature = "test-helpers"))]
@@ -518,9 +493,6 @@ pub mod test_helpers {
     }
 
     pub fn dummy_deadline_callback(_deadline: Duration) -> () {
-    }
-
-    pub fn dummy_poll_send_callback() -> () {
     }
 
     pub const START_ACTOR_DEADLINE: Duration = Duration::from_nanos(100_000);
@@ -674,7 +646,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         // assert_eq!(chrono::NaiveDateTime::from_timestamp(0, 0), context.0.simulation_offset);
@@ -687,7 +659,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        super::init(invalid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        super::init(invalid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect_err("init returned a context");
 
         drop(actor);
@@ -699,7 +671,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", start_actor);
         let deadline_notifier = DeadlineNotifier::new();
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback(), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
         assert_eq!(DeadlineNotifier::INITIAL_DEADLINE, deadline_notifier.deadline());
         assert_eq!(0, deadline_notifier.num_called());
@@ -719,7 +691,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", start_actor);
         let deadline_notifier = DeadlineNotifier::new();
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback(), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -742,7 +714,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let deadline_notifier = DeadlineNotifier::new();
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback(), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -765,7 +737,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -798,7 +770,7 @@ mod test {
 
         let recv_notifier = RecvNotifier::new();
         let deadline_notifier = DeadlineNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback(), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -829,7 +801,7 @@ mod test {
 
         let recv_notifier = RecvNotifier::new();
         let deadline_notifier = DeadlineNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback(), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), deadline_notifier.get_callback())
             .expect("init failed");
 
         context.start()
@@ -881,7 +853,7 @@ mod test {
         let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
 
         let recv_notifier = RecvNotifier::new();
-        let context = super::init(valid_args!(), recv_notifier.get_callback(), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), recv_notifier.get_callback(), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -910,7 +882,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", |actor| send_one_msg_actor(actor, EXPECTED_MSG));
 
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -937,7 +909,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         context.start()
@@ -962,7 +934,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init failed");
 
         let offset = context.start()
@@ -988,7 +960,7 @@ mod test {
         init();
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
-        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback), Box::new(dummy_poll_send_callback))
+        let context = super::init(valid_args_h1!(), Box::new(dummy_recv_callback), Box::new(dummy_deadline_callback))
             .expect("init() failed");
 
         let mut connector = context.connector.lock().unwrap();

@@ -43,8 +43,6 @@ void recv_cb(uintptr_t arg)
 
 void deadline_cb(uintptr_t arg, struct timespec deadline) {}
 
-void poll_send_cb(uintptr_t arg) {}
-
 vsg_context* init_vsg(int argc, char* argv[])
 {
   std::string src_str = "10.0.0.1";
@@ -53,7 +51,7 @@ vsg_context* init_vsg(int argc, char* argv[])
   const char* const vsg_argv[] = {"-a", argv[1], "-n", src_str.c_str(), "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
   int vsg_argc                 = sizeof(vsg_argv) / sizeof(vsg_argv[0]);
   std::atomic<bool> callback_called(false);
-  vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called, deadline_cb, 0, poll_send_cb, 0);
+  vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called, deadline_cb, 0);
 
   if (!context) {
     die("Unable to initialize the context", 0);

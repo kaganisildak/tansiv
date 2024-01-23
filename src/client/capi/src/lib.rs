@@ -2,11 +2,12 @@
 #[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
 extern crate tansiv_client;
 
-use tansiv_client::{Context, Error, Result};
+use tansiv_client::{Context, Error, PollSendCallback, Result};
 use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
 use static_assertions::const_assert;
+use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
 
@@ -52,12 +53,11 @@ fn duration_to_timespec(duration: std::time::Duration) -> libc::timespec {
 }
 
 #[no_mangle]
-pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t, deadline_callback: CDeadlineCallback, deadline_callback_arg: uintptr_t, poll_send_callback: CPollSendCallback, poll_send_callback_arg: uintptr_t) -> *const Context {
+pub unsafe extern fn vsg_init(argc: c_int, argv: *const *const c_char, next_arg_p: *mut c_int, recv_callback: CRecvCallback, recv_callback_arg: uintptr_t, deadline_callback: CDeadlineCallback, deadline_callback_arg: uintptr_t) -> *const Context {
     let recv_callback: tansiv_client::RecvCallback = Box::new(move || recv_callback(recv_callback_arg));
     let deadline_callback: tansiv_client::DeadlineCallback = Box::new(move |deadline| deadline_callback(deadline_callback_arg, duration_to_timespec(deadline)));
-    let poll_send_callback: tansiv_client::PollSendCallback = Box::new(move || poll_send_callback(poll_send_callback_arg));
 
-    match parse_os_args(argc, argv, |args| tansiv_client::init(args, recv_callback, deadline_callback, poll_send_callback)) {
+    match parse_os_args(argc, argv, |args| tansiv_client::init(args, recv_callback, deadline_callback)) {
         Ok((context, next_arg)) => {
             if let Some(next_arg_p) = next_arg_p.as_mut() {
                 *next_arg_p = next_arg;
@@ -169,6 +169,46 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
     }
 }
 
+#[no_mangle]
+pub unsafe extern fn vsg_poll_send_callback_new(callback: CPollSendCallback, arg: uintptr_t) -> *const PollSendCallback {
+    let callback = Arc::new(move || callback(arg));
+    Arc::into_raw(callback)
+}
+
+#[no_mangle]
+pub unsafe extern fn vsg_poll_send_callback_free(callback: *const PollSendCallback) {
+    if !callback.is_null() {
+        drop(Arc::from_raw(callback));
+    }
+}
+
+/// Checks if messages can be sent in burst and otherwise schedules a call to `callback`
+/// whenever in simulation time a message can be written in the output queue.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+/// * `callback` should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
+///
+/// # Return values
+///
+/// * `true` if messages can be sent in burst now.
+///
+/// * `0` whenever `context` is `NULL` or `callback` is NULL.
+///
+/// * `0` otherwise, with `callback` scheduled.
+#[no_mangle]
+pub unsafe extern fn vsg_may_start_send(context: *const Context, callback: *const PollSendCallback) -> c_int {
+    if let Some(context) = context.as_ref() {
+        if !callback.is_null() {
+            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            return context.may_start_send(&callback) as c_int;
+        }
+    }
+    return 0;
+}
+
 /// Sends a message having source address `src`, destination address `dst` and a payload stored in
 /// `msg[0..msglen]`.
 ///
@@ -215,6 +255,27 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
         }
     } else {
         libc::EINVAL
+    }
+}
+
+/// Records the end of a send burst and, iff `callback` is not NULL, schedules a call to `callback`
+/// whenever in simulation time a message can be written in the output queue.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+/// * `callback`, if not NULL, should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
+#[no_mangle]
+pub unsafe extern fn vsg_stop_send(context: *const Context, callback: *const PollSendCallback) {
+    if let Some(context) = context.as_ref() {
+        use std::ops::Deref;
+        if callback.is_null() {
+            context.stop_send(None)
+        } else {
+            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            context.stop_send(Some(&callback))
+        }
     }
 }
 
@@ -314,23 +375,27 @@ pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
     }
 }
 
-/// Schedule a call to the `poll_send_callback` function passed to [`vsg_init`] whenever in simulation time a message can be written in the output queue.
+/// Schedule a call to `callback` whenever in simulation time a message can be written in the output queue.
 ///
 /// # Safety
 ///
-/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+/// * `context` should point to a valid [`Context`], as previously returned by [`vsg_init`].
+/// * `callback` should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
 ///
 /// # Error codes
 ///
-/// * Fails with `libc::EINVAL` whenever `context` is NULL.
+/// * Fails with `libc::EINVAL` whenever `context` is NULL or `callback` is NULL.
 #[no_mangle]
-pub unsafe extern fn vsg_poll_send(context: *const Context) -> c_int {
+pub unsafe extern fn vsg_poll_send(context: *const Context, callback: *const PollSendCallback) -> c_int {
     if let Some(context) = context.as_ref() {
-        (*context).poll_send();
-        0
-    } else {
-        libc::EINVAL
+        if !callback.is_null() {
+            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            (*context).poll_send(&callback);
+            return 0;
+        }
     }
+    libc::EINVAL
 }
 
 #[cfg(test)]
@@ -488,9 +553,6 @@ mod test {
     extern "C" fn dummy_deadline_callback(_arg: uintptr_t, _deadline: timespec) -> () {
     }
 
-    extern "C" fn dummy_poll_send_callback(_arg: uintptr_t) -> () {
-    }
-
     // C-style version of tansiv_client::test_helpers::RecvNotifier
     // Ugly
     struct RecvNotifier(AtomicBool);
@@ -533,7 +595,7 @@ mod test {
         let mut next_arg: c_int = 0;
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
         assert_eq!(args.argc(), next_arg);
 
@@ -547,7 +609,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         unsafe { vsg_cleanup(context) };
@@ -561,7 +623,7 @@ mod test {
         let mut next_arg: c_int = 0;
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), &mut next_arg, dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(context.is_null());
         assert_eq!(0, next_arg);
 
@@ -574,7 +636,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", TestActor::dummy_actor);
         let args = invalid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(context.is_null());
 
         drop(actor);
@@ -614,7 +676,7 @@ mod test {
         let actor = TestActorDesc::new("titi", start_actor);
         let args = valid_args!();
         let deadline = SeqLock::new(timespec { tv_sec: 0, tv_nsec: 0, });
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, simple_deadline_callback, &deadline as *const _ as uintptr_t, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, simple_deadline_callback, &deadline as *const _ as uintptr_t) };
         assert!(!context.is_null());
 
         let mut offset = TIMESPEC_POISON;
@@ -647,7 +709,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", start_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -674,7 +736,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -698,7 +760,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -721,7 +783,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -749,7 +811,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -794,7 +856,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -832,7 +894,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -868,7 +930,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -904,7 +966,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -938,7 +1000,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -974,7 +1036,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1029,7 +1091,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1067,7 +1129,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1105,7 +1167,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1143,7 +1205,7 @@ mod test {
         let args = valid_args!();
         let recv_notifier = RecvNotifier::new();
         let recv_notifier = recv_notifier.pin();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), RecvNotifier::callback, RecvNotifier::get_callback_arg(&recv_notifier), dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1183,7 +1245,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };
@@ -1213,7 +1275,7 @@ mod test {
 
         let actor = TestActorDesc::new("titi", recv_one_msg_actor);
         let args = valid_args!();
-        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0, dummy_poll_send_callback, 0) };
+        let context = unsafe { vsg_init(args.argc(), args.argv(), std::ptr::null_mut(), dummy_recv_callback, 0, dummy_deadline_callback, 0) };
         assert!(!context.is_null());
 
         let res: c_int = unsafe { vsg_start(context, std::ptr::null_mut()) };

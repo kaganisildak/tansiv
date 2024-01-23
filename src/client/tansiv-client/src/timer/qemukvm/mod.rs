@@ -27,6 +27,15 @@ extern {
     fn ioctl_init_check(fd: c_int) -> bool;
 }
 
+#[repr(transparent)]
+struct PollSendCallback(Arc<crate::PollSendCallback>);
+
+impl std::fmt::Debug for PollSendCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("PollSendCallback: {:?}", Arc::as_ptr(&self.0)))
+    }
+}
+
 #[repr(C)]
 struct TimerTSCInfos {
     tsc_offset: u64,
@@ -36,6 +45,7 @@ struct TimerTSCInfos {
 #[derive(Debug)]
 pub struct TimerContextInner {
     poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
+    poll_send_callback: Mutex<Option<PollSendCallback>>,
     phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Previous deadline in global simulation time
@@ -72,8 +82,11 @@ impl Deref for TimerContext {
 }
 
 impl TimerContextInner {
+    const POLL_SEND_LATENCY_NS: u32 = 10_000;
+
     fn new() -> TimerContextInner {
         let poll_send_timer = Mutex::new(MaybeUninit::uninit());
+        let poll_send_callback = Mutex::new(None);
         let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
@@ -90,6 +103,7 @@ impl TimerContextInner {
 
             TimerContextInner {
                 poll_send_timer,
+                poll_send_callback,
                 phantom_pinned,
                 context,
                 prev_deadline,
@@ -254,7 +268,11 @@ impl TimerContextInner {
         return None;
     }
 
-    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>) {
+    pub fn poll_send_latency(&self) -> StdDuration {
+        StdDuration::from_nanos(u64::from(Self::POLL_SEND_LATENCY_NS))
+    }
+
+    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>, callback: &Arc<crate::PollSendCallback>) {
         // Use QEMU_VIRTUAL_CLOCK to schedule the timer and try to be close to the desired scheduled
         // time
         // If a deadline occurs before the timer expires, the timer will appear as expiring before
@@ -265,7 +283,7 @@ impl TimerContextInner {
         let delay_ns = i64::try_from((later-now).as_nanos())
             .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
         // The QEMU timer may have up to 10µs latency and we prefer being (just) a bit aggressive
-        let delay_ns = i64::max(0, delay_ns - 10_000);
+        let delay_ns = i64::max(0, delay_ns - i64::from(Self::POLL_SEND_LATENCY_NS));
         // Safety:
         // - Qemu clocks are assumed initialized when self is created
         // - qemu_clock_get_ns() only accesses Qemu's internal data
@@ -295,6 +313,7 @@ impl TimerContextInner {
 
         // Safety: similar arguments to qemu_timer in ::set_next_deadline
         let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        *self.poll_send_callback.lock().unwrap() = Some(PollSendCallback(callback.clone()));
         unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
     }
 }
@@ -337,7 +356,7 @@ pub extern fn get_tansiv_timer_fd(opaque: *mut ::std::os::raw::c_void) -> c_int 
 extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
     // Safety: TODO
     let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
-    if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
-        (context.poll_send_callback)();
+    if let Some(ref callback) = *timer_context.poll_send_callback.lock().unwrap() {
+        callback.0();
     }
 }

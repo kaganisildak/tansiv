@@ -12,10 +12,20 @@ use std::time::Duration as StdDuration;
 
 use crate::output_msg_set::{OutputMsg};
 
+#[repr(transparent)]
+struct PollSendCallback(Arc<crate::PollSendCallback>);
+
+impl std::fmt::Debug for PollSendCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("PollSendCallback: {:?}", Arc::as_ptr(&self.0)))
+    }
+}
+
 #[derive(Debug)]
 pub struct TimerContextInner {
     qemu_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
+    poll_send_callback: Mutex<Option<PollSendCallback>>,
     phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Constant offset from simulation time to VM time
@@ -56,6 +66,7 @@ impl TimerContextInner {
     fn new() -> TimerContextInner {
         let qemu_timer = Mutex::new(MaybeUninit::uninit());
         let poll_send_timer = Mutex::new(MaybeUninit::uninit());
+        let poll_send_callback = Mutex::new(None);
         let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let offset = Mutex::new(Duration::zero());
@@ -65,6 +76,7 @@ impl TimerContextInner {
         TimerContextInner {
             qemu_timer,
             poll_send_timer,
+            poll_send_callback,
             phantom_pinned,
             context,
             offset,
@@ -201,13 +213,18 @@ impl TimerContextInner {
         }
     }
 
-    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>) {
+    pub fn poll_send_latency(&self) -> StdDuration {
+        StdDuration::ZERO
+    }
+
+    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>, callback: &Arc<crate::PollSendCallback>) {
         // In icount mode rescheduling exactly now may start an infinite loop
         let later = later.unwrap_or(now + StdDuration::from_nanos(1));
         let expire = (self.offset.lock().unwrap().to_std().unwrap() + later).as_nanos() as i64;
 
         // Safety: similar arguments to qemu_timer in ::set_next_deadline
         let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
+        *self.poll_send_callback.lock().unwrap() = Some(PollSendCallback(callback.clone()));
         unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
     }
 }
@@ -236,7 +253,7 @@ extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void) {
 extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
     // Safety: TODO
     let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
-    if let Some(context) = timer_context.context.lock().unwrap().upgrade() {
-        (context.poll_send_callback)();
+    if let Some(ref callback) = *timer_context.poll_send_callback.lock().unwrap() {
+        callback.0();
     }
 }

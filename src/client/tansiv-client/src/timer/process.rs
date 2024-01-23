@@ -240,7 +240,11 @@ impl TimerContext {
         return None;
     }
 
-    pub fn schedule_poll_send_callback(&self, _now: StdDuration, _later: Option<StdDuration>) {
+    pub fn poll_send_latency(&self) -> StdDuration {
+        unimplemented!()
+    }
+
+    pub fn schedule_poll_send_callback(&self, _now: StdDuration, _later: Option<StdDuration>, _callback: &Arc<crate::PollSendCallback>) {
         unimplemented!()
     }
 }
