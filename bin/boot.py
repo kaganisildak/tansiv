@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+from abc import abstractmethod
 import argparse
 from ipaddress import IPv4Interface
 import logging
 from pathlib import Path
 import os
 from subprocess import check_call
-import tempfile
 from typing import Dict, List, Optional
 import yaml
 
@@ -17,6 +17,7 @@ DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
 class VM(object):
     def __init__(
         self,
+        descriptor: int,
         ip_tantap: IPv4Interface,
         ip_management: IPv4Interface,
         qemu_cmd: str,
@@ -28,11 +29,15 @@ class VM(object):
         mem: str = "1g",
         qemu_nictype: str = "virtio-net-pci",
         virtio_net_nb_queues: int = 1,
+        cores: Optional[int] = None,
     ):
+        self.descriptor = descriptor
         self.tantap = ip_tantap
         self.management = ip_management
 
         self.qemu_cmd = qemu_cmd
+        # force qemu_image to be a Path
+        qemu_image = Path(qemu_image)
         self.qemu_image = qemu_image.resolve()
         self._hostname = hostname
         self.public_key = public_key
@@ -43,6 +48,8 @@ class VM(object):
 
         self.__qemu_nictype = qemu_nictype
         self.__virtio_net_nb_queues = virtio_net_nb_queues
+
+        self.cores = 1 if cores is None else cores
 
     @property
     def qemu_args(self):
@@ -226,53 +233,26 @@ class VM(object):
 
     def prepare_net_cmds(self):
         return [
-            self._br_tap_cmd(self.bridgename[0], self.gateway[0], self.tapname[0], self.virtio_net_nb_queues[0]),
-            self._br_tap_cmd(self.bridgename[1], self.gateway[1], self.tapname[1], self.virtio_net_nb_queues[1]),
+            self._br_tap_cmd(
+                self.bridgename[0],
+                self.gateway[0],
+                self.tapname[0],
+                self.virtio_net_nb_queues[0],
+            ),
+            self._br_tap_cmd(
+                self.bridgename[1],
+                self.gateway[1],
+                self.tapname[1],
+                self.virtio_net_nb_queues[1],
+            ),
         ]
 
-    def start(self, working_dir: Path) -> Path:
-        # create the working dir
-        #   fail if it already exist so that the user can explicitly choose to
-        #   remove it (and backup the previous one if needed)
-        working_dir.mkdir(parents=True, exist_ok=False)
-        # generate cloud_init
-        iso = self.prepare_cloud_init(working_dir)
-        # generate the base image
-        image = self.prepare_image(working_dir)
-
-        self.prepare_net()
-
-        if self.virtio_net_nb_queues[0] == 1:
-            multi_queues_opt_tap = ""
-            multi_queues_opt_virtio = ""
-        else:
-            multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=off"
-            multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on"
-
-        if self.virtio_net_nb_queues[1] == 1:
-            multi_queues_opt_tap_management = ""
-            multi_queues_opt_virtio_management = ""
-        else:
-            multi_queues_opt_tap_management = f",queues={self.virtio_net_nb_queues[1]},vhost=off"
-            multi_queues_opt_virtio_management = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[1] + 2)},rss=on,hash=on"
-
-        cmd = (
-            f"{self.qemu_cmd}"
-            f" {self.qemu_args}"
-            f" -drive file={image} "
-            f" -cdrom {iso}"
-            f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no{multi_queues_opt_tap}"
-            f" -device {self.nictype[0]},netdev=mynet0,mac={self.mac[0]}{multi_queues_opt_virtio}"
-            f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no{multi_queues_opt_tap_management}"
-            f" -device {self.nictype[1]},netdev=mynet1,mac={self.mac[1]}{multi_queues_opt_virtio_management}"
-            f" -gdb tcp::{1234 + self.management_id},server,nowait"
-        )
-        stdout = (working_dir / "out").open("w")
-        LOGGER.info(cmd)
-        check_call(cmd, shell=True, stdout=stdout, cwd=working_dir)
+    @abstractmethod
+    def start(self, working_dir: Path) -> None:
+        ...
 
 
-class TansivVM(VM):
+class TansivQemu(VM):
     def __init__(self, socket_name: str, *args, num_buffers=None, **kwargs):
         self.socket_name = socket_name
         self.num_buffers = num_buffers
@@ -294,6 +274,114 @@ class TansivVM(VM):
     @property
     def taptype(self) -> List[str]:
         return ["tantap", "tap"]
+
+    def prepare_cmd(self, image: Path, iso: Path) -> str:
+        """
+        python -m doctest boot.py
+        >>> tansiv_qemu = TansivQemu(
+        ...                "socket",
+        ...                1,
+        ...                IPv4Interface("192.168.120.1/24"),
+        ...                IPv4Interface("10.0.0.1/24"),
+        ...                "qemu-system-x86_64",
+        ...                Path("image.qcow2"),
+        ...                num_buffers=42)
+        >>> tansiv_qemu.prepare_cmd(Path("image_copy.qcow2"), Path("cloud_init.iso"))
+        'qemu-system-x86_64  -m 1g --vsg mynet0,socket=socket,src=192.168.120.1,num_buffers=42 -drive file=image_copy.qcow2  -cdrom cloud_init.iso -netdev tantap,id=mynet0,ifname=tantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet0,mac=02:ca:fe:f0:0d:01 -netdev tap,id=mynet1,ifname=mantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet1,mac=54:52:fe:f0:0d:01 -gdb tcp::1235,server,nowait'
+
+        >>> tansiv_qemu = TansivQemuICount(
+        ...                "socket",
+        ...                1,
+        ...                IPv4Interface("192.168.120.1/24"),
+        ...                IPv4Interface("10.0.0.1/24"),
+        ...                "qemu-system-x86_64",
+        ...                Path("image.qcow2"),
+        ...                num_buffers=42)
+        >>> tansiv_qemu.prepare_cmd(Path("image_copy.qcow2"), Path("cloud_init.iso"))
+        'qemu-system-x86_64  -m 1g --vsg mynet0,socket=socket,src=192.168.120.1,num_buffers=42 -icount shift=0,sleep=off,align=off -rtc clock=vm -drive file=image_copy.qcow2  -cdrom cloud_init.iso -netdev tantap,id=mynet0,ifname=tantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet0,mac=02:ca:fe:f0:0d:01 -netdev tap,id=mynet1,ifname=mantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet1,mac=54:52:fe:f0:0d:01 -gdb tcp::1235,server,nowait'
+
+
+
+        >>> tansiv_qemu = TansivQemuKVM(
+        ...                "socket",
+        ...                1,
+        ...                IPv4Interface("192.168.120.1/24"),
+        ...                IPv4Interface("10.0.0.1/24"),
+        ...                "qemu-system-x86_64",
+        ...                Path("image.qcow2"),
+        ...                num_buffers=42)
+        >>> tansiv_qemu.prepare_cmd(Path("image_copy.qcow2"), Path("cloud_init.iso"))
+        'qemu-system-x86_64  -m 1g --vsg mynet0,socket=socket,src=192.168.120.1,num_buffers=42 -accel kvm -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor unix:/tmp/qemu-monitor-1,server,nowait -cpu max,invtsc=on -drive file=image_copy.qcow2  -cdrom cloud_init.iso -netdev tantap,id=mynet0,ifname=tantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet0,mac=02:ca:fe:f0:0d:01 -netdev tap,id=mynet1,ifname=mantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet1,mac=54:52:fe:f0:0d:01 -gdb tcp::1235,server,nowait'
+
+        """
+        if self.virtio_net_nb_queues[0] == 1:
+            multi_queues_opt_tap = ""
+            multi_queues_opt_virtio = ""
+        else:
+            multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=off"
+            multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on"
+
+        if self.virtio_net_nb_queues[1] == 1:
+            multi_queues_opt_tap_management = ""
+            multi_queues_opt_virtio_management = ""
+        else:
+            multi_queues_opt_tap_management = (
+                f",queues={self.virtio_net_nb_queues[1]},vhost=off"
+            )
+            multi_queues_opt_virtio_management = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[1] + 2)},rss=on,hash=on"
+
+        cmd = (
+            f"{self.qemu_cmd}"
+            f" {self.qemu_args}"
+            f" -drive file={image} "
+            f" -cdrom {iso}"
+            f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no{multi_queues_opt_tap}"
+            f" -device {self.nictype[0]},netdev=mynet0,mac={self.mac[0]}{multi_queues_opt_virtio}"
+            f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no{multi_queues_opt_tap_management}"
+            f" -device {self.nictype[1]},netdev=mynet1,mac={self.mac[1]}{multi_queues_opt_virtio_management}"
+            f" -gdb tcp::{1234 + self.management_id},server,nowait"
+        )
+
+        return cmd
+
+    def start(self, working_dir: Path) -> Path:
+        # create the working dir
+        #   fail if it already exist so that the user can explicitly choose to
+        #   remove it (and backup the previous one if needed)
+        working_dir.mkdir(parents=True, exist_ok=False)
+        # generate cloud_init
+        iso = self.prepare_cloud_init(working_dir)
+        # generate the base image
+        image = self.prepare_image(working_dir)
+
+        # abstract
+        self.prepare_net()
+
+        cmd = self.prepare_cmd(image, iso)
+
+        stdout = (working_dir / "out").open("w")
+        LOGGER.info(cmd)
+        check_call(cmd, shell=True, stdout=stdout, cwd=working_dir)
+
+
+class TansivQemuICount(TansivQemu):
+    @property
+    def qemu_args(self):
+        qemu_args = super().qemu_args
+        cmd = qemu_args + " " + f"-icount shift=0,sleep=off,align=off -rtc clock=vm"
+        return cmd
+
+
+class TansivQemuKVM(TansivQemu):
+    @property
+    def qemu_args(self):
+        qemu_args = super().qemu_args
+        cmd = (
+            qemu_args
+            + " "
+            + f"-accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores} -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait -cpu max,invtsc=on"
+        )
+        return cmd
 
 
 def terminate(*args):
@@ -340,6 +428,7 @@ done
 """,
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    parser.add_argument("mode", choices=["icount", "kvm"], help="mode ...")
 
     parser.add_argument(
         "socket_name",
@@ -363,7 +452,6 @@ done
         type=str,
         help="The hostname of the virtual machine",
     )
-    parser.add_argument("--mode", type=str, help="mode (tap | tantap)", default="tap")
     parser.add_argument(
         "--qemu_cmd",
         type=str,
@@ -427,6 +515,12 @@ to the latency x bandwidth. Undersized buffer pool lead to packet dropping (sile
 The default value is too low for realistics benchmarks.""",
     )
 
+    parser.add_argument(
+        "--cores",
+        type=int,
+        help="Number of cores (Note that it is set to 1 for icount mode)",
+    )
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
@@ -451,14 +545,16 @@ The default value is too low for realistics benchmarks.""",
 
     num_buffers = args.num_buffers
 
+    cores = args.cores
+
     # check the required third party software
     check_call("genisoimage --version", shell=True)
     check_call("qemu-img --version", shell=True)
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
-    if args.mode == "tantap":
-        vm = TansivVM(
+    if args.mode == "icount":
+        vm = TansivQemuICount(
             socket_name,
             ip_tantap,
             ip_management,
@@ -473,8 +569,9 @@ The default value is too low for realistics benchmarks.""",
             qemu_nictype=qemu_nictype,
             virtio_net_nb_queues=virtio_net_nb_queues,
         )
-    else:
-        vm = VM(
+    elif args.mode == "kvm":
+        vm = TansivQemuKVM(
+            socket_name,
             ip_tantap,
             ip_management,
             qemu_cmd=qemu_cmd,
@@ -484,9 +581,13 @@ The default value is too low for realistics benchmarks.""",
             public_key=public_key,
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
+            num_buffers=num_buffers,
             qemu_nictype=qemu_nictype,
             virtio_net_nb_queues=virtio_net_nb_queues,
+            cores=cores,
         )
+    else:
+        raise ValueError("Unknown mode")
 
     for cmd in vm.prepare_net_cmds():
         print(cmd)
