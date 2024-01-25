@@ -27,6 +27,7 @@ class VM(object):
         autoconfig_net: bool = False,
         mem: str = "1g",
         qemu_nictype: str = "virtio-net-pci",
+        virtio_net_nb_queues: int = 1,
     ):
         self.tantap = ip_tantap
         self.management = ip_management
@@ -41,6 +42,7 @@ class VM(object):
         self.__mem = mem
 
         self.__qemu_nictype = qemu_nictype
+        self.__virtio_net_nb_queues = virtio_net_nb_queues
 
     @property
     def qemu_args(self):
@@ -88,6 +90,10 @@ class VM(object):
     @property
     def nictype(self) -> List[str]:
         return [f"{self.__qemu_nictype}", "virtio-net-pci"]
+
+    @property
+    def virtio_net_nb_queues(self) -> List[int]:
+        return [self.__virtio_net_nb_queues, 1]
 
     @property
     def mac(self) -> List[str]:
@@ -189,17 +195,21 @@ class VM(object):
         )
         return qemu_image
 
-    def _br_tap_cmd(self, br: str, ip: IPv4Interface, tap: str):
+    def _br_tap_cmd(self, br: str, ip: IPv4Interface, tap: str, queues: int):
         """Create a bridge and a tap attached.
 
         This assumes that the current process is running with the right
         level of privilege.
         """
+        if queues == 1:
+            extra_tap_opts = ""
+        else:
+            extra_tap_opts = "vnet_hdr multi_queue"
         return f"""
                     ip link show dev {br} || ip link add name {br} type bridge
                     ip link set {br} up
                     (ip addr show dev {br} | grep {ip}) || ip addr add {ip} dev {br}
-                    ip link show dev {tap} || ip tuntap add {tap} mode tap
+                    ip link show dev {tap} || ip tuntap add {tap} mode tap {extra_tap_opts}
                     ip link set {tap} master {br}
                     ip link set {tap} up
                     """
@@ -216,8 +226,8 @@ class VM(object):
 
     def prepare_net_cmds(self):
         return [
-            self._br_tap_cmd(self.bridgename[0], self.gateway[0], self.tapname[0]),
-            self._br_tap_cmd(self.bridgename[1], self.gateway[1], self.tapname[1]),
+            self._br_tap_cmd(self.bridgename[0], self.gateway[0], self.tapname[0], self.virtio_net_nb_queues[0]),
+            self._br_tap_cmd(self.bridgename[1], self.gateway[1], self.tapname[1], self.virtio_net_nb_queues[1]),
         ]
 
     def start(self, working_dir: Path) -> Path:
@@ -232,16 +242,29 @@ class VM(object):
 
         self.prepare_net()
 
-        # boot
+        if self.virtio_net_nb_queues[0] == 1:
+            multi_queues_opt_tap = ""
+            multi_queues_opt_virtio = ""
+        else:
+            multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=off"
+            multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on"
+
+        if self.virtio_net_nb_queues[1] == 1:
+            multi_queues_opt_tap_management = ""
+            multi_queues_opt_virtio_management = ""
+        else:
+            multi_queues_opt_tap_management = f",queues={self.virtio_net_nb_queues[1]},vhost=off"
+            multi_queues_opt_virtio_management = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[1] + 2)},rss=on,hash=on"
+
         cmd = (
             f"{self.qemu_cmd}"
             f" {self.qemu_args}"
             f" -drive file={image} "
             f" -cdrom {iso}"
-            f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no"
-            f" -device {self.nictype[0]},netdev=mynet0,mac={self.mac[0]}"
-            f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no"
-            f" -device {self.nictype[1]},netdev=mynet1,mac={self.mac[1]}"
+            f" -netdev {self.taptype[0]},id=mynet0,ifname={self.tapname[0]},script=no,downscript=no{multi_queues_opt_tap}"
+            f" -device {self.nictype[0]},netdev=mynet0,mac={self.mac[0]}{multi_queues_opt_virtio}"
+            f" -netdev {self.taptype[1]},id=mynet1,ifname={self.tapname[1]},script=no,downscript=no{multi_queues_opt_tap_management}"
+            f" -device {self.nictype[1]},netdev=mynet1,mac={self.mac[1]}{multi_queues_opt_virtio_management}"
             f" -gdb tcp::{1234 + self.management_id},server,nowait"
         )
         stdout = (working_dir / "out").open("w")
@@ -384,6 +407,13 @@ done
     )
 
     parser.add_argument(
+        "--virtio_net_nb_queues",
+        type=int,
+        help="""Number of queues for the virtio vNIC. Should be a power of 2
+                lower or equal to the number of vCPUs. Default is 1 (no multi-queue).""",
+    )
+
+    parser.add_argument(
         "--base_working_dir",
         type=str,
         help="base directory where the working dir will be stored",
@@ -416,6 +446,7 @@ The default value is too low for realistics benchmarks.""",
     if not qemu_image:
         raise ValueError("qemu_image must be set")
     qemu_nictype = args.qemu_nictype
+    virtio_net_nb_queues = args.virtio_net_nb_queues
     autoconfig_net = args.autoconfig_net
 
     num_buffers = args.num_buffers
@@ -440,6 +471,7 @@ The default value is too low for realistics benchmarks.""",
             mem=qemu_mem,
             num_buffers=num_buffers,
             qemu_nictype=qemu_nictype,
+            virtio_net_nb_queues=virtio_net_nb_queues,
         )
     else:
         vm = VM(
@@ -453,6 +485,7 @@ The default value is too low for realistics benchmarks.""",
             autoconfig_net=autoconfig_net,
             mem=qemu_mem,
             qemu_nictype=qemu_nictype,
+            virtio_net_nb_queues=virtio_net_nb_queues,
         )
 
     for cmd in vm.prepare_net_cmds():
