@@ -7,6 +7,7 @@ use libc;
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
@@ -76,6 +77,7 @@ pub struct Context {
     // - read-write by ::send()
     // - read-only by ::may_start_send(), ::may_stop_send(), ::poll_send()
     next_send_floor: Mutex<Duration>,
+    send_burst_count: AtomicUsize,
     // Read-only
     // In bits per second
     uplink_bandwidth: std::num::NonZeroUsize,
@@ -127,6 +129,7 @@ impl Context {
             deadline_callback: deadline_callback,
             timer_context: timer_context,
             next_send_floor: next_send_floor,
+            send_burst_count: AtomicUsize::new(0),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -287,6 +290,7 @@ impl Context {
     pub fn may_start_send(&self, callback: &Arc<PollSendCallback>) -> bool {
         let next_send_floor = *self.next_send_floor.lock().unwrap();
         let now = self.timer_context.simulation_now();
+        assert_eq!(self.send_burst_count.load(Ordering::Relaxed), 0);
         if next_send_floor > now + self.timer_context.poll_send_latency() {
             self.timer_context.schedule_poll_send_callback(now, Some(next_send_floor), callback);
             info!("[{:?}] may_start_send: delaying send to {:?}", now, next_send_floor);
@@ -347,13 +351,17 @@ impl Context {
         *next_send_floor = xmit_end;
 
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+        self.send_burst_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
     }
 
     pub fn stop_send(&self, callback: Option<&Arc<PollSendCallback>>) {
+        let now = self.timer_context.simulation_now();
+        info!("[{:?}] stop_send: burst of {}", now, self.send_burst_count.load(Ordering::Relaxed));
+        self.send_burst_count.store(0, Ordering::Relaxed);
         if let Some(callback) = callback {
-            info!("[{:?}] stop_send: capped send burst", self.timer_context.simulation_now());
+            info!("[{:?}] stop_send: capped send burst", now);
             self.poll_send(callback);
         }
     }
