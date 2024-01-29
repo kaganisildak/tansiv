@@ -289,6 +289,7 @@ impl Context {
         let now = self.timer_context.simulation_now();
         if next_send_floor > now + self.timer_context.poll_send_latency() {
             self.timer_context.schedule_poll_send_callback(now, Some(next_send_floor), callback);
+            info!("[{:?}] may_start_send: delaying send to {:?}", now, next_send_floor);
             false
         } else {
             true
@@ -352,6 +353,7 @@ impl Context {
 
     pub fn stop_send(&self, callback: Option<&Arc<PollSendCallback>>) {
         if let Some(callback) = callback {
+            info!("[{:?}] stop_send: capped send burst", self.timer_context.simulation_now());
             self.poll_send(callback);
         }
     }
@@ -383,6 +385,7 @@ impl Context {
         let next_send_floor = *self.next_send_floor.lock().unwrap();
         let now = self.timer_context.simulation_now();
         let later =  if next_send_floor > now {
+            info!("[{:?}] poll_send: next possible send at {:?}", now, next_send_floor);
             Some(next_send_floor)
         } else {
             None
