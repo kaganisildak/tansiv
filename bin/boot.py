@@ -2,9 +2,10 @@
 from abc import abstractmethod
 import argparse
 from ipaddress import IPv4Interface
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 import logging
-from pathlib import Path
 import os
+from pathlib import Path
 from subprocess import check_call
 from typing import Dict, List, Optional
 import yaml
@@ -30,6 +31,7 @@ class VM(object):
         qemu_nictype: str = "virtio-net-pci",
         virtio_net_nb_queues: int = 1,
         cores: Optional[int] = None,
+        mac_address: Optional[str] = None,
     ):
         self.descriptor = descriptor
         self.tantap = ip_tantap
@@ -51,24 +53,24 @@ class VM(object):
 
         self.cores = 1 if cores is None else cores
 
+        self.__mac_address = mac_address
+
     @property
     def qemu_args(self):
         return f"{self.__qemu_args} -m {self.__mem}"
 
     @property
     def tantap_id(self):
-        _, _, _, t = self.tantap.ip.packed
-        return t
+        return self.descriptor
 
     @property
     def management_id(self):
-        _, _, _, m = self.management.ip.packed
-        return m
+        return self.descriptor
 
     @property
     def hostname(self) -> str:
         if self._hostname is None:
-            return f"tansiv-{str(self.tantap.ip).replace('.', '-')}"
+            return f"tansiv-{self.descriptor}"
         return self._hostname
 
     @property
@@ -106,8 +108,13 @@ class VM(object):
     def mac(self) -> List[str]:
         t = self.tantap_id
         m = self.management_id
+        tantap_mac = (
+            f"02:ca:fe:f0:0d:{hex(t).lstrip('0x').rjust(2, '0')}"
+            if self.__mac_address is None
+            else self.__mac_address
+        )
         return [
-            f"02:ca:fe:f0:0d:{hex(t).lstrip('0x').rjust(2, '0')}",
+            tantap_mac,
             f"54:52:fe:f0:0d:{hex(m).lstrip('0x').rjust(2, '0')}",
         ]
 
@@ -144,6 +151,7 @@ class VM(object):
 
     def ci_user_data(self) -> Dict:
         bootcmd = ["----> START OF TANTAP CLOUD INIT <----------------"]
+
         # we generate all the possible mapping for the different network
         def _mapping(interface: IPv4Interface, prefix: str):
             host_entries = []
@@ -246,6 +254,21 @@ class VM(object):
                 self.virtio_net_nb_queues[1],
             ),
         ]
+    
+    def prepare_start(self, working_dir: Path) -> tuple[Path, Path]:
+        # create the working dir
+        #   fail if it already exist so that the user can explicitly choose to
+        #   remove it (and backup the previous one if needed)
+        working_dir.mkdir(parents=True, exist_ok=False)
+        # generate cloud_init
+        iso = self.prepare_cloud_init(working_dir)
+        # generate the base image
+        image = self.prepare_image(working_dir)
+
+        # abstract
+        self.prepare_net()
+
+        return iso, image
 
     @abstractmethod
     def start(self, working_dir: Path) -> None:
@@ -253,7 +276,9 @@ class VM(object):
 
 
 class TansivQemu(VM):
-    def __init__(self, socket_name: str, *args, num_buffers=None, **kwargs):
+    def __init__(
+        self, socket_name: str, *args, num_buffers: Optional[int] = None, **kwargs
+    ):
         self.socket_name = socket_name
         self.num_buffers = num_buffers
         super().__init__(*args, **kwargs)
@@ -321,6 +346,7 @@ class TansivQemu(VM):
             multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=off"
             multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on"
 
+        # The following code can be removed if we do not want to support multi queue for the management interface
         if self.virtio_net_nb_queues[1] == 1:
             multi_queues_opt_tap_management = ""
             multi_queues_opt_virtio_management = ""
@@ -345,17 +371,7 @@ class TansivQemu(VM):
         return cmd
 
     def start(self, working_dir: Path) -> Path:
-        # create the working dir
-        #   fail if it already exist so that the user can explicitly choose to
-        #   remove it (and backup the previous one if needed)
-        working_dir.mkdir(parents=True, exist_ok=False)
-        # generate cloud_init
-        iso = self.prepare_cloud_init(working_dir)
-        # generate the base image
-        image = self.prepare_image(working_dir)
-
-        # abstract
-        self.prepare_net()
+        iso, image = self.prepare_start(working_dir)
 
         cmd = self.prepare_cmd(image, iso)
 
@@ -368,7 +384,7 @@ class TansivQemuICount(TansivQemu):
     @property
     def qemu_args(self):
         qemu_args = super().qemu_args
-        cmd = qemu_args + " " + f"-icount shift=0,sleep=off,align=off -rtc clock=vm"
+        cmd = f"{qemu_args} -icount shift=0,sleep=off,align=off -rtc clock=vm"
         return cmd
 
 
@@ -377,11 +393,83 @@ class TansivQemuKVM(TansivQemu):
     def qemu_args(self):
         qemu_args = super().qemu_args
         cmd = (
-            qemu_args
-            + " "
-            + f"-accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores} -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait -cpu max,invtsc=on"
+            f"{qemu_args}"
+            f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
+            f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
+            f" -cpu max,invtsc=on"
         )
         return cmd
+
+
+class TansivLibvirt(VM):
+    def __init__(
+        self,
+        socket_name: str,
+        *args,
+        template: str = "deployment-qemukvm-libvirt.xml.j2",
+        cpuset: str = "",
+        num_buffers: Optional[int] = None,
+        **kwargs,
+    ):
+        self.socket_name = socket_name
+        self.cpuset = cpuset
+        self.num_buffers = num_buffers
+        if not self.cpuset:
+            if not self.cores:
+                self.cpuset = "0"
+            else:
+                self.cpuset = f"0-{self.cores}"
+        self.template = template
+        super().__init__(*args, **kwargs)
+
+    def fill_template(
+        self,
+        out: Path,
+        **kwargs,
+    ):
+        env = Environment(
+            loader=FileSystemLoader(
+                Path(__file__).parent / "templates"
+            ),  # TODO: Put the templates elsewhere than /bin
+            autoescape=select_autoescape(),
+        )
+        template = env.get_template(self.template)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(template.render(**kwargs))
+
+    def start(self, working_dir: Path) -> Path:
+        iso, image = self.prepare_start(working_dir)
+
+        self.fill_template(
+            out=working_dir / f"domain-{self.descriptor}.xml",
+            descriptor=self.descriptor,
+            qemu_gdb_port=1234 + self.descriptor,
+            qemu_mem=self.qemu_mem,
+            qemu_cmd=self.qemu_cmd,
+            qemu_img=image,
+            qemu_vcpus=self.cores,
+            qemu_cpuset=self.cpuset,
+            qemu_cdrom=iso,
+            qemu_tantap_mac=self.mac[0],
+            qemu_mantap_mac=self.mac[1],
+            qemu_num_buffers=self.num_buffers,
+            qemu_tantap_ip=self.tantap.ip,
+            qemu_socket_name=self.socket_name,
+            qemu_mantap_name=self.tapname[1],
+            qemu_tantap_name=self.tapname[0],
+        )
+
+        cmd = f"virsh create domain-{self.descriptor}.xml"
+        stdout = (working_dir / "out").open("w")
+        LOGGER.info(cmd)
+        check_call(cmd, shell=True, stdout=stdout, cwd=working_dir)
+
+
+class TansivLibvirtVMI(TansivLibvirt):
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+            *args, template="deployment-qemukvmvmi-libvirt.xml.j2", **kwargs
+        )
 
 
 def terminate(*args):
@@ -428,62 +516,71 @@ done
 """,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("mode", choices=["icount", "kvm"], help="mode ...")
-
+    # The coordinator requires socket_name as the the first argument
     parser.add_argument(
         "socket_name",
         type=str,
-        help="The (unix) socket name to use for commicating with Tansiv",
+        help="The (unix) socket name to use for commicating with Tansiv.",
+    )
+
+    parser.add_argument(
+        "mode", choices=["icount", "kvm", "libvirt", "libvirt_vmi"], help="mode ..."
     )
 
     parser.add_argument(
         "ip_tantap",
         type=str,
-        help="The ip (in cidr) to use for the tantap interface",
+        help="The ip (in cidr) to use for the tantap interface.",
     )
 
     parser.add_argument(
         "ip_management",
         type=str,
-        help="The ip (in cidr) to use for the management interface",
+        help="The ip (in cidr) to use for the management interface.",
     )
+
+    parser.add_argument(
+        "descriptor", type=int, help="Unique integer ID to identify the VM."
+    )
+
     parser.add_argument(
         "--hostname",
         type=str,
-        help="The hostname of the virtual machine",
+        help="The hostname of the virtual machine. Default is 'tansiv-{descriptor}'.",
     )
+
     parser.add_argument(
         "--qemu_cmd",
         type=str,
-        help="qemu cmd to pass",
+        help="qemu cmd to pass. Default is QEMU.",
         default=os.environ.get("QEMU", None),
     )
 
     parser.add_argument(
         "--qemu_mem",
         type=str,
-        help="Memory to use (e.g 1g)",
+        help="Memory to use (e.g 1g). Default is QEMU_MEM, or if not defined '1g'.",
         default=os.environ.get("QEMU_MEM", "1g"),
     )
 
     parser.add_argument(
         "--qemu_args",
         type=str,
-        help="extra qemu args to pass (e.g.'--icount shift=1,sleep=on,align=off')",
+        help="extra qemu args to pass. Default is QEMU_ARGS.",
         default=os.environ.get("QEMU_ARGS", ""),
     )
 
     parser.add_argument(
         "--autoconfig_net",
         action="store_true",
-        help="True iff network must be autoconfigured",
+        help="True iff network must be autoconfigured. Default is AUTOCONFIG_NET, or if not defined False.",
         default=os.environ.get("AUTOCONFIG_NET", False),
     )
 
     parser.add_argument(
         "--qemu_image",
         type=str,
-        help="disk image",
+        help="Disk image path. Default is IMAGE.",
         default=os.environ.get("IMAGE", None),
     )
 
@@ -499,12 +596,13 @@ done
         type=int,
         help="""Number of queues for the virtio vNIC. Should be a power of 2
                 lower or equal to the number of vCPUs. Default is 1 (no multi-queue).""",
+        default=1,
     )
 
     parser.add_argument(
         "--base_working_dir",
         type=str,
-        help="base directory where the working dir will be stored",
+        help="Base directory where the working dir will be stored. Default is ./tansiv-working-dir .",
     )
 
     parser.add_argument(
@@ -518,34 +616,52 @@ The default value is too low for realistics benchmarks.""",
     parser.add_argument(
         "--cores",
         type=int,
-        help="Number of cores (Note that it is set to 1 for icount mode)",
+        help="Number of cores. Default is 1. Forced to 1 in icount mode",
+    )
+
+    parser.add_argument(
+        "--cpuset",
+        type=str,
+        help="""Cores on which the vCPUs must be pinned. Examples: '0', '2-5', '1, ^3, 4-6'.
+                Default is '0-{cores}'. Only compatible with libvirt modes. """,
+    )
+
+    parser.add_argument(
+        "--mac",
+        type=str,
+        help="Mac address for the main network interface. Default is derivated from the VM id.",
     )
 
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
 
-    socket_name = args.socket_name
+    d = {}
 
-    ip_tantap = IPv4Interface(args.ip_tantap)
-    ip_management = IPv4Interface(args.ip_management)
-    hostname = args.hostname
+    d["socket_name"] = args.socket_name
 
-    qemu_cmd = args.qemu_cmd
-    if not qemu_cmd:
+    d["ip_tantap"] = IPv4Interface(args.ip_tantap)
+    d["ip_management"] = IPv4Interface(args.ip_management)
+    d["hostname"] = args.hostname
+
+    d["qemu_cmd"] = args.qemu_cmd
+    if not args.qemu_cmd:
         raise ValueError("qemu_cmd must be set")
-    qemu_args = args.qemu_args
-    qemu_mem = args.qemu_mem
-    qemu_image = Path(args.qemu_image)
-    if not qemu_image:
+    d["qemu_args"] = args.qemu_args
+    d["qemu_mem"] = args.qemu_mem
+    d["qemu_image"] = Path(args.qemu_image)
+    if not args.qemu_image:
         raise ValueError("qemu_image must be set")
-    qemu_nictype = args.qemu_nictype
-    virtio_net_nb_queues = args.virtio_net_nb_queues
-    autoconfig_net = args.autoconfig_net
+    d["qemu_nictype"] = args.qemu_nictype
+    d["virtio_net_nb_queues"] = args.virtio_net_nb_queues
+    d["autoconfig_net"] = args.autoconfig_net
 
-    num_buffers = args.num_buffers
+    d["num_buffers"] = args.num_buffers
 
-    cores = args.cores
+    d["cores"] = args.cores
+    d["cpuset"] = args.cpuset
+    d["descriptor"] = args.descriptor
+    d["mac"] = args.mac
 
     # check the required third party software
     check_call("genisoimage --version", shell=True)
@@ -553,39 +669,16 @@ The default value is too low for realistics benchmarks.""",
 
     # will be pushed to the root authorized_keys (root)
     public_key = (Path().home() / ".ssh" / "id_rsa.pub").open().read()
+    d["public_key"] = public_key
+
     if args.mode == "icount":
-        vm = TansivQemuICount(
-            socket_name,
-            ip_tantap,
-            ip_management,
-            qemu_cmd=qemu_cmd,
-            qemu_image=qemu_image,
-            qemu_args=qemu_args,
-            hostname=hostname,
-            public_key=public_key,
-            autoconfig_net=autoconfig_net,
-            mem=qemu_mem,
-            num_buffers=num_buffers,
-            qemu_nictype=qemu_nictype,
-            virtio_net_nb_queues=virtio_net_nb_queues,
-        )
+        vm = TansivQemuICount(**d)
     elif args.mode == "kvm":
-        vm = TansivQemuKVM(
-            socket_name,
-            ip_tantap,
-            ip_management,
-            qemu_cmd=qemu_cmd,
-            qemu_image=qemu_image,
-            qemu_args=qemu_args,
-            hostname=hostname,
-            public_key=public_key,
-            autoconfig_net=autoconfig_net,
-            mem=qemu_mem,
-            num_buffers=num_buffers,
-            qemu_nictype=qemu_nictype,
-            virtio_net_nb_queues=virtio_net_nb_queues,
-            cores=cores,
-        )
+        vm = TansivQemuKVM(**d)
+    elif args.mode == "libvirt":
+        vm = TansivLibvirt(**d)
+    elif args.mode == "libvirt-vmi":
+        vm = TansivLibvirtVMI(**d)
     else:
         raise ValueError("Unknown mode")
 
