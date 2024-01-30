@@ -1,22 +1,23 @@
-# tansiv in docker :)
-FROM simgrid/unstable:latest
+# see https://gitlab.inria.fr/tansiv/ns-3-dev
+# it uses a debian:stable
+FROM registry.gitlab.inria.fr/tansiv/ns-3-dev/ns3-master
+
 
 RUN apt-get update
-# putting all in one layer make us hit
-# a timeout limit when pushing the layers
-RUN apt-get install -y build-essential \
-    libboost-dev \
-    cmake \
-    libflatbuffers-dev \
-    libcppunit-dev \
-    libglib2.0-dev \
-    cargo \
-    clang \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get -y autoremove \
-    && apt-get -y clean \
-    && find /var/cache -type f -exec rm -rf {} \; \
-    && find /var/log/ -name *.log -exec rm -f {} \;
+
+RUN apt-get install -y git \
+  g++ \
+  python3 \
+  cmake \
+  ninja-build \
+  ccache \
+  tcpdump \
+  libflatbuffers-dev \
+  libcppunit-dev \
+  libglib2.0-dev \
+  cargo \
+  clang \
+  simgrid
 
 RUN apt-get install -y libclang-dev \
     curl \
@@ -25,24 +26,24 @@ RUN apt-get install -y libclang-dev \
     ninja-build \
     libglib2.0-dev \
     libpixman-1-dev \
+    libtinyxml2-dev \
     flex \
     bison \
     genisoimage \
     iproute2 \
-    && rm -rf /var/lib/apt/lists/* \
+    bzip2 \
+    && rm -rf /var/lib/apt/lists/* \
     && apt-get -y autoremove \
     && apt-get -y clean \
     && find /var/cache -type f -exec rm -rf {} \; \
     && find /var/log/ -name *.log -exec rm -f {} \;
 
 
-RUN cargo --help
-
 WORKDIR /app
 COPY . /app
-
+# 
 WORKDIR /app/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv .. && make && make install
+RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DNS3_HINT=/ns3/build .. && make && make install
 
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1
@@ -55,21 +56,23 @@ RUN TEST_FLAGS="--nocapture" make run-tests
 WORKDIR /app/build
 RUN make send
 WORKDIR /app/build/examples/send
-RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name send.sock | grep "Received from" | wc -l | grep 2
+RUN ../../tansiv-simgrid platform.xml deployment.xml --sock_name send.sock | grep "Received from" | wc -l | grep 2
+# Testing on NS3 isn't that simple since NS3 expects a true ethernet packet to be sent
+# however we send some raw buffers
 
 WORKDIR /app/build
 RUN make gettimeofday
 WORKDIR /app/build/examples/benchs
-RUN ../../tansiv nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
+RUN ../../tansiv-simgrid nova_cluster.xml deployment.xml --sock_name gettimeofday.sock --force 1
 
-# build qemu with the new network backend (tantap)
+## build qemu with the new network backend (tantap)
 WORKDIR /app/src/qemu
 RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemu.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemu-system-x86_64
 RUN ./configure --target-list=x86_64-softmmu --prefix=/usr/local --extra-cflags="-I/opt/tansiv/include" --extra-ldflags="-lrt /opt/tansiv/lib/libtanqemukvm.a /opt/tansiv/lib/libtansiv-timer.a" && make -j  && make install && mv /usr/local/bin/qemu-system-x86_64 /usr/local/bin/tanqemukvm-system-x86_64
 
-# make some room
+## make some room
 # RUN rm -rf /app
-
+#
 ENV PATH=/opt/tansiv/bin:$PATH
 
 # create an ssh key (not really usefull, we'd want our local key to be pushed

@@ -36,8 +36,13 @@ build_flatbuffers("${WIRE_INCLUDE_DIR}/packets.fbs" "" "fbs_packets" "" "${WIRE_
 
 # Search for SimGrid
 find_package(SimGrid REQUIRED)
+find_package(tinyxml2 REQUIRED)
 
-include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+# Search for ns3
+find_package(NS3 REQUIRED)
+
+# include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+include_directories("${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
 # as part of 7.2.0 the file is generated at configure phase
@@ -62,17 +67,30 @@ add_library(tansiv-timer STATIC src/kvm/tansiv-timer/tansiv-timer.c)
 target_compile_options(tansiv-timer PUBLIC -fPIE)
 
 # Tansiv (coordinator of the simulation)
-add_executable(tansiv src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
-target_link_libraries(tansiv ${SimGrid_LIBRARY} flatbuffers)
-target_include_directories(tansiv PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
-add_dependencies(tansiv fbs_packets)
+link_directories(${NS3_LIBRARY_PATH})
+
+add_executable(tansiv-simgrid src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-simgrid.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+add_executable(tansiv-ns3 src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+
+target_link_libraries(tansiv-ns3 tinyxml2)
+string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
+message(STATUS ${NS3_LIBRARIES})
+message(STATUS ${NS3_LIBRARY_PATH})
+
+target_link_libraries(tansiv-simgrid ${SimGrid_LIBRARY} flatbuffers)
+target_include_directories(tansiv-simgrid PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
+add_dependencies(tansiv-simgrid fbs_packets)
+
+target_link_libraries(tansiv-ns3 ${NS3_LIBRARIES} flatbuffers)
+target_include_directories(tansiv-ns3 PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
+add_dependencies(tansiv-ns3 fbs_packets)
 
 # Example with tanproc and tansiv
 add_executable(send examples/send/send.cpp)
 set_target_properties(send PROPERTIES RUNTIME_OUTPUT_DIRECTORY examples/send)
 target_link_libraries(send PUBLIC ${TANPROC_EXTRA_LIBS})
 configure_file(examples/send/deployment.xml examples/send/deployment.xml)
-configure_file(examples/send/nova_cluster.xml examples/send/nova_cluster.xml)
+configure_file(examples/send/platform.xml examples/send/platform.xml)
 add_dependencies(send tansiv-clients)
 
 # Benchs
@@ -98,7 +116,8 @@ add_custom_target(run-client-tests COMMAND PREFIX=${CMAKE_INSTALL_PREFIX} RELEAS
 add_custom_target(run-tests)
 add_dependencies(run-tests run-tansiv-tests run-client-tests)
 
-install(TARGETS tansiv DESTINATION bin)
+install(TARGETS tansiv-ns3 DESTINATION bin)
+install(TARGETS tansiv-simgrid DESTINATION bin)
 install(TARGETS tansiv-timer DESTINATION lib)
 install(FILES src/kvm/tansiv-timer/tansiv-timer.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)

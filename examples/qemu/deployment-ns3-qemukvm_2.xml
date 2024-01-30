@@ -1,0 +1,60 @@
+<?xml version='1.0'?>
+<platform version="4.1">
+  <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
+    <subnet value="192.168.120.0"/>  <!-- ns-3 will assign the 2nd IP of the subnet to the node -->
+    <mask value="255.255.255.0"/> 
+    <ifg         value="36"/> <!-- PPP header: -2; Ethernet: +38 -->
+    <mac         value="02:ca:fe:f0:0d:78"/>
+    <boot_script value="boot_ns3.py"/>
+    <argument value="--mac"/>
+    <argument value="02:ca:fe:f0:0d:78"/>
+    <argument value="--mode"/>
+    <argument value="tantap"/>
+    <argument value="--num_buffers"/>
+    <argument value="100000"/>
+    <argument value="--qemu_cmd"/>
+    <argument value="tanqemukvm-system-x86_64"/>
+    <argument value="--qemu_nictype"/>
+    <argument value="virtio-net-pci"/>
+    <argument value="--virtio_net_nb_queues"/>
+    <argument value="1"/>
+    <argument value="--qemu_image"/>
+    <argument value="/srv/image.qcow2"/>
+    <argument value="--qemu_mem"/>
+    <argument value="1g"/>
+    <argument value="--qemu_args"/>
+    <argument value="-accel kvm -smp sockets=1,cores=2,threads=1,maxcpus=2 -monitor unix:/tmp/qemu-monitor-1,server,nowait -object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1  -cpu max,invtsc=on"/>
+    <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
+    <argument value="192.168.120.2/24"/>  <!-- how vsg knows me-->
+    <argument value="10.0.0.10/24"/> <!-- management -->
+  </actor>
+
+    <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <subnet value="192.168.121.0"/>  <!-- ns-3 will assign the 2nd IP of the subnet to the node -->
+    <mask value="255.255.255.0"/> 
+    <ifg         value="36"/> <!-- PPP header: -2; Ethernet: +38 -->
+    <mac         value="02:ca:fe:f0:0d:79"/>
+    <boot_script value="boot_ns3.py"/>
+    <argument value="--mac"/>
+    <argument value="02:ca:fe:f0:0d:79"/>
+    <argument value="--mode"/>
+    <argument value="tantap"/>
+    <argument value="--num_buffers"/>
+    <argument value="100000"/>
+    <argument value="--qemu_cmd"/>
+    <argument value="tanqemukvm-system-x86_64"/>
+    <argument value="--qemu_nictype"/>
+    <argument value="virtio-net-pci"/>
+    <argument value="--virtio_net_nb_queues"/>
+    <argument value="1"/>
+    <argument value="--qemu_image"/>
+    <argument value="/srv/image.qcow2"/>
+    <argument value="--qemu_mem"/>
+    <argument value="1g"/>
+    <argument value="--qemu_args"/>
+    <argument value="-accel kvm -smp sockets=1,cores=2,threads=1,maxcpus=2 -monitor unix:/tmp/qemu-monitor-2,server,nowait -object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1  -cpu max,invtsc=on"/>
+    <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
+    <argument value="192.168.121.2/24"/>  <!-- how vsg knows me-->
+    <argument value="10.0.0.11/24"/> <!-- management -->
+  </actor>
+</platform>
