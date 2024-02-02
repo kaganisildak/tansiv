@@ -10,6 +10,7 @@ use static_assertions::const_assert;
 use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
+use std::task::Poll;
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
     where F: FnOnce(&mut dyn Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>
@@ -44,6 +45,7 @@ unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F)
 type CRecvCallback = unsafe extern "C" fn(uintptr_t);
 type CDeadlineCallback = unsafe extern "C" fn(uintptr_t, libc::timespec);
 type CPollSendCallback = unsafe extern "C" fn(uintptr_t);
+type FFIPollSendCallback = fn () -> ();
 
 fn duration_to_timespec(duration: std::time::Duration) -> libc::timespec {
     libc::timespec {
@@ -170,15 +172,15 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 }
 
 #[no_mangle]
-pub unsafe extern fn vsg_poll_send_callback_new(callback: CPollSendCallback, arg: uintptr_t) -> *const PollSendCallback {
+pub unsafe extern "C" fn vsg_poll_send_callback_new(callback: CPollSendCallback, arg: uintptr_t) -> *const FFIPollSendCallback {
     let callback = Arc::new(move || callback(arg));
-    Arc::into_raw(callback)
+    Arc::into_raw(callback) as *const FFIPollSendCallback
 }
 
 #[no_mangle]
-pub unsafe extern fn vsg_poll_send_callback_free(callback: *const PollSendCallback) {
+pub unsafe extern "C" fn vsg_poll_send_callback_free(callback: *const FFIPollSendCallback) {
     if !callback.is_null() {
-        drop(Arc::from_raw(callback));
+        drop(Arc::from_raw(callback as *const PollSendCallback));
     }
 }
 
@@ -199,10 +201,10 @@ pub unsafe extern fn vsg_poll_send_callback_free(callback: *const PollSendCallba
 ///
 /// * `0` otherwise, with `callback` scheduled.
 #[no_mangle]
-pub unsafe extern fn vsg_may_start_send(context: *const Context, callback: *const PollSendCallback) -> c_int {
+pub unsafe extern "C" fn vsg_may_start_send(context: *const Context, callback: *const FFIPollSendCallback) -> c_int {
     if let Some(context) = context.as_ref() {
         if !callback.is_null() {
-            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            let callback = ManuallyDrop::new(Arc::from_raw(callback as *const PollSendCallback));
             return context.may_start_send(&callback) as c_int;
         }
     }
@@ -267,13 +269,13 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
 /// * `callback`, if not NULL, should point to a valid [`PollSendCallback`], as previously returned by
 ///   [`vsg_poll_send_callback_new`].
 #[no_mangle]
-pub unsafe extern fn vsg_stop_send(context: *const Context, callback: *const PollSendCallback) {
+pub unsafe extern "C" fn vsg_stop_send(context: *const Context, callback: *const FFIPollSendCallback) {
     if let Some(context) = context.as_ref() {
         use std::ops::Deref;
         if callback.is_null() {
             context.stop_send(None)
         } else {
-            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            let callback = ManuallyDrop::new(Arc::from_raw(callback as *const PollSendCallback));
             context.stop_send(Some(&callback))
         }
     }
@@ -387,10 +389,10 @@ pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
 ///
 /// * Fails with `libc::EINVAL` whenever `context` is NULL or `callback` is NULL.
 #[no_mangle]
-pub unsafe extern fn vsg_poll_send(context: *const Context, callback: *const PollSendCallback) -> c_int {
+pub unsafe extern fn vsg_poll_send(context: *const Context, callback: *const FFIPollSendCallback) -> c_int {
     if let Some(context) = context.as_ref() {
         if !callback.is_null() {
-            let callback = ManuallyDrop::new(Arc::from_raw(callback));
+            let callback = ManuallyDrop::new(Arc::from_raw(callback as *const PollSendCallback));
             (*context).poll_send(&callback);
             return 0;
         }
