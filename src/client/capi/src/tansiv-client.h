@@ -12,7 +12,7 @@ struct vsg_poll_send_cb;
 
 typedef void (*vsg_recv_cb)(uintptr_t recv_cb_arg);
 typedef void (*vsg_deadline_cb)(uintptr_t deadline_cb_arg, struct timespec deadline);
-typedef void (*vsg_poll_send_cb)(uintptr_t poll_send_cb_arg);
+typedef void (*vsg_poll_send_cb_t)(uintptr_t poll_send_cb_arg);
 
 struct vsg_context* vsg_init(int argc, const char* const argv[], int* next_arg_p,
                              vsg_recv_cb recv_cb, uintptr_t recv_cb_arg,
@@ -22,7 +22,7 @@ void vsg_cleanup(struct vsg_context* context);
 int vsg_start(const struct vsg_context* context, struct timespec* offset);
 int vsg_stop(const struct vsg_context* context);
 
-struct vsg_poll_send_cb *vsg_poll_send_callback_new(vsg_poll_send_cb callback, uintptr_t arg);
+struct vsg_poll_send_cb *vsg_poll_send_callback_new(vsg_poll_send_cb_t callback, uintptr_t arg);
 void vsg_poll_send_callback_free(struct vsg_poll_send_cb *callback);
 
 int vsg_gettimeofday(const struct vsg_context* context, struct timeval* timeval, void* timezone);
