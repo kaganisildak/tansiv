@@ -253,7 +253,11 @@ extern "C" fn deadline_handler(opaque: *mut ::std::os::raw::c_void) {
 extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
     // Safety: TODO
     let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
-    if let Some(ref callback) = *timer_context.poll_send_callback.lock().unwrap() {
-        callback.0();
+    let guard = timer_context.poll_send_callback.lock().unwrap();
+    if let Some(ref callback) = *guard {
+        // callback can itself call ::schedule_poll_send_callback() and take the lock again
+        let callback = callback.0.clone();
+        drop(guard);
+        callback();
     }
 }
