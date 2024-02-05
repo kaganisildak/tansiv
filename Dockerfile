@@ -1,17 +1,19 @@
 # tansiv in docker :)
-FROM simgrid/unstable:latest
+FROM debian:stable
 
 RUN apt-get update
 # putting all in one layer make us hit
 # a timeout limit when pushing the layers
 RUN apt-get install -y build-essential \
     libboost-dev \
+    python3 \
     cmake \
     libflatbuffers-dev \
     libcppunit-dev \
     libglib2.0-dev \
     cargo \
     clang \
+    simgrid \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y autoremove \
     && apt-get -y clean \
