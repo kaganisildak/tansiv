@@ -1,0 +1,50 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+
+  <!-- Define the first actor here
+    - it will run on nova-1.lyon.grid5000.fr (see the platform file)
+    - it will boot a VM and make it available to the TS
+    - the subsequent parameters allows for configuring the VM
+      (only the IPs vary from one machine to another)
+  -->
+  <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="192.168.120.10"/>  <!-- how simgrid knows me-->
+    <argument value="/opt/tansiv/bin/boot_xen.py"/>
+    <argument value="--num_buffers"/>
+    <argument value="100000"/>
+    <argument value="--qemu_image"/>
+    <argument value="/home/leo/Dev/xen-images/debian-12.1.0-x86_64.qcow2"/>
+    <argument value="--qemu_mem"/>
+    <argument value="8192"/>
+    <argument value="--qemu_vcpus"/>
+    <argument value="1"/>
+    <argument value="--qemu_cpuset"/>
+    <argument value="0"/>
+    <argument value="--descriptor"/>
+    <argument value="1"/>
+    <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
+    <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
+    <argument value="10.0.0.10/24"/> <!-- management -->
+  </actor>
+
+  <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
+    <argument value="192.168.120.11"/>  <!-- how simgrid knows me-->
+    <argument value="/opt/tansiv/bin/boot_xen.py"/>
+    <argument value="--num_buffers"/>
+    <argument value="100000"/>
+    <argument value="--qemu_image"/>
+    <argument value="/home/leo/Dev/xen-images/debian-12.1.0-x86_64.qcow2"/>
+    <argument value="--qemu_mem"/>
+    <argument value="8192"/>
+    <argument value="--qemu_vcpus"/>
+    <argument value="1"/>
+    <argument value="--qemu_cpuset"/>
+    <argument value="1"/>
+    <argument value="--descriptor"/>
+    <argument value="2"/>
+    <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
+    <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
+    <argument value="10.0.0.11/24"/> <!-- management -->
+  </actor>
+</platform>

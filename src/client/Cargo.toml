@@ -1,3 +1,3 @@
 [workspace]
-members = ["tansiv-client", "capi", "tanproc", "tanproc_capi", "tanqemu", "tanqemu_capi", "tanqemukvm", "tanqemukvm_capi"]
-default-members = ["tanproc_capi", "tanqemu_capi", "tanqemukvm_capi"]
+members = ["tansiv-client", "capi", "tanproc", "tanproc_capi", "tanqemu", "tanqemu_capi", "tanqemukvm", "tanqemukvm_capi", "tanqemuxen", "tanqemuxen_capi"]
+default-members = ["tanproc_capi", "tanqemu_capi", "tanqemukvm_capi", "tanqemuxen_capi"]

@@ -33,3 +33,9 @@ tests.sh
 gettimeofday
 send
 titi
+libvmi_tansiv
+
+# Useful Makefiles
+!src/xen/Makefile
+!src/xen/Kernelspace/Makefile
+!src/kvm/Kernelspace/Makefile
