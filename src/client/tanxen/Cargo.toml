@@ -1,0 +1,9 @@
+[package]
+name = "tanqemuxen"
+version = "0.1.0"
+authors = ["Léo Cosseron <leo.cosseron@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+#tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["qemuxen"]}
+tansiv-client = {version = "0.1.0", path = "../tansiv-client", features = ["qemuxen", "use-own-logger", "deadline-handler-debug"]}

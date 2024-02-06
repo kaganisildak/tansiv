@@ -1,0 +1,13 @@
+[package]
+name = "tanqemuxen_capi"
+version = "0.1.0"
+authors = ["Léo Cosseron <leo.cosseron@irisa.fr>"]
+edition = "2018"
+
+[dependencies]
+# capi = {version = "0.1.0", path = "../capi", features = ["qemuxen"]}
+capi = {version = "0.1.0", path = "../capi", features = ["qemuxen", "deadline-handler-debug", "use-own-logger"]}
+
+[lib]
+name = "tanqemuxen"
+crate-type = ["staticlib"]
