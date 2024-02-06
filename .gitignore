@@ -32,3 +32,9 @@ tests.sh
 gettimeofday
 send
 titi
+xen_tansiv_bridge
+
+# Useful Makefiles
+!src/xen/Makefile
+!src/xen/Kernelspace/Makefile
+!src/kvm/Kernelspace/Makefile
