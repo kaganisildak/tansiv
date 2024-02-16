@@ -75,7 +75,7 @@ pub struct Context {
     // Concurrency: accessed by application only
     // - read-write by ::send()
     // - read-only by ::may_start_send(), ::may_stop_send(), ::poll_send()
-    send_queue_slots: Mutex<VecDeque<(usize, Duration)>>,
+    next_send_floor: Mutex<Duration>,
     // Read-only
     // In bits per second
     uplink_bandwidth: std::num::NonZeroUsize,
@@ -112,7 +112,7 @@ impl Context {
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(config)?;
-        let send_queue_slots = Mutex::new(VecDeque::with_capacity(config.num_buffers.get()));
+        let next_send_floor = Mutex::new(Duration::ZERO);
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
         let upcoming_messages = VecDeque::with_capacity(config.num_buffers.get());
@@ -126,7 +126,7 @@ impl Context {
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
-            send_queue_slots: send_queue_slots,
+            next_send_floor: next_send_floor,
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -285,21 +285,10 @@ impl Context {
     }
 
     pub fn may_start_send(&self, callback: &Arc<PollSendCallback>) -> bool {
-        let slots = self.send_queue_slots.lock().unwrap();
+        let next_send_floor = *self.next_send_floor.lock().unwrap();
         let now = self.timer_context.simulation_now();
-        let poll_send_time = if let Some((_, xmit_end)) = slots.back() {
-            if *xmit_end > now + self.timer_context.poll_send_latency() {
-                Some(*xmit_end)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        drop(slots);
-
-        if poll_send_time.is_some() {
-            self.timer_context.schedule_poll_send_callback(now, poll_send_time, callback);
+        if next_send_floor > now + self.timer_context.poll_send_latency() {
+            self.timer_context.schedule_poll_send_callback(now, Some(next_send_floor), callback);
             false
         } else {
             true
@@ -324,23 +313,11 @@ impl Context {
             }
         };
 
-        let mut slots = self.send_queue_slots.lock().unwrap();
-
-        // Collect transmitted slots
-        loop {
-            match slots.front() {
-                Some((ref size, ref xmit_end)) if *xmit_end <= send_time => {
-                    slots.pop_front();
-                },
-                _ => break,
-            }
-        }
+        let mut next_send_floor = self.next_send_floor.lock().unwrap();
 
         // Cap NIC speed to the simulated bandwidth
-        if let Some((_, next_send_floor)) = slots.back() {
-            if send_time < *next_send_floor {
-                send_time = *next_send_floor;
-            }
+        if send_time < *next_send_floor {
+            send_time = *next_send_floor;
         }
 
         let message = OutputMsg::new(self.address, dst, send_time, msg, buffer)?;
@@ -366,7 +343,7 @@ impl Context {
         // Cap NIC speed to the simulated bandwidth
         let wire_size = msg.len() + self.uplink_overhead;
         let xmit_end = send_time + Duration::from_nanos((wire_size * 8 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
-        slots.push_back((wire_size, xmit_end));
+        *next_send_floor = xmit_end;
 
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
 
@@ -403,13 +380,13 @@ impl Context {
     }
 
     pub fn poll_send(&self, callback: &Arc<PollSendCallback>) {
-        let slots = self.send_queue_slots.lock().unwrap();
+        let next_send_floor = *self.next_send_floor.lock().unwrap();
         let now = self.timer_context.simulation_now();
-        let later = match slots.back() {
-            Some((_, ref xmit_end)) if *xmit_end > now => Some(*xmit_end),
-            _ => None,
+        let later =  if next_send_floor > now {
+            Some(next_send_floor)
+        } else {
+            None
         };
-        drop(slots);
 
         self.timer_context.schedule_poll_send_callback(now, later, callback);
     }
