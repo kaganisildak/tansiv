@@ -190,6 +190,7 @@ impl Context {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
                 deadline_handler_debug!("Context::at_deadline() fixing send_time to {:?}", previous_deadline);
+                info!("[{:?}] at_deadline: forwarding send_time to {:?} (shift by {:?})", current_deadline, previous_deadline, previous_deadline - send_time);
                 previous_deadline
             } else {
                 if send_time > current_deadline {
