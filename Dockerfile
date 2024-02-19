@@ -1,5 +1,3 @@
-# see https://gitlab.inria.fr/tansiv/ns-3-dev
-# it uses a debian:stable
 FROM registry.gitlab.inria.fr/tansiv/ns-3-dev/ns3-master
 
 
@@ -32,18 +30,24 @@ RUN apt-get install -y libclang-dev \
     genisoimage \
     iproute2 \
     bzip2 \
+    libvirt-dev \ 
+    libjson-c-dev \ 
+    libyajl-dev \   
+    libxen-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y autoremove \
     && apt-get -y clean \
     && find /var/cache -type f -exec rm -rf {} \; \
     && find /var/log/ -name *.log -exec rm -f {} \;
 
-
 WORKDIR /app
 COPY . /app
-# 
+ 
+ENV LD_LIBRARY_PATH /ns3/build/lib:$LD_LIBRARY_PATH
 WORKDIR /app/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DNS3_HINT=/ns3/build .. && make && make install
+RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DNS3_HINT=/ns3/build .. && make && make install && make xen_tansiv_bridge
+# FIXME make xen_tansiv_brige in ALL target but this will need more parameterization 
+# as this assumes tansiv-client.h to be installed in /opt/tansiv
 
 # Outside of Rust tests, Rust panics are bugs
 ENV RUST_BACKTRACE=1

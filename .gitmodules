@@ -8,3 +8,6 @@
 [submodule "tools/packer"]
 	path = tools/packer
 	url = https://gitlab.inria.fr/tansiv/packer.git
+[submodule "src/libvmi-xen"]
+	path = src/libvmi-xen
+	url = https://gitlab.inria.fr/tansiv/libvmi-xen.git
