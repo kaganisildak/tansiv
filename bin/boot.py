@@ -6,13 +6,25 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 import logging
 import os
 from pathlib import Path
-from subprocess import check_call
+from subprocess import check_call, check_output
 from typing import Dict, List, Optional
 import yaml
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
+
+def _fill_template(template, out, **kwargs):
+        env = Environment(
+            loader=FileSystemLoader(
+                Path(__file__).parent / "templates"
+            ),  # TODO: Put the templates elsewhere than /bin
+            autoescape=select_autoescape(),
+        )
+        template = env.get_template(template)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(template.render(**kwargs))
+
 
 
 class VM(object):
@@ -422,25 +434,11 @@ class TansivLibvirt(VM):
         self.template = template
         super().__init__(*args, **kwargs)
 
-    def fill_template(
-        self,
-        out: Path,
-        **kwargs,
-    ):
-        env = Environment(
-            loader=FileSystemLoader(
-                Path(__file__).parent / "templates"
-            ),  # TODO: Put the templates elsewhere than /bin
-            autoescape=select_autoescape(),
-        )
-        template = env.get_template(self.template)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(template.render(**kwargs))
-
     def start(self, working_dir: Path) -> Path:
         iso, image = self.prepare_start(working_dir)
 
-        self.fill_template(
+        _fill_template(
+            self.template,
             out=working_dir / f"domain-{self.descriptor}.xml",
             descriptor=self.descriptor,
             qemu_gdb_port=1234 + self.descriptor,
@@ -470,6 +468,58 @@ class TansivLibvirtVMI(TansivLibvirt):
         super().__init__(
             *args, template="deployment-qemukvmvmi-libvirt.xml.j2", **kwargs
         )
+
+class TansivXen(VM):
+    def __init__(
+        self,
+        socket_name: str,
+        *args,
+        template: str = "deployment-xen.cfg.j2",
+        cpuset: str = "",
+        num_buffers: Optional[int] = None,
+        **kwargs,
+    ):
+        self.socket_name = socket_name
+        self.cpuset = cpuset
+        self.num_buffers = num_buffers
+        if not self.cpuset:
+            if not self.cores:
+                self.cpuset = "0"
+            else:
+                self.cpuset = f"0-{self.cores}"
+        self.template = template
+        super().__init__(*args, **kwargs)
+
+    def start(self, working_dir: Path) -> Path:
+        iso, image = self.prepare_start(working_dir)
+
+        _fill_template(
+            self.template,
+            out=working_dir / f"domain-{self.descriptor}.xml",
+            descriptor=self.descriptor,
+            qemu_mem=self.qemu_mem,
+            qemu_cmd=self.qemu_cmd,
+            qemu_img=image,
+            qemu_vcpus=self.cores,
+            qemu_cpuset=self.cpuset,
+            qemu_cdrom=iso,
+            qemu_tantap_mac=self.mac[0],
+            qemu_mantap_mac=self.mac[1],
+            qemu_mantap_name=self.tapname[1],
+            qemu_tantap_name=self.tapname[0],
+            qemu_tantap_bridge=self.bridgename[0],
+            qemu_mantap_bridge=self.bridgename[1]
+
+        )
+
+        cmd_xl = f"xl create -f domain-{self.descriptor}.cfg"
+        check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
+        # get the domid
+        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir)
+        cmd_xen_tansiv_bridge = f"xen_tansiv_bridge tansiv-{self.descriptor} {self.socket_name} {self.tantap.ip} {self.num_buffers} {domid} vif{domid}.0"
+        stdout = (working_dir / "out").open("w")
+        check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
+
 
 
 def terminate(*args):
@@ -524,7 +574,7 @@ done
     )
 
     parser.add_argument(
-        "mode", choices=["icount", "kvm", "libvirt", "libvirt_vmi"], help="mode ..."
+        "mode", choices=["icount", "kvm", "libvirt", "libvirt_vmi", "xen"], help="mode ..."
     )
 
     parser.add_argument(
@@ -679,7 +729,8 @@ The default value is too low for realistics benchmarks.""",
         vm = TansivLibvirt(**d)
     elif args.mode == "libvirt-vmi":
         vm = TansivLibvirtVMI(**d)
-    else:
+    elif args.mode == "xen":
+        vm = TansivXen(**d)
         raise ValueError("Unknown mode")
 
     for cmd in vm.prepare_net_cmds():

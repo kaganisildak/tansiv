@@ -29,6 +29,7 @@ set(TANSIVTIMERXEN_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtansiv-timer-xen.a)
 set(TANSIVCLIENT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(WIRE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/wire)
 set(CLIENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/client/)
+set(XEN_TANSIV_BRIDGE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/xen/)
 
 find_package(FlatBuffers REQUIRED)
 # This compile a schema to cpp
@@ -77,6 +78,8 @@ link_directories(${NS3_LIBRARY_PATH})
 
 add_executable(tansiv-simgrid src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-simgrid.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
 add_executable(tansiv-ns3 src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+
+add_custom_target(xen-tansiv-bridge COMMAND make WORKING_DIRECTORY ${XEN_TANSIV_BRIDGE_SOURCE_DIR})
 
 target_link_libraries(tansiv-ns3 tinyxml2)
 string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
@@ -129,6 +132,7 @@ install(TARGETS tansiv-timer-xen DESTINATION lib)
 install(FILES src/kvm/tansiv-timer/tansiv-timer.h DESTINATION include)
 install(FILES src/xen/tansiv-timer/tansiv-timer-xen.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
+install(DIRECTORY bin/templates DESTINATION bin/templates)
 install(PROGRAMS bin/boot.py DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")
 install(CODE "execute_process(COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client )")

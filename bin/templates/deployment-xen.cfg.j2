@@ -1,0 +1,27 @@
+# Use Hardware Virtualization Mode
+type = "hvm"
+
+# Path to iso and cd-rom
+disk = [
+        'tap:qcow2:{{ qemu_img }},xvda,w',
+        'format=raw, vdev=xvdc, access=r, devtype=cdrom, target={{ qemu_cdrom }}'
+       ]
+
+# Network configuration
+vif = [
+       'bridge={{ qemu_tantap_bridge }},mac={{ qemu_tantap_mac }},type=ioemu,model=e1000,trusted',
+       'bridge={{ qemu_mantap_bridge }},mac={{ qemu_mantap_mac }},type=ioemu,model=e1000,trusted'
+
+      ]
+
+# DomU settings
+memory = {{ qemu_mem }}
+name = "tansiv-{{ descriptor }}"
+vcpus = "{{ qemu_vcpus }}"
+cpus = "{{ qemu_cpuset }}"
+# Do not emulate the TSC
+tsc_mode= "native"
+on_poweroff = "destroy"
+boot = "cd"
+timer_mode = "no_delay_for_missed_ticks"
+xen_platform_pci = 1
