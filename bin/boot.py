@@ -58,7 +58,7 @@ class VM(object):
         self.autoconfig_net = autoconfig_net
 
         self.__qemu_args = qemu_args
-        self.__mem = mem
+        self.mem = mem
 
         self.__qemu_nictype = qemu_nictype
         self.__virtio_net_nb_queues = virtio_net_nb_queues
@@ -69,7 +69,7 @@ class VM(object):
 
     @property
     def qemu_args(self):
-        return f"{self.__qemu_args} -m {self.__mem}"
+        return f"{self.__qemu_args} -m {self.mem}"
 
     @property
     def tantap_id(self):
@@ -442,7 +442,7 @@ class TansivLibvirt(VM):
             out=working_dir / f"domain-{self.descriptor}.xml",
             descriptor=self.descriptor,
             qemu_gdb_port=1234 + self.descriptor,
-            qemu_mem=self.qemu_mem,
+            qemu_mem=self.mem,
             qemu_cmd=self.qemu_cmd,
             qemu_img=image,
             qemu_vcpus=self.cores,
@@ -495,9 +495,9 @@ class TansivXen(VM):
 
         _fill_template(
             self.template,
-            out=working_dir / f"domain-{self.descriptor}.xml",
+            out=working_dir / f"domain-{self.descriptor}.cfg",
             descriptor=self.descriptor,
-            qemu_mem=self.qemu_mem,
+            qemu_mem=self.mem,
             qemu_cmd=self.qemu_cmd,
             qemu_img=image,
             qemu_vcpus=self.cores,
@@ -513,12 +513,13 @@ class TansivXen(VM):
         )
 
         cmd_xl = f"xl create -f domain-{self.descriptor}.cfg"
-        check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
+        with (working_dir / "out").open("w") as stdout:
+            check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
         # get the domid
-        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir)
+        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
         cmd_xen_tansiv_bridge = f"xen_tansiv_bridge tansiv-{self.descriptor} {self.socket_name} {self.tantap.ip} {self.num_buffers} {domid} vif{domid}.0"
-        stdout = (working_dir / "out").open("w")
-        check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
+        with (working_dir / "out").open("w") as stdout:
+            check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
 
 
 
@@ -607,7 +608,7 @@ done
     )
 
     parser.add_argument(
-        "--qemu_mem",
+        "--mem",
         type=str,
         help="Memory to use (e.g 1g). Default is QEMU_MEM, or if not defined '1g'.",
         default=os.environ.get("QEMU_MEM", "1g"),
@@ -698,7 +699,7 @@ The default value is too low for realistics benchmarks.""",
     if not args.qemu_cmd:
         raise ValueError("qemu_cmd must be set")
     d["qemu_args"] = args.qemu_args
-    d["qemu_mem"] = args.qemu_mem
+    d["mem"] = args.mem
     d["qemu_image"] = Path(args.qemu_image)
     if not args.qemu_image:
         raise ValueError("qemu_image must be set")
@@ -711,7 +712,7 @@ The default value is too low for realistics benchmarks.""",
     d["cores"] = args.cores
     d["cpuset"] = args.cpuset
     d["descriptor"] = args.descriptor
-    d["mac"] = args.mac
+    d["mac_address"] = args.mac
 
     # check the required third party software
     check_call("genisoimage --version", shell=True)
@@ -731,6 +732,7 @@ The default value is too low for realistics benchmarks.""",
         vm = TansivLibvirtVMI(**d)
     elif args.mode == "xen":
         vm = TansivXen(**d)
+    else:
         raise ValueError("Unknown mode")
 
     for cmd in vm.prepare_net_cmds():

@@ -537,20 +537,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tanxen"
-version = "0.1.0"
-dependencies = [
- "tansiv-client",
-]
-
-[[package]]
-name = "tanxen_capi"
-version = "0.1.0"
-dependencies = [
- "capi",
-]
-
-[[package]]
 name = "tansiv-client"
 version = "0.1.0"
 dependencies = [
@@ -568,6 +554,20 @@ dependencies = [
  "simple_logger",
  "static_assertions",
  "structopt",
+]
+
+[[package]]
+name = "tanxen"
+version = "0.1.0"
+dependencies = [
+ "tansiv-client",
+]
+
+[[package]]
+name = "tanxen_capi"
+version = "0.1.0"
+dependencies = [
+ "capi",
 ]
 
 [[package]]

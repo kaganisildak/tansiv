@@ -22,7 +22,7 @@ set(TANPROC_EXTRA_LIBS ${TANPROC_LIB} dl rt pthread)
 # use this to link against tanqemu(kvm) (obvly only qemu needs that)
 set(TANQEMU_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemu.a)
 set(TANQEMUKVM_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemukvm.a)
-set(TANQEMUXEN_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanqemuxen.a)
+set(TANXEN_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtanxen.a)
 set(TANSIVTIMER_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtansiv-timer.a)
 set(TANSIVTIMERXEN_LIB ${CMAKE_INSTALL_PREFIX}/lib/libtansiv-timer-xen.a)
 
@@ -44,7 +44,7 @@ find_package(tinyxml2 REQUIRED)
 # Search for ns3
 find_package(NS3 REQUIRED)
 
-# include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 include_directories("${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
 
 # To build tanqemu we need to generate the config-host.h header
@@ -63,23 +63,21 @@ add_custom_target(tansiv-clients COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} REL
                                  WORKING_DIRECTORY ${CLIENT_SOURCE_DIR})
 add_dependencies(tansiv-clients config-host.h)
 
-add_custom_target(packer COMMAND packer build debian-10.3.0-x86_64.json WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packer)
-
 # tansiv-timer lib (tanqemukvm)
 add_library(tansiv-timer STATIC src/kvm/tansiv-timer/tansiv-timer.c)
 target_compile_options(tansiv-timer PUBLIC -fPIE)
 
-# tansiv-timer-xen lib (tanqemuxen)
+# tansiv-timer-xen lib (tanxen)
 add_library(tansiv-timer-xen STATIC src/xen/tansiv-timer/tansiv-timer-xen.c)
 target_compile_options(tansiv-timer-xen PUBLIC -fPIE)
 
 # Tansiv (coordinator of the simulation)
-link_directories(${NS3_LIBRARY_PATH})
+#link_directories(${NS3_LIBRARY_PATH})
 
 add_executable(tansiv-simgrid src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-simgrid.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
 add_executable(tansiv-ns3 src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
 
-add_custom_target(xen-tansiv-bridge COMMAND make WORKING_DIRECTORY ${XEN_TANSIV_BRIDGE_SOURCE_DIR})
+add_custom_target(xen_tansiv_bridge ALL COMMAND make WORKING_DIRECTORY ${XEN_TANSIV_BRIDGE_SOURCE_DIR})
 
 target_link_libraries(tansiv-ns3 tinyxml2)
 string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
@@ -132,7 +130,8 @@ install(TARGETS tansiv-timer-xen DESTINATION lib)
 install(FILES src/kvm/tansiv-timer/tansiv-timer.h DESTINATION include)
 install(FILES src/xen/tansiv-timer/tansiv-timer-xen.h DESTINATION include)
 install(PROGRAMS bin/notansiv.py DESTINATION bin)
-install(DIRECTORY bin/templates DESTINATION bin/templates)
+install(DIRECTORY bin/templates DESTINATION bin)
 install(PROGRAMS bin/boot.py DESTINATION bin)
+install(PROGRAMS src/xen/xen_tansiv_bridge DESTINATION bin)
 install(CODE "MESSAGE(\"-- Installing tansiv client libraries\")")
 install(CODE "execute_process(COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/client )")
