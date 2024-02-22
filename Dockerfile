@@ -45,7 +45,7 @@ COPY . /app
  
 ENV LD_LIBRARY_PATH /ns3/build/lib:$LD_LIBRARY_PATH
 WORKDIR /app/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DNS3_HINT=/ns3/build .. && make && make install && make xen_tansiv_bridge
+RUN cmake -DCMAKE_INSTALL_PREFIX=/opt/tansiv -DCMAKE_BUILD_TYPE=Release -DNS3_SUPPORT=ON -DNS3_HINT=/ns3/build .. && make && make install && make xen_tansiv_bridge && cp ../src/xen/xen_tansiv_bridge /opt/tansiv/bin
 # FIXME make xen_tansiv_brige in ALL target but this will need more parameterization 
 # as this assumes tansiv-client.h to be installed in /opt/tansiv
 

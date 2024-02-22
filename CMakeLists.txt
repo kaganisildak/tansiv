@@ -31,6 +31,8 @@ set(WIRE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/wire)
 set(CLIENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/client/)
 set(XEN_TANSIV_BRIDGE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/xen/)
 
+option(NS3_SUPPORT "Build a coordinator with ns-3 as the network simulator" OFF)
+
 find_package(FlatBuffers REQUIRED)
 # This compile a schema to cpp
 # - This makes the target fbs_packets available to other make tasks
@@ -39,22 +41,20 @@ build_flatbuffers("${WIRE_INCLUDE_DIR}/packets.fbs" "" "fbs_packets" "" "${WIRE_
 
 # Search for SimGrid
 find_package(SimGrid REQUIRED)
-find_package(tinyxml2 REQUIRED)
 
 # Search for ns3
-find_package(NS3 REQUIRED)
+if(NS3_SUPPORT)
+    find_package(NS3 REQUIRED)
+    find_package(tinyxml2 REQUIRED)
+endif()
 
 include_directories("${SimGrid_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
-include_directories("${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+if(NS3_SUPPORT)
+    include_directories("${NS3_INCLUDE_DIR}" "${TANSIVCLIENT_INCLUDE_DIR}" "${WIRE_INCLUDE_DIR}"  SYSTEM)
+endif()
 
 # To build tanqemu we need to generate the config-host.h header
 # as part of 7.2.0 the file is generated at configure phase
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu/build/config-host.h
-    COMMAND ./configure --target-list=x86_64-softmmu
-    COMMAND cd build && ninja config-poison.h
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu 
-)
 
 # tansiv-client client libs tanproc tanqemu and tanqemukvm (Rust implementation exporting a C API)
 # installed in /opt/tansiv-client
@@ -62,12 +62,21 @@ add_custom_command(
 # build the qemu base image
 # - installed in /opt/tansiv/
 # - compiled in RELEASE mode (I've got the power !)
-# - making flatc known to the cargo step (this is required to compile the flatbuffers schema to rust)
-add_custom_target(tansiv-clients 
-    COMMAND make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install
-    WORKING_DIRECTORY ${CLIENT_SOURCE_DIR}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu/build/config-host.h
-    VERBATIM
+# - making flatc known to the cargo step (this is required to compile the
+#   flatbuffers schema to rust)
+
+# FIXME: why is install the only valid target of tansiv-client Makefile?
+include(ExternalProject)
+ExternalProject_Add(tansiv-clients
+    SOURCE_DIR   ${CLIENT_SOURCE_DIR}
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND 
+        cd ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu &&
+        ./configure --target-list=x86_64-softmmu &&
+        cd build && ninja config-poison.h &&
+        cd <SOURCE_DIR> &&
+        make PREFIX=${CMAKE_INSTALL_PREFIX} RELEASE=0 install
+    INSTALL_COMMAND ""
 )
 
 # tansiv-timer lib (tanqemukvm)
@@ -80,27 +89,32 @@ add_library(tansiv-timer-xen STATIC src/xen/tansiv-timer/tansiv-timer-xen.c)
 target_compile_options(tansiv-timer-xen PUBLIC -fPIE)
 
 # Tansiv (coordinator of the simulation)
-link_directories(${NS3_LIBRARY_PATH})
-
 add_executable(tansiv-simgrid src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-simgrid.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
-add_executable(tansiv-ns3 src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+if(NS3_SUPPORT)
+    link_directories(${NS3_LIBRARY_PATH})
+    add_executable(tansiv-ns3 src/coordinator/VmsInterface.cpp src/coordinator/VmsCoordinator-ns3.cpp ${WIRE_INCLUDE_DIR}/socket.cpp)
+endif()
 
-add_custom_target(libvmi ALL COMMAND mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make && make install WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/libvmi-xen)
+add_subdirectory(src/libvmi-xen)
 # FIXME xen_tansiv_bridge assume the tansiv_client to be installed beforehand
 add_custom_target(xen_tansiv_bridge COMMAND make WORKING_DIRECTORY ${XEN_TANSIV_BRIDGE_SOURCE_DIR})
 
-target_link_libraries(tansiv-ns3 tinyxml2)
-string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
-message(STATUS ${NS3_LIBRARIES})
-message(STATUS ${NS3_LIBRARY_PATH})
+if(NS3_SUPPORT)
+    target_link_libraries(tansiv-ns3 tinyxml2)
+    string(STRIP ${NS3_LIBRARIES} NS3_LIBRARIES)
+    message(STATUS ${NS3_LIBRARIES})
+    message(STATUS ${NS3_LIBRARY_PATH})
+endif()
 
 target_link_libraries(tansiv-simgrid ${SimGrid_LIBRARY} flatbuffers)
 target_include_directories(tansiv-simgrid PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
 add_dependencies(tansiv-simgrid fbs_packets)
 
-target_link_libraries(tansiv-ns3 ${NS3_LIBRARIES} flatbuffers)
-target_include_directories(tansiv-ns3 PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
-add_dependencies(tansiv-ns3 fbs_packets)
+if(NS3_SUPPORT)
+    target_link_libraries(tansiv-ns3 ${NS3_LIBRARIES} flatbuffers)
+    target_include_directories(tansiv-ns3 PUBLIC ${WIRE_INCLUDE_DIR} fbs_packets)
+    add_dependencies(tansiv-ns3 fbs_packets)
+endif()
 
 # Example with tanproc and tansiv
 add_executable(send examples/send/send.cpp)
@@ -133,7 +147,10 @@ add_custom_target(run-client-tests COMMAND PREFIX=${CMAKE_INSTALL_PREFIX} RELEAS
 add_custom_target(run-tests)
 add_dependencies(run-tests run-tansiv-tests run-client-tests)
 
-install(TARGETS tansiv-ns3 DESTINATION bin)
+if(NS3_SUPPORT)
+    install(TARGETS tansiv-ns3 DESTINATION bin)
+endif()
+
 install(TARGETS tansiv-simgrid DESTINATION bin)
 install(TARGETS tansiv-timer DESTINATION lib)
 install(TARGETS tansiv-timer-xen DESTINATION lib)
