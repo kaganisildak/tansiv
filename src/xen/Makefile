@@ -1,7 +1,7 @@
 # Compilation flags
 CFLAGS=-Wall -Wextra
 CPPFLAGS=-idirafter /opt/tansiv/include 
-LDFLAGS=-ltanxen -ltansiv-timer-xen -lvmi -lxenctrl -L/opt/tansiv/lib/
+LDFLAGS=-lm -ltanxen -ltansiv-timer-xen -lvmi -lxenctrl -L/opt/tansiv/lib/
 
 .PHONY: all xen_tansiv_bridge clean help
 

@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <libvmi/events.h>
@@ -19,7 +21,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/if_ether.h>
-#include <netinet/in.h>  //enums IPPROTO ...
+#include <netinet/in.h>  // enums IPPROTO ...
 #include <netinet/ip.h>  // struct ip, iphdr ...
 #include <netinet/udp.h> // struct udphdr...
 
@@ -34,6 +36,9 @@
 struct vsg_context* context;
 int fd;
 struct pollfd pfd;
+
+// mutex which plays the same role as the iothread mutex in QEMU versions of TANSIV
+pthread_mutex_t deadline_lock;
 
 void tantap_vsg_receive_cb(uintptr_t arg __attribute__((unused)))
 {
@@ -76,13 +81,78 @@ void vsg_setup(const char* socket, const char* src, uint64_t num_buffers)
    */
   context = vsg_init(vsg_argc, vsg_argv, NULL, tantap_vsg_receive_cb, (uintptr_t)0, dummy_vsg_deadline_cb, 0);
   assert(context != NULL);
+}
 
-  int ret = vsg_start(context, NULL);
-  assert(ret == 0);
+void start_simulation(int socket_fd)
+{
+  int ret;
+  struct pollfd socket_pfd;
+  char buf[512];
+  struct sockaddr_un client_addr;
+  socklen_t client_len = sizeof(client_addr);
+  int client_fd;
+  socket_pfd.fd     = socket_fd;
+  socket_pfd.events = POLLIN;
+
+  while (true) {
+    poll(&socket_pfd, 1, -1);
+    if (socket_pfd.revents & POLLIN) {
+
+      client_fd = accept(socket_fd, (struct sockaddr*) &client_addr, &client_len);
+      if (client_fd == -1) {
+        fprintf(stderr, "accept() failed!\n");
+      }
+
+      ret = recv(client_fd, buf, 512, 0);
+      close(client_fd);
+      if (ret < 0) {
+        fprintf(stderr, "recv() failed!\n");
+      } else {
+        buf[ret] = '\0';
+        printf("Received: %s\n", buf);
+        if (strlen(buf) == 9) {
+          if (strncmp(buf, "vsg_start", 9) == 0) {
+            ret = vsg_start(context, NULL);
+            assert(ret == 0);
+            printf("vsg_start() successful\n");
+            break;
+          }
+        }
+      }
+    }
+  }
+}
+
+int init_socket(char* socket_name, int name_size)
+{
+  int socket_fd;
+  struct sockaddr_un addr;
+  int res;
+
+  socket_fd = socket(PF_LOCAL, SOCK_STREAM, 0);
+  if (socket_fd < 0) {
+    fprintf(stderr, "socket() failed!\n");
+  }
+
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_LOCAL;
+  strncpy(addr.sun_path, socket_name, name_size);
+
+  res = bind(socket_fd, (struct sockaddr*)&addr, sizeof(addr));
+  if (res < 0) {
+    fprintf(stderr, "bind() failed!\n");
+  }
+
+  res = listen(socket_fd, 1);
+  if (res < 0) {
+    fprintf(stderr, "listen() failed!\n");
+  }
+
+  return socket_fd;
 }
 
 static int interrupted = 0;
-static void close_handler(int sig)
+void close_handler(int sig)
 {
   interrupted = sig;
 }
@@ -100,7 +170,9 @@ event_response_t tansiv_deadline_callback(vmi_instance_t vmi, vmi_event_t* event
   resume_event.callback    = dummy_cb;
 
   // printf("TANSIV deadline callback\n");
+  pthread_mutex_lock(&deadline_lock);
   uint64_t tsc_deadline = deadline_handler(context, 0);
+  pthread_mutex_unlock(&deadline_lock);
   // printf("deadline_handler call done\n");
 
   event->tsc_deadline = tsc_deadline;
@@ -145,7 +217,10 @@ void* read_packets(void* unused __attribute__((unused)))
         iphdr = (struct iphdr*)(buf + ETH_HLEN);
         dest  = iphdr->daddr;
 
+        // Dont send if we are handling a deadline!
+        pthread_mutex_lock(&deadline_lock);
         vsg_send(context, dest, ret, buf);
+        pthread_mutex_unlock(&deadline_lock);
       }
     }
   }
@@ -164,6 +239,10 @@ int main(int argc, char** argv)
   xc_interface* xch;
   void* memory;
   char debug_string[16];
+  char socket_name[40] = "/tmp/xen_tansiv_bridge_socket_"; // extra room for suffix
+  int socket_fd;
+
+  pthread_mutex_init(&deadline_lock, NULL);
 
   /* this is the VM or file that we are looking at */
   if (argc != 7) {
@@ -180,6 +259,20 @@ int main(int argc, char** argv)
 
   vsg_setup(socket, src, num_buffers);
   printf("vsg setup done\n");
+
+  int suffix_len = (int)((ceil(log10(domid))) * sizeof(char));
+  printf("suffix_len is %d\n", suffix_len);
+
+  char suffix[5] = {0}; // Note: The domid must be < 65535
+  if (snprintf(suffix, 5, "%hu", domid)) {
+    printf("snprintf success\n");
+  }
+
+  strncat(socket_name, suffix, suffix_len);
+  printf("socket_name is %s\n", socket_name);
+
+  socket_fd = init_socket(socket_name, 40);
+  printf("socket created\n");
 
   // Context is now initialized
 
@@ -259,15 +352,18 @@ int main(int argc, char** argv)
 
   set_tansiv_tsc_page(context, memory);
 
+  start_simulation(socket_fd);
+
   printf("Waiting for events...\n");
   while (!interrupted) {
-    status = vmi_events_listen(vmi, 0);
+    status = vmi_events_listen(vmi, 10);
     if (status == VMI_FAILURE)
       printf("Failed to listen on events\n");
   }
 
   retcode = 0;
 error_exit:
+  pthread_mutex_destroy(&deadline_lock);
   pthread_cancel(packets_thread);
   /* TODO : vmi_clear_event must be updated to support tansiv events */
   vmi_clear_event(vmi, &tansiv_deadline_event, NULL);
