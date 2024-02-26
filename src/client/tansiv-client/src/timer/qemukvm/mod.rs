@@ -54,6 +54,8 @@ struct PollSendLatencyEstimator {
     num_recent_samples: u32,
     old_sum: f64,
     num_old_samples: u32,
+    num_records: usize,
+    num_ignored: usize,
 }
 
 // Adapted from KVM lapic timer latency estimator
@@ -71,6 +73,8 @@ impl PollSendLatencyEstimator {
             num_recent_samples: 0,
             old_sum: 0.0,
             num_old_samples: 0,
+            num_records: 0,
+            num_ignored: 0,
         }
     }
 
@@ -85,6 +89,7 @@ impl PollSendLatencyEstimator {
         let delta = timestamp - self.last_scheduled;
         self.delta = i32::try_from(delta)
             .expect("PollSendLatencyEstimator::new_record: latency above 2s");
+        self.num_records += 1;
     }
 
     fn adjust(&mut self) {
@@ -94,6 +99,8 @@ impl PollSendLatencyEstimator {
 
         let sample = self.delta + self.estimate;
         if sample <= 0 {
+            self.num_ignored += 1;
+            info!("PollSendLatencyEstimator::adjust: delta = {}, num_records = {}, num_ignored = {}", self.delta, self.num_records, self.num_ignored);
             self.delta = 0;
             return;
         }
@@ -111,6 +118,8 @@ impl PollSendLatencyEstimator {
         if estimate >= f64::from(i32::MIN) && estimate <= f64::from(i32::MAX) {
             self.estimate = unsafe { estimate.to_int_unchecked() };
         }
+
+        info!("PollSendLatencyEstimator::adjust: estimate = {}, delta = {}", self.estimate, self.delta);
 
         self.delta = 0;
     }
