@@ -42,10 +42,74 @@ struct TimerTSCInfos {
     tsc_scaling_ratio: u64,
 }
 
+// Used with all values in nanoseconds but the code only requires that all values use the same
+// units
+#[derive(Debug)]
+struct PollSendLatencyEstimator {
+    estimate: i32,
+    last_scheduled: i64,
+    delta: i32,
+}
+
+// Adapted from KVM lapic timer latency estimator
+impl PollSendLatencyEstimator {
+    // around 10µs were observed
+    const INIT: i32 = 10_000;
+    const ADJUST_MIN: i32 = 50;
+    const ADJUST_MAX: i32 = 10_000;
+    const ADJUST_STEP: u8 = 8;
+
+    fn new() -> PollSendLatencyEstimator {
+        PollSendLatencyEstimator {
+            estimate: Self::INIT,
+            last_scheduled: 0,
+            delta: 0,
+        }
+    }
+
+    fn set_next_scheduled(&mut self, timestamp: i64) {
+        assert!(timestamp >= 0);
+        self.last_scheduled = timestamp;
+        self.delta = 0;
+    }
+
+    fn new_record(&mut self, timestamp: i64) {
+        assert!(timestamp >= 0);
+        let delta = timestamp - self.last_scheduled;
+        self.delta = i32::try_from(delta)
+            .expect("PollSendLatencyEstimator::new_record: latency above 2s");
+    }
+
+    fn adjust(&mut self) {
+        if self.delta == 0 {
+            return;
+        }
+
+        // Ignore tiny fluctuations and large random spikes
+        if self.delta > Self::ADJUST_MAX || self.delta < Self::ADJUST_MIN {
+            self.delta = 0;
+            return;
+        }
+
+        let adjust = self.delta / i32::from(Self::ADJUST_STEP);
+        self.estimate = self.estimate.checked_add(adjust)
+            .expect("PollSendLatencyEstimator::adjust: estimate overflow/underflow");
+
+        self.delta = 0;
+    }
+
+    // Estimate on-demand to avoid adding latency at timer expiry
+    fn get(&mut self) -> i32 {
+        self.adjust();
+        self.estimate
+    }
+}
+
 #[derive(Debug)]
 pub struct TimerContextInner {
     poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     poll_send_callback: Mutex<Option<PollSendCallback>>,
+    poll_send_latency: Mutex<PollSendLatencyEstimator>,
     phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Previous deadline in global simulation time
@@ -82,11 +146,10 @@ impl Deref for TimerContext {
 }
 
 impl TimerContextInner {
-    const POLL_SEND_LATENCY_NS: u32 = 10_000;
-
     fn new() -> TimerContextInner {
         let poll_send_timer = Mutex::new(MaybeUninit::uninit());
         let poll_send_callback = Mutex::new(None);
+        let poll_send_latency = Mutex::new(PollSendLatencyEstimator::new());
         let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
@@ -104,6 +167,7 @@ impl TimerContextInner {
             TimerContextInner {
                 poll_send_timer,
                 poll_send_callback,
+                poll_send_latency,
                 phantom_pinned,
                 context,
                 prev_deadline,
@@ -269,7 +333,9 @@ impl TimerContextInner {
     }
 
     pub fn poll_send_latency(&self) -> StdDuration {
-        StdDuration::from_nanos(u64::from(Self::POLL_SEND_LATENCY_NS))
+        let latency = self.poll_send_latency.lock().unwrap().get();
+        StdDuration::from_nanos(u64::try_from(latency)
+                                .expect("poll_send_latency: negative"))
     }
 
     pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>, callback: &Arc<crate::PollSendCallback>) {
@@ -279,18 +345,22 @@ impl TimerContextInner {
         // the desired scheduled time. The polling entity may thus poll a bit more frequently than
         // needed but hopefully not too much.
 
-        let later = later.unwrap_or(now);
-        let delay_ns = i64::try_from((later-now).as_nanos())
-            .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
-        // The QEMU timer may have up to 10µs latency and we prefer being (just) a bit aggressive
-        let delay_ns = i64::max(0, delay_ns - i64::from(Self::POLL_SEND_LATENCY_NS));
         // Safety:
         // - Qemu clocks are assumed initialized when self is created
         // - qemu_clock_get_ns() only accesses Qemu's internal data
         // - qemu_clock_get_ns() does not require locking
         let qemu_now = unsafe { qemu_timer_sys::qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
+
+        let later = later.unwrap_or(now);
+        let delay_ns = i64::try_from((later-now).as_nanos())
+            .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
+
+        let mut latency = self.poll_send_latency.lock().unwrap();
+        let delay_ns = i64::max(0, delay_ns - i64::from(latency.get()));
         let expire = qemu_now.checked_add(delay_ns)
             .expect("schedule_poll_send_callback: expire as i64 overflow");
+        latency.set_next_scheduled(expire);
+        drop(latency);
 
         // Code that could be used for TSC-based expiry calculation
         //
@@ -361,6 +431,12 @@ extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
         // callback can itself call ::schedule_poll_send_callback() and take the lock again
         let callback = callback.0.clone();
         drop(guard);
+        // Safety:
+        // - Qemu clocks are assumed initialized when self is created
+        // - qemu_clock_get_ns() only accesses Qemu's internal data
+        // - qemu_clock_get_ns() does not require locking
+        let qemu_now = unsafe { qemu_timer_sys::qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
+        timer_context.poll_send_latency.lock().unwrap().new_record(qemu_now);
         callback();
     }
 }
