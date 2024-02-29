@@ -6,7 +6,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 import logging
 import os
 from pathlib import Path
-from subprocess import check_call, check_output
+from subprocess import check_call, check_output, Popen
 from typing import Dict, List, Optional
 import yaml
 
@@ -14,17 +14,17 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BASE_WORKING_DIR = Path.cwd() / "tansiv-working-dir"
 
-def _fill_template(template, out, **kwargs):
-        env = Environment(
-            loader=FileSystemLoader(
-                Path(__file__).parent / "templates"
-            ),  # TODO: Put the templates elsewhere than /bin
-            autoescape=select_autoescape(),
-        )
-        template = env.get_template(template)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(template.render(**kwargs))
 
+def _fill_template(template, out, **kwargs):
+    env = Environment(
+        loader=FileSystemLoader(
+            Path(__file__).parent / "templates"
+        ),  # TODO: Put the templates elsewhere than /bin
+        autoescape=select_autoescape(),
+    )
+    template = env.get_template(template)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(template.render(**kwargs))
 
 
 class VM(object):
@@ -34,7 +34,7 @@ class VM(object):
         ip_tantap: IPv4Interface,
         ip_management: IPv4Interface,
         qemu_cmd: str,
-        qemu_image: Path,
+        image: Path,
         qemu_args: str = "",
         hostname: Optional[str] = None,
         public_key: Optional[str] = None,
@@ -50,9 +50,9 @@ class VM(object):
         self.management = ip_management
 
         self.qemu_cmd = qemu_cmd
-        # force qemu_image to be a Path
-        qemu_image = Path(qemu_image)
-        self.qemu_image = qemu_image.resolve()
+        # force image to be a Path
+        image = Path(image)
+        self.image = image.resolve()
         self._hostname = hostname
         self.public_key = public_key
         self.autoconfig_net = autoconfig_net
@@ -215,12 +215,12 @@ class VM(object):
         return iso
 
     def prepare_image(self, working_dir: Path) -> Path:
-        qemu_image = (working_dir / "image.qcow2").resolve()
+        image = (working_dir / "image.qcow2").resolve()
         check_call(
-            f"qemu-img create -f qcow2 -F qcow2 -o backing_file={self.qemu_image} {qemu_image}",
+            f"qemu-img create -f qcow2 -F qcow2 -o backing_file={self.image} {image}",
             shell=True,
         )
-        return qemu_image
+        return image
 
     def _br_tap_cmd(self, br: str, ip: IPv4Interface, tap: str, queues: int):
         """Create a bridge and a tap attached.
@@ -266,7 +266,7 @@ class VM(object):
                 self.virtio_net_nb_queues[1],
             ),
         ]
-    
+
     def prepare_start(self, working_dir: Path) -> tuple[Path, Path]:
         # create the working dir
         #   fail if it already exist so that the user can explicitly choose to
@@ -283,8 +283,7 @@ class VM(object):
         return iso, image
 
     @abstractmethod
-    def start(self, working_dir: Path) -> None:
-        ...
+    def start(self, working_dir: Path) -> None: ...
 
 
 class TansivQemu(VM):
@@ -382,7 +381,7 @@ class TansivQemu(VM):
 
         return cmd
 
-    def start(self, working_dir: Path) -> Path:
+    def start(self, working_dir: Path):
         iso, image = self.prepare_start(working_dir)
 
         cmd = self.prepare_cmd(image, iso)
@@ -434,7 +433,7 @@ class TansivLibvirt(VM):
         self.template = template
         super().__init__(*args, **kwargs)
 
-    def start(self, working_dir: Path) -> Path:
+    def start(self, working_dir: Path):
         iso, image = self.prepare_start(working_dir)
 
         _fill_template(
@@ -442,7 +441,7 @@ class TansivLibvirt(VM):
             out=working_dir / f"domain-{self.descriptor}.xml",
             descriptor=self.descriptor,
             qemu_gdb_port=1234 + self.descriptor,
-            qemu_mem=self.mem,
+            mem=self.mem,
             qemu_cmd=self.qemu_cmd,
             qemu_img=image,
             qemu_vcpus=self.cores,
@@ -469,6 +468,7 @@ class TansivLibvirtVMI(TansivLibvirt):
             *args, template="deployment-qemukvmvmi-libvirt.xml.j2", **kwargs
         )
 
+
 class TansivXen(VM):
     def __init__(
         self,
@@ -490,37 +490,36 @@ class TansivXen(VM):
         self.template = template
         super().__init__(*args, **kwargs)
 
-    def start(self, working_dir: Path) -> Path:
+    def start(self, working_dir: Path):
         iso, image = self.prepare_start(working_dir)
 
         _fill_template(
             self.template,
             out=working_dir / f"domain-{self.descriptor}.cfg",
             descriptor=self.descriptor,
-            qemu_mem=self.mem,
-            qemu_cmd=self.qemu_cmd,
-            qemu_img=image,
-            qemu_vcpus=self.cores,
-            qemu_cpuset=self.cpuset,
-            qemu_cdrom=iso,
-            qemu_tantap_mac=self.mac[0],
-            qemu_mantap_mac=self.mac[1],
-            qemu_mantap_name=self.tapname[1],
-            qemu_tantap_name=self.tapname[0],
-            qemu_tantap_bridge=self.bridgename[0],
-            qemu_mantap_bridge=self.bridgename[1]
-
+            xen_mem=self.mem,
+            xen_img=image,
+            xen_vcpus=self.cores,
+            xen_cpuset=self.cpuset,
+            xen_cdrom=iso,
+            xen_tantap_mac=self.mac[0],
+            xen_mantap_mac=self.mac[1],
+            xen_tantap_bridge=self.bridgename[0],
+            xen_mantap_bridge=self.bridgename[1],
         )
 
         cmd_xl = f"xl create -f domain-{self.descriptor}.cfg"
         with (working_dir / "out").open("w") as stdout:
             check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
+        # Current version of the script requies that the PV network card is
+        # fully initialized beforehand, thus it's better to launch it manually
+        # for now
         # get the domid
-        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
-        cmd_xen_tansiv_bridge = f"xen_tansiv_bridge tansiv-{self.descriptor} {self.socket_name} {self.tantap.ip} {self.num_buffers} {domid} vif{domid}.0"
-        with (working_dir / "out").open("w") as stdout:
-            check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
-
+        # domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
+        # cmd_xen_tansiv_bridge = f"/opt/tansiv/bin/xen_tansiv_bridge tansiv-{self.descriptor} {self.socket_name} {self.tantap.ip} {self.num_buffers} {domid} vif{domid}.0"
+        # with (working_dir / "out").open("w") as stdout:
+        # Popen(["/opt/tansiv/bin/xen_tansiv_bridge", f"tansiv-{self.descriptor}", f"{self.socket_name}", f"{self.tantap.ip}", f"{self.num_buffers}", f"{domid}", f"vif{domid}.0"], stdout=stdout, cwd=working_dir)
+        # check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
 
 
 def terminate(*args):
@@ -575,7 +574,9 @@ done
     )
 
     parser.add_argument(
-        "mode", choices=["icount", "kvm", "libvirt", "libvirt_vmi", "xen"], help="mode ..."
+        "mode",
+        choices=["icount", "kvm", "libvirt", "libvirt_vmi", "xen"],
+        help="mode ...",
     )
 
     parser.add_argument(
@@ -610,8 +611,10 @@ done
     parser.add_argument(
         "--mem",
         type=str,
-        help="Memory to use (e.g 1g). Default is QEMU_MEM, or if not defined '1g'.",
-        default=os.environ.get("QEMU_MEM", "1g"),
+        help="""Memory to use. For QEMU/KVM you can use "M" or "G" as a suffix
+             to signify a value in megabytes/gigabytes. For Xen the value must
+             be an integer, for which the unit will be megabytes.  Default is QEMU_MEM, or if not defined 1GB.""",
+        default=os.environ.get("QEMU_MEM", None),
     )
 
     parser.add_argument(
@@ -629,7 +632,7 @@ done
     )
 
     parser.add_argument(
-        "--qemu_image",
+        "--image",
         type=str,
         help="Disk image path. Default is IMAGE.",
         default=os.environ.get("IMAGE", None),
@@ -668,13 +671,14 @@ The default value is too low for realistics benchmarks.""",
         "--cores",
         type=int,
         help="Number of cores. Default is 1. Forced to 1 in icount mode",
+        default=1,
     )
 
     parser.add_argument(
         "--cpuset",
         type=str,
         help="""Cores on which the vCPUs must be pinned. Examples: '0', '2-5', '1, ^3, 4-6'.
-                Default is '0-{cores}'. Only compatible with libvirt modes. """,
+                Default is '0-{cores}'. Only compatible with libvirt and Xen modes.""",
     )
 
     parser.add_argument(
@@ -696,13 +700,18 @@ The default value is too low for realistics benchmarks.""",
     d["hostname"] = args.hostname
 
     d["qemu_cmd"] = args.qemu_cmd
-    if not args.qemu_cmd:
+    if not args.qemu_cmd and args.mode != "xen":
         raise ValueError("qemu_cmd must be set")
     d["qemu_args"] = args.qemu_args
-    d["mem"] = args.mem
-    d["qemu_image"] = Path(args.qemu_image)
-    if not args.qemu_image:
-        raise ValueError("qemu_image must be set")
+    if args.mem == None and args.mode == "xen":
+        d["mem"] = "1000"
+    elif args.mem == None:
+        d["mem"] = "1G"
+    else:
+        d["mem"] = args.mem
+    d["image"] = Path(args.image)
+    if not args.image:
+        raise ValueError("image must be set")
     d["qemu_nictype"] = args.qemu_nictype
     d["virtio_net_nb_queues"] = args.virtio_net_nb_queues
     d["autoconfig_net"] = args.autoconfig_net

@@ -11,44 +11,44 @@
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.10"/>  <!-- how simgrid knows me-->
     <argument value="boot.py"/>
-    <argument value="--mode"/>
-    <argument value="tantap"/>
+    <argument value="kvm"/>
     <argument value="--num_buffers"/>
     <argument value="100000"/>
     <argument value="--virtio_net_nb_queues"/>
     <argument value="2"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemukvm-system-x86_64"/>
-    <argument value="--qemu_image"/>
+    <argument value="--image"/>
     <argument value="/srv/image.qcow2"/>
     <argument value="--qemu_mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
-    <argument value="-accel kvm -smp sockets=1,cores=2,threads=1,maxcpus=2 -monitor unix:/tmp/qemu-monitor-1,server,nowait -object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1  -cpu max,invtsc=on"/>
+    <argument value="-object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1"/>
     <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
     <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.10/24"/> <!-- management -->
+    <argument value="1"/> <!-- descriptor -->
   </actor>
 
     <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.11"/>  <!-- how simgrid knows me-->
     <argument value="boot.py"/>
-    <argument value="--mode"/>
-    <argument value="tantap"/>
+    <argument value="kvm"/>
     <argument value="--num_buffers"/>
     <argument value="100000"/>
     <argument value="--virtio_net_nb_queues"/>
     <argument value="2"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemukvm-system-x86_64"/>
-    <argument value="--qemu_image"/>
+    <argument value="--image"/>
     <argument value="/srv/image.qcow2"/>
-    <argument value="--qemu_mem"/>
+    <argument value="--mem"/>
     <argument value="1g"/>
     <argument value="--qemu_args"/>
-    <argument value="-accel kvm -smp sockets=1,cores=2,threads=1,maxcpus=2 -monitor unix:/tmp/qemu-monitor-2,server,nowait -object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1  -cpu max,invtsc=on"/>
+    <argument value="-object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1"/>
     <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
     <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.11/24"/> <!-- management -->
+    <argument value="2"/> <!-- descriptor -->
   </actor>
 </platform>

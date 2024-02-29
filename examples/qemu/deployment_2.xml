@@ -10,46 +10,41 @@
   -->
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.10"/>  <!-- how simgrid knows me-->
-    <!-- relative the examples/qemu_docker dir -->
-    <argument value="../../bin/boot.py"/>
-    <argument value="--mode"/>
-    <argument value="tantap"/>
+    <argument value="boot.py"/>
+    <argument value="icount"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemu-system-x86_64"/>
-    <argument value="--qemu_image"/>
-    <!-- relative to the exampes/qemu_dir -->
+    <argument value="--image"/>
+    <!-- relative to the examples/qemu_dir -->
     <argument value="../../tools/packer/packer-debian-11.1.0-x86_64-qemu/debian-11.1.0-x86_64.qcow2"/>
-    <argument value="--qemu_mem"/>
+    <argument value="--mem"/>
     <argument value="1g"/>
-    <argument value="--qemu_args"/>
-    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
     <argument value="--qemu_nictype"/>
     <argument value="e1000"/>
     <argument value="--num_buffers"/>
-    <argument value="100"/>
+    <argument value="10000"/>
     <argument value="192.168.120.10/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.10/24"/> <!-- management -->
+    <argument value="1"/> <!-- descriptor -->
   </actor>
 
   <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
     <argument value="192.168.120.11"/>  <!-- how simgrid knows me-->
-    <argument value="../../bin/boot.py"/>
-    <argument value="--mode"/>
-    <argument value="tantap"/>
+    <argument value="boot.py"/>
+    <argument value="icount"/>
     <argument value="--qemu_cmd"/>
     <argument value="tanqemu-system-x86_64"/>
-    <argument value="--qemu_image"/>
+    <argument value="--image"/>
     <argument value="../../tools/packer/packer-debian-11.1.0-x86_64-qemu/debian-11.1.0-x86_64.qcow2"/>
-    <argument value="--qemu_mem"/>
+    <argument value="--mem"/>
     <argument value="1g"/>
-    <argument value="--qemu_args"/>
-    <argument value="-icount shift=0,sleep=off,align=off -rtc clock=vm"/>
     <argument value="--qemu_nictype"/>
     <argument value="e1000"/>
     <argument value="--num_buffers"/>
-    <argument value="100"/>
+    <argument value="10000"/>
     <argument value="192.168.120.11/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.11/24"/> <!-- management -->
+    <argument value="2"/> <!-- descriptor -->
   </actor>
 
 </platform>
