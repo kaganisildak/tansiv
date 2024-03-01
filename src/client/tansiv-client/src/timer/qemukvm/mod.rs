@@ -49,21 +49,27 @@ struct PollSendLatencyEstimator {
     estimate: i32,
     last_scheduled: i64,
     delta: i32,
+    recent_sum: f64,
+    num_recent_samples: u32,
+    old_sum: f64,
+    num_old_samples: u32,
 }
 
 // Adapted from KVM lapic timer latency estimator
 impl PollSendLatencyEstimator {
     // around 10µs were observed
     const INIT: i32 = 10_000;
-    const ADJUST_MIN: i32 = 50;
-    const ADJUST_MAX: i32 = 10_000;
-    const ADJUST_STEP: u8 = 8;
+    const NUM_MAX: u32 = 1_000_000;
 
     fn new() -> PollSendLatencyEstimator {
         PollSendLatencyEstimator {
             estimate: Self::INIT,
             last_scheduled: 0,
             delta: 0,
+            recent_sum: 0.0,
+            num_recent_samples: 0,
+            old_sum: 0.0,
+            num_old_samples: 0,
         }
     }
 
@@ -85,15 +91,25 @@ impl PollSendLatencyEstimator {
             return;
         }
 
-        // Ignore tiny fluctuations and large random spikes
-        if self.delta > Self::ADJUST_MAX || self.delta < Self::ADJUST_MIN {
+        let sample = self.delta + self.estimate;
+        if sample <= 0 {
             self.delta = 0;
             return;
         }
 
-        let adjust = self.delta / i32::from(Self::ADJUST_STEP);
-        self.estimate = self.estimate.checked_add(adjust)
-            .expect("PollSendLatencyEstimator::adjust: estimate overflow/underflow");
+        if self.num_recent_samples >= Self::NUM_MAX {
+            self.old_sum = self.recent_sum;
+            self.num_old_samples = self.num_recent_samples;
+            self.recent_sum = 0.0;
+            self.num_recent_samples = 0;
+        }
+
+        self.recent_sum += 1.0 / f64::from(sample);
+        self.num_recent_samples += 1;
+        let estimate = (f64::from(self.num_recent_samples + self.num_old_samples) / (self.recent_sum + self.old_sum)).round();
+        if estimate >= f64::from(i32::MIN) && estimate <= f64::from(i32::MAX) {
+            self.estimate = unsafe { estimate.to_int_unchecked() };
+        }
 
         self.delta = 0;
     }
