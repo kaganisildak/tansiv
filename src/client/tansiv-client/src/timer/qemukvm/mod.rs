@@ -18,7 +18,7 @@ use crate::output_msg_set::{OutputMsg};
 
 use core::arch::x86_64::{_rdtsc};
 
-use log::debug;
+use log::{debug, warn};
 
 extern {
     fn open_device() -> c_int;
@@ -355,12 +355,21 @@ impl TimerContextInner {
         let delay_ns = i64::try_from((later-now).as_nanos())
             .expect("schedule_poll_send_callback: delay_ns as i64 overflow");
 
+        let raw_expire = qemu_now.checked_add(delay_ns)
+            .expect("schedule_poll_send_callback: raw expire as i64 overflow");
+
         let mut latency = self.poll_send_latency.lock().unwrap();
-        let delay_ns = i64::max(0, delay_ns - i64::from(latency.get()));
-        let expire = qemu_now.checked_add(delay_ns)
-            .expect("schedule_poll_send_callback: expire as i64 overflow");
-        latency.set_next_scheduled(expire);
+        let latency_ns = i64::from(latency.get());
+
+        latency.set_next_scheduled(raw_expire);
         drop(latency);
+
+        let expire = if latency_ns < delay_ns {
+            raw_expire - latency_ns
+        } else {
+            warn!("schedule_poll_send_callback: latency_ns = {}, delay_ns = {}", latency_ns, delay_ns);
+            qemu_now
+        };
 
         // Code that could be used for TSC-based expiry calculation
         //
