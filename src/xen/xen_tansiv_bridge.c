@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <math.h>
 #include <poll.h>
 #include <pthread.h>
@@ -31,7 +32,7 @@
 #define XC_WANT_COMPAT_MAP_FOREIGN_API // For xc_map_foreign_range
 #include <xenctrl.h>
 
-#define MTU 1500
+#define PACKETS_MAX_SIZE 1600
 
 struct vsg_context* context;
 int fd;
@@ -42,9 +43,9 @@ pthread_mutex_t deadline_lock;
 
 void tantap_vsg_receive_cb(uintptr_t arg __attribute__((unused)))
 {
-  uint8_t buf[MTU];
+  uint8_t buf[PACKETS_MAX_SIZE];
   uint32_t src, dst;
-  uint32_t msg_len = MTU;
+  uint32_t msg_len = PACKETS_MAX_SIZE;
   while (vsg_poll(context) == 0) {
     vsg_recv(context, &src, &dst, &msg_len, buf);
     // Send the packet to the kernel module
@@ -98,7 +99,7 @@ void start_simulation(int socket_fd)
     poll(&socket_pfd, 1, -1);
     if (socket_pfd.revents & POLLIN) {
 
-      client_fd = accept(socket_fd, (struct sockaddr*) &client_addr, &client_len);
+      client_fd = accept(socket_fd, (struct sockaddr*)&client_addr, &client_len);
       if (client_fd == -1) {
         fprintf(stderr, "accept() failed!\n");
       }
@@ -128,6 +129,8 @@ int init_socket(char* socket_name, int name_size)
   int socket_fd;
   struct sockaddr_un addr;
   int res;
+
+  unlink(socket_name);
 
   socket_fd = socket(PF_LOCAL, SOCK_STREAM, 0);
   if (socket_fd < 0) {
@@ -201,14 +204,14 @@ void packet_dump(uint8_t* buf, int size)
 void* read_packets(void* unused __attribute__((unused)))
 {
   int ret;
-  uint8_t buf[MTU];
+  uint8_t buf[PACKETS_MAX_SIZE];
   struct iphdr* iphdr;
   in_addr_t dest;
 
   while (true) {
     poll(&pfd, 1, -1);
     if (pfd.revents & POLLIN) {
-      ret = read(fd, buf, MTU);
+      ret = read(fd, buf, PACKETS_MAX_SIZE);
       if (ret < 0) {
         // fprintf(stderr, "Failed to read packet!\n");
       } else {
@@ -225,6 +228,15 @@ void* read_packets(void* unused __attribute__((unused)))
     }
   }
   return NULL;
+}
+
+int num_digits(int n)
+{
+  if (n < 0)
+    return num_digits((n == INT_MIN) ? INT_MAX : -n);
+  if (n < 10)
+    return 1;
+  return 1 + num_digits(n / 10);
 }
 
 int main(int argc, char** argv)
@@ -260,7 +272,7 @@ int main(int argc, char** argv)
   vsg_setup(socket, src, num_buffers);
   printf("vsg setup done\n");
 
-  int suffix_len = (int)((ceil(log10(domid))) * sizeof(char));
+  int suffix_len = num_digits((int) domid);
   printf("suffix_len is %d\n", suffix_len);
 
   char suffix[5] = {0}; // Note: The domid must be < 65535
@@ -273,6 +285,8 @@ int main(int argc, char** argv)
 
   socket_fd = init_socket(socket_name, 40);
   printf("socket created\n");
+
+  start_simulation(socket_fd);
 
   // Context is now initialized
 
@@ -352,8 +366,6 @@ int main(int argc, char** argv)
 
   set_tansiv_tsc_page(context, memory);
 
-  start_simulation(socket_fd);
-
   printf("Waiting for events...\n");
   while (!interrupted) {
     status = vmi_events_listen(vmi, 10);
@@ -363,6 +375,8 @@ int main(int argc, char** argv)
 
   retcode = 0;
 error_exit:
+  close(socket_fd);
+  unlink(socket_name);
   pthread_mutex_destroy(&deadline_lock);
   pthread_cancel(packets_thread);
   /* TODO : vmi_clear_event must be updated to support tansiv events */

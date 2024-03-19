@@ -15,7 +15,7 @@
     <argument value="--num_buffers"/>
     <argument value="100000"/>
     <argument value="--image"/>
-    <argument value="/srv/image.qcow22"/>
+    <argument value="/srv/image.qcow2"/>
     <argument value="--mem"/>
     <argument value="8192"/>
     <argument value="--cores"/>

@@ -511,15 +511,11 @@ class TansivXen(VM):
         cmd_xl = f"xl create -f domain-{self.descriptor}.cfg"
         with (working_dir / "out").open("w") as stdout:
             check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
-        # Current version of the script requies that the PV network card is
-        # fully initialized beforehand, thus it's better to launch it manually
-        # for now
+
         # get the domid
-        # domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
-        # cmd_xen_tansiv_bridge = f"/opt/tansiv/bin/xen_tansiv_bridge tansiv-{self.descriptor} {self.socket_name} {self.tantap.ip} {self.num_buffers} {domid} vif{domid}.0"
-        # with (working_dir / "out").open("w") as stdout:
-        # Popen(["/opt/tansiv/bin/xen_tansiv_bridge", f"tansiv-{self.descriptor}", f"{self.socket_name}", f"{self.tantap.ip}", f"{self.num_buffers}", f"{domid}", f"vif{domid}.0"], stdout=stdout, cwd=working_dir)
-        # check_call(cmd_xen_tansiv_bridge, shell=True, stdout=stdout, cwd=working_dir)
+        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
+        with (working_dir / "out").open("w") as stdout:
+            Popen(["/opt/tansiv/bin/xen_tansiv_bridge", f"tansiv-{self.descriptor}", f"{self.socket_name}", f"{self.tantap.ip}", f"{self.num_buffers}", f"{domid}", f"vif{domid}.0"], stdout=stdout, cwd=working_dir)
 
 
 def terminate(*args):

@@ -4,7 +4,9 @@
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/if.h>
+#include <linux/in.h>
 #include <linux/init.h>
+#include <linux/ip.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/mm.h>
@@ -17,10 +19,15 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
+#include <linux/tcp.h>
 #include <linux/timekeeping.h>
 #include <linux/uaccess.h>
+#include <linux/udp.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
+
+#include <net/tcp.h>
+#include <net/udp.h>
 
 #include <xen/interface/xen.h>
 
@@ -30,7 +37,7 @@
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE 500
 #define PACKETS_BUFFER_SIZE 1000
-#define MTU 1500
+#define PACKETS_MAX_SIZE 1600
 
 #define FORBIDDEN_MMAP_FLAG (VM_WRITE | VM_EXEC | VM_SHARED)
 
@@ -65,7 +72,7 @@ struct circular_buffer {
 /* struct representing a packet */
 struct tansiv_packet {
     ktime_t timestamp;
-    unsigned char data[MTU];
+    unsigned char data[PACKETS_MAX_SIZE];
     unsigned int size;
 };
 
@@ -75,6 +82,7 @@ struct tansiv_vm {
     char net_device_name[IFNAMSIZ]; // VM network interface name
     struct net_device *dev;         // Net device associated with this VM
     struct circular_buffer packets; // Buffer of intercepted network packets
+    spinlock_t packets_lock; // spinlock for the packet buffer
 };
 
 /* Init's network namespace */
@@ -153,6 +161,7 @@ struct tansiv_vm *init_vm(void)
     }
     vm->domid = 0;
     cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff *));
+    spin_lock_init(&vm->packets_lock);
 
     return vm;
 }
@@ -222,6 +231,7 @@ void xen_cb(void *buff)
 
     if (skb->data - ETH_HLEN < skb->head) {
         pr_warn("tansiv-timer: skb ethernet header is not in headroom!");
+        return;
     }
 
     // Put back the ethernet header in the linear part of the skb
@@ -242,8 +252,10 @@ void xen_cb(void *buff)
     }
 
     /* Forward the packet to userspace */
+    spin_lock(&vm->packets_lock);
     cb_push(&vm->packets, &skb);
     wake_up_interruptible(&device_wait);
+    spin_unlock(&vm->packets_lock);
 }
 
 struct net_device *find_netdev(char *name)
@@ -303,7 +315,7 @@ static ssize_t device_do_read(struct tansiv_vm *vm, struct iov_iter *to)
 {
     struct sk_buff *skb;
     ssize_t ret = 0;
-
+    
     if (vm->packets.used > 0) {
         cb_pop(&vm->packets, &skb);
         if (skb != NULL) {
@@ -323,12 +335,14 @@ static ssize_t device_read_iter(struct kiocb *iocb, struct iov_iter *to)
     ssize_t ret;
     struct file *file = iocb->ki_filp;
     struct tansiv_vm *vm = file->private_data;
-
+    spin_lock_irq(&vm->packets_lock);
     if (vm->packets.used == 0) {
-        return -EAGAIN;
+        ret = -EAGAIN;
     }
-
-    ret = device_do_read(vm, to);
+    else {
+        ret = device_do_read(vm, to);
+    }
+    spin_unlock_irq(&vm->packets_lock);
 
     return ret;
 }
@@ -338,6 +352,11 @@ static ssize_t device_do_write(struct tansiv_vm *vm, struct iov_iter *from)
 {
     struct sk_buff *skb;
     enum skb_drop_reason drop_reason;
+    struct iphdr *ip_h;
+    struct udphdr *udp_h;
+    struct tcphdr *tcp_h;
+    unsigned int tcp_len;
+    unsigned int udp_len;
     int err = 0;
     unsigned long total_len = iov_iter_count(from);
     unsigned long len = total_len;
@@ -371,9 +390,31 @@ static ssize_t device_do_write(struct tansiv_vm *vm, struct iov_iter *from)
 
     rcu_read_lock();
     skb->dev = vm->dev;
-    skb->pkt_type = PACKET_HOST;
+    skb->pkt_type = PACKET_OTHERHOST;
 
     skb_probe_transport_header(skb);
+
+    if (htons(skb->protocol) == ETH_P_IP) {
+        ip_h = ip_hdr(skb);
+        switch (ip_h->protocol) {
+        case IPPROTO_TCP:
+            tcp_h = tcp_hdr(skb);
+            tcp_len = skb->len - ip_hdrlen(skb) - ETH_HLEN;
+            tcp_h->check = 0;
+            tcp_h->check = tcp_v4_check(tcp_len, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)tcp_h, tcp_len, 0));
+            break;
+        case IPPROTO_UDP:
+            udp_h = udp_hdr(skb);
+            udp_len = skb->len - ip_hdrlen(skb) - ETH_HLEN;
+            udp_h->check = 0;
+            udp_h->check = udp_v4_check(udp_len, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)udp_h, udp_len, 0));
+            break;
+        default:
+            break;
+        }
+    }
 
     dev_queue_xmit(skb);
     rcu_read_unlock();
@@ -482,7 +523,7 @@ static void __exit cancel_tansiv_timer(void)
 module_init(tansiv_timer_init);
 module_exit(cancel_tansiv_timer);
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Léo Cosseron");
 MODULE_DESCRIPTION("Timers for TANSIV (Xen version)");
 MODULE_VERSION("0.1");
