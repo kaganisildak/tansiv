@@ -1,4 +1,6 @@
 use chrono::Duration;
+#[allow(unused_imports)]
+use log::{debug, info};
 use qemu_timer_sys::{QEMUClockType, qemu_clock_get_ns};
 use std::collections::VecDeque;
 use std::mem::MaybeUninit;
@@ -226,6 +228,7 @@ impl TimerContextInner {
         let poll_send_timer = self.poll_send_timer.lock().unwrap().as_mut_ptr();
         *self.poll_send_callback.lock().unwrap() = Some(PollSendCallback(callback.clone()));
         unsafe { qemu_timer_sys::timer_mod(poll_send_timer, expire) };
+        info!("[{:?}] schedule_poll_send_callback: {:?}", now, later);
     }
 }
 
@@ -254,6 +257,7 @@ extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
     // Safety: TODO
     let timer_context = unsafe { (opaque as *const TimerContextInner).as_ref().unwrap() };
     let guard = timer_context.poll_send_callback.lock().unwrap();
+    info!("[{:?}] poll_send_handler", timer_context.simulation_now());
     if let Some(ref callback) = *guard {
         // callback can itself call ::schedule_poll_send_callback() and take the lock again
         let callback = callback.0.clone();
