@@ -1,5 +1,6 @@
 use chrono::Duration;
 use libc::{c_int, mmap, PROT_READ, MAP_SHARED};
+use memmap2::MmapMut;
 use qemu_timer_sys::QEMUClockType;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
@@ -11,14 +12,14 @@ use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration as StdDuration;
 
 use crate::output_msg_set::{OutputMsg};
 
 use core::arch::x86_64::{_rdtsc};
 
-use log::{debug, warn};
+use log::{debug, info, warn};
 
 extern {
     fn open_device() -> c_int;
@@ -53,15 +54,51 @@ struct PollSendLatencyEstimator {
     num_recent_samples: u32,
     old_sum: f64,
     num_old_samples: u32,
+    num_records: usize,
+    num_ignored: usize,
+    log_array: MmapMut,
+    log_idx: usize,
+    ts: StdDuration,
 }
+
+enum PollSendLatencyEstimatorLogType {
+    Estimate,
+    Ignored,
+}
+
+struct PollSendLatencyEstimatorPtr(*const PollSendLatencyEstimator);
+unsafe impl Send for PollSendLatencyEstimatorPtr {}
+unsafe impl Sync for PollSendLatencyEstimatorPtr {}
+
+static POLL_SEND_LATENCY_ESTIMATOR: RwLock<Option<PollSendLatencyEstimatorPtr>> = RwLock::new(None);
 
 // Adapted from KVM lapic timer latency estimator
 impl PollSendLatencyEstimator {
     // around 10µs were observed
     const INIT: i32 = 10_000;
     const NUM_MAX: u32 = 1_000_000;
+    const LOG_END: u32 = 0; // Never explicitly written, default value in memory
+    const LOG_ESTIMATE: u32 = 1;
+    const LOG_IGNORED: u32 = 2;
+    const FLUSH_SIG: nix::sys::signal::Signal = nix::sys::signal::Signal::SIGUSR1;
 
     fn new() -> PollSendLatencyEstimator {
+        use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet};
+
+        // This sighandler init is idempotent if successful.
+        let action = SigAction::new(SigHandler::Handler(Self::flush_handler), SaFlags::SA_RESTART, SigSet::all());
+        unsafe {
+            sigaction(Self::FLUSH_SIG, &action).expect("PollSendLatencyEstimator::new->sigaction");
+        }
+
+        let log_file = fs::OpenOptions::new().read(true).write(true).create(true).open("latency_estimator.dat")
+            .expect("PollSendLatencyEstimator::new->OpentionOptions.open");
+        // 4G means room for between 120M and 180M entries
+        log_file.set_len(1 << 32)
+            .expect("PollSendLatencyEstimator::new->File::set_len error");
+        let log_array = unsafe { MmapMut::map_mut(&log_file) }
+            .expect("PollSendLatencyEstimator::new->MmapMut::map_mut error");
+
         PollSendLatencyEstimator {
             estimate: Self::INIT,
             last_scheduled: 0,
@@ -70,7 +107,30 @@ impl PollSendLatencyEstimator {
             num_recent_samples: 0,
             old_sum: 0.0,
             num_old_samples: 0,
+            num_records: 0,
+            num_ignored: 0,
+            log_array,
+            log_idx: 0,
+            ts: StdDuration::ZERO,
         }
+    }
+
+    fn set_instance(&self) {
+        *POLL_SEND_LATENCY_ESTIMATOR.write().unwrap() = Some(PollSendLatencyEstimatorPtr(self as *const PollSendLatencyEstimator));
+    }
+
+    extern "C" fn flush_handler(_: libc::c_int) {
+        if let Some(ref estimator) = *POLL_SEND_LATENCY_ESTIMATOR.read().unwrap() {
+            // Safety:
+            // In QEMU the timer_context struct is pinned and never freed
+            let estimator = unsafe { estimator.0.as_ref().unwrap() };
+            estimator.log_array.flush().unwrap();
+            info!("PollSendLatencyEstimator::flush_handler done");
+        }
+    }
+
+    fn set_ts(&mut self, ts: StdDuration) {
+        self.ts = ts;
     }
 
     fn set_next_scheduled(&mut self, timestamp: i64) {
@@ -84,6 +144,38 @@ impl PollSendLatencyEstimator {
         let delta = timestamp - self.last_scheduled;
         self.delta = i32::try_from(delta)
             .expect("PollSendLatencyEstimator::new_record: latency above 2s");
+        self.num_records += 1;
+    }
+
+    fn write_log(&mut self, log: PollSendLatencyEstimatorLogType) {
+        use std::io::Write;
+
+        let array = &mut self.log_array;
+        let mut idx = self.log_idx;
+
+        let mut write_bytes = |bytes: &[u8]| {
+                let len = bytes.len();
+                array[idx..(idx + len)].as_mut().write_all(&bytes).unwrap();
+                idx += len;
+        };
+
+        write_bytes(&self.ts.as_secs().to_le_bytes());
+        write_bytes(&self.ts.subsec_nanos().to_le_bytes());
+        match log {
+            PollSendLatencyEstimatorLogType::Estimate => {
+                write_bytes(&Self::LOG_ESTIMATE.to_le_bytes());
+                write_bytes(&self.estimate.to_le_bytes());
+                write_bytes(&self.delta.to_le_bytes());
+            },
+            PollSendLatencyEstimatorLogType::Ignored => {
+                write_bytes(&Self::LOG_IGNORED.to_le_bytes());
+                write_bytes(&self.delta.to_le_bytes());
+                write_bytes(&(self.num_records as u64).to_le_bytes());
+                write_bytes(&(self.num_ignored as u64).to_le_bytes());
+            },
+        };
+
+        self.log_idx = idx;
     }
 
     fn adjust(&mut self) {
@@ -93,6 +185,8 @@ impl PollSendLatencyEstimator {
 
         let sample = self.delta + self.estimate;
         if sample <= 0 {
+            self.num_ignored += 1;
+            self.write_log(PollSendLatencyEstimatorLogType::Ignored);
             self.delta = 0;
             return;
         }
@@ -110,6 +204,8 @@ impl PollSendLatencyEstimator {
         if estimate >= f64::from(i32::MIN) && estimate <= f64::from(i32::MAX) {
             self.estimate = unsafe { estimate.to_int_unchecked() };
         }
+
+        self.write_log(PollSendLatencyEstimatorLogType::Estimate);
 
         self.delta = 0;
     }
@@ -256,6 +352,9 @@ impl TimerContextInner {
 
         *self.tsc_freq.lock().unwrap() = tsc_freq;
         self.set_next_deadline(deadline);
+
+        let latency_estimator = self.poll_send_latency.lock().unwrap();
+        latency_estimator.set_instance();
 
         Ok(Duration::zero())
     }
@@ -461,7 +560,11 @@ extern "C" fn poll_send_handler(opaque: *mut ::std::os::raw::c_void) {
         // - qemu_clock_get_ns() only accesses Qemu's internal data
         // - qemu_clock_get_ns() does not require locking
         let qemu_now = unsafe { qemu_timer_sys::qemu_clock_get_ns(QEMUClockType::QEMU_CLOCK_VIRTUAL) };
-        timer_context.poll_send_latency.lock().unwrap().new_record(qemu_now);
+        let simulation_now = timer_context.simulation_now();
+        let mut estimator = timer_context.poll_send_latency.lock().unwrap();
+        estimator.set_ts(simulation_now);
+        estimator.new_record(qemu_now);
+        drop(estimator);
         callback();
     }
 }
