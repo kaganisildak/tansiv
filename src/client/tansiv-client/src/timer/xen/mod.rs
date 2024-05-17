@@ -92,10 +92,6 @@ impl TimerContextInner {
     }
 
     pub fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration) {
-        unsafe {
-            if !(*self.tsc_infos.lock().unwrap()).is_null() {
-                deadline_handler_debug!("Current tsc offset from shared page is {}\n", (*(*self.tsc_infos.lock().unwrap())).tsc_offset);}
-            }
         let next_deadline_val = *self.next_deadline.lock().unwrap();
        
         let timer_deadline = (deadline - next_deadline_val).as_nanos() as u64;
@@ -180,26 +176,6 @@ impl TimerContextInner {
 
     pub fn simulation_next_deadline(&self) -> StdDuration {
         *self.next_deadline.lock().unwrap()
-    }
-
-    pub fn check_deadline_overrun(&self, send_time: StdDuration, list: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
-        if send_time > self.simulation_next_deadline() {
-            let upcoming_messages = list.lock().unwrap();
-            // It is possible that this message is timestamped before messages
-            // that are already enqueued, because the delay of the network card emulation is
-            // variable, and of the time adjustments to the VM clock after a
-            // deadline.
-            // If this happens, change the timestamp of the message to be the
-            // same as the last one in the list.
-            if let Some(last_msg) = upcoming_messages.back() {
-                if last_msg.send_time() > send_time {
-                    deadline_handler_debug!("Message timestamped {:?} before another message!\n", last_msg.send_time() - send_time);
-                    return Some(last_msg.send_time());
-                }   
-            }
-            return Some(send_time);
-        }
-        return None;
     }
 }
 
