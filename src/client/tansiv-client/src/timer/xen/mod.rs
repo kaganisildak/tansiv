@@ -204,7 +204,7 @@ impl TimerContextInner {
         unimplemented!();
     }
 
-    pub fn schedule_poll_send_callback(&self, now: StdDuration, later: Option<StdDuration>, callback: &Arc<crate::PollSendCallback>) {
+    pub fn schedule_poll_send_callback(&self, _now: StdDuration, _later: Option<StdDuration>, _callback: &Arc<crate::PollSendCallback>) {
         unimplemented!();
     }
 

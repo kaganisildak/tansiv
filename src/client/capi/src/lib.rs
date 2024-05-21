@@ -10,7 +10,6 @@ use static_assertions::const_assert;
 use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
-use std::task::Poll;
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
     where F: FnOnce(&mut dyn Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>

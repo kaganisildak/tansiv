@@ -136,7 +136,6 @@ pub struct TimerContextInner {
     poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     poll_send_callback: Mutex<Option<PollSendCallback>>,
     poll_send_latency: Mutex<PollSendLatencyEstimator>,
-    phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Previous deadline in global simulation time
     // No concurrency: (mut) accessed only by the deadline handler
@@ -176,7 +175,6 @@ impl TimerContextInner {
         let poll_send_timer = Mutex::new(MaybeUninit::uninit());
         let poll_send_callback = Mutex::new(None);
         let poll_send_latency = Mutex::new(PollSendLatencyEstimator::new());
-        let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let prev_deadline = Mutex::new(Default::default());
         let next_deadline = Mutex::new(StdDuration::new(0, 0));
@@ -194,7 +192,6 @@ impl TimerContextInner {
                 poll_send_timer,
                 poll_send_callback,
                 poll_send_latency,
-                phantom_pinned,
                 context,
                 prev_deadline,
                 next_deadline,

@@ -6,6 +6,7 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "libtansiv-client", raw(setting = "structopt::clap::AppSettings::NoBinaryName"))]
+#[allow(dead_code)]
 pub(crate) struct Config {
     /// Server socket address of the actor (only UNIX sockets supported)
     #[structopt(short = "a", long = "actor", parse(from_os_str))]

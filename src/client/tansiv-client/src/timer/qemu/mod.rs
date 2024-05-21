@@ -28,7 +28,6 @@ pub struct TimerContextInner {
     qemu_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     poll_send_timer: Mutex<MaybeUninit<qemu_timer_sys::QEMUTimer>>,
     poll_send_callback: Mutex<Option<PollSendCallback>>,
-    phantom_pinned: PhantomPinned,
     context: Mutex<Weak<crate::Context>>,
     // Constant offset from simulation time to VM time
     // Set in ::start()
@@ -69,7 +68,6 @@ impl TimerContextInner {
         let qemu_timer = Mutex::new(MaybeUninit::uninit());
         let poll_send_timer = Mutex::new(MaybeUninit::uninit());
         let poll_send_callback = Mutex::new(None);
-        let phantom_pinned = PhantomPinned;
         let context = Mutex::new(Weak::new());
         let offset = Mutex::new(Duration::zero());
         let prev_deadline = Mutex::new(Default::default());
@@ -79,7 +77,6 @@ impl TimerContextInner {
             qemu_timer,
             poll_send_timer,
             poll_send_callback,
-            phantom_pinned,
             context,
             offset,
             prev_deadline,
