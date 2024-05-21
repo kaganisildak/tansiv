@@ -70,6 +70,7 @@ include(ExternalProject)
 ExternalProject_Add(tansiv-clients
     SOURCE_DIR   ${CLIENT_SOURCE_DIR}
     CONFIGURE_COMMAND ""
+    BUILD_ALWAYS 1
     BUILD_COMMAND 
         cd ${CMAKE_CURRENT_SOURCE_DIR}/src/qemu &&
         ./configure --target-list=x86_64-softmmu &&
