@@ -7,6 +7,7 @@ use libc;
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use timer::TimerContext;
@@ -48,6 +49,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub type RecvCallback = Box<dyn Fn() -> () + Send + Sync>;
 pub type DeadlineCallback = Box<dyn Fn(Duration) -> () + Send + Sync>;
+pub type PollSendCallback = dyn Fn() -> () + Send + Sync;
 
 // Context must be accessed concurrently from application code and the deadline handler. To
 // enable this, all fields are either read-only or implement thread and signal handler-safe
@@ -71,6 +73,17 @@ pub struct Context {
     // - read-only by application code,
     // - read-write by the deadline handler, using interior mutability
     timer_context: TimerContext,
+    // Concurrency: accessed by application only
+    // - read-write by ::send()
+    // - read-only by ::may_start_send(), ::may_stop_send(), ::poll_send()
+    next_send_floor: Mutex<Duration>,
+    send_burst_count: AtomicUsize,
+    // Read-only
+    // In bits per second
+    uplink_bandwidth: std::num::NonZeroUsize,
+    // Read-only
+    // Overhead in bytes per packet (preample, inter-frame gap...)
+    uplink_overhead: usize,
     // Concurrency: Buffers are:
     // - allocated and added to the set by application code,
     // - consumed and freed by the deadline handler.
@@ -101,17 +114,22 @@ impl Context {
         let connector = ConnectorImpl::new(config)?;
         let input_queue = WaitfreeArrayQueue::new(config.num_buffers.get());
         let timer_context = TimerContext::new(config)?;
+        let next_send_floor = Mutex::new(Duration::ZERO);
         let output_buffer_pool = BufferPool::<FbBuffer>::new(crate::MAX_PACKET_SIZE, config.num_buffers.get());
         let outgoing_messages = OutputMsgSet::new(config.num_buffers.get());
         let upcoming_messages = VecDeque::with_capacity(config.num_buffers.get());
 
         let context = Arc::new(Context {
             address: address,
+            uplink_bandwidth: config.uplink_bandwidth,
+            uplink_overhead: config.uplink_overhead,
             connector: Mutex::new(connector),
             input_queue: input_queue,
             recv_callback: recv_callback,
             deadline_callback: deadline_callback,
             timer_context: timer_context,
+            next_send_floor: next_send_floor,
+            send_burst_count: AtomicUsize::new(0),
             output_buffer_pool: output_buffer_pool,
             outgoing_messages: outgoing_messages,
             start_once: Once::new(),
@@ -172,6 +190,7 @@ impl Context {
                 // This message was time-stamped before the previous deadline but inserted after.
                 // Fix the timestamp to stay between the deadlines.
                 deadline_handler_debug!("Context::at_deadline() fixing send_time to {:?}", previous_deadline);
+                info!("[{:?}] at_deadline: forwarding send_time to {:?} (shift by {:?})", current_deadline, previous_deadline, previous_deadline - send_time);
                 previous_deadline
             } else {
                 if send_time > current_deadline {
@@ -269,8 +288,22 @@ impl Context {
         }
     }
 
+    pub fn may_start_send(&self, callback: &Arc<PollSendCallback>) -> bool {
+        let next_send_floor = *self.next_send_floor.lock().unwrap();
+        let now = self.timer_context.simulation_now();
+        assert_eq!(self.send_burst_count.load(Ordering::Relaxed), 0);
+        if next_send_floor > now + self.timer_context.poll_send_latency() {
+            self.timer_context.schedule_poll_send_callback(now, Some(next_send_floor), callback);
+            info!("[{:?}] may_start_send: delaying send to {:?}", now, next_send_floor);
+            false
+        } else {
+            true
+        }
+    }
+
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let send_time = self.timer_context.simulation_now();
+        let mut send_time = self.timer_context.simulation_now();
+
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline
@@ -285,7 +318,17 @@ impl Context {
                 return Err(e.into());
             }
         };
-        // It is possible that messages are timestamped after a deadline with KVM.
+
+        let mut next_send_floor = self.next_send_floor.lock().unwrap();
+
+        // Cap NIC speed to the simulated bandwidth
+        if send_time < *next_send_floor {
+            send_time = *next_send_floor;
+        }
+
+        let message = OutputMsg::new(self.address, dst, send_time, msg, buffer)?;
+
+        // It is possible that messages are timestamped after a deadline with KVM/Xen.
         // It can only happen when the delay of the network card emulation
         // exceeds a deadline.
         // Indeed as the vCPU thread is the one performing the timestamp, it is not
@@ -296,17 +339,32 @@ impl Context {
         // (which is accurate).
         match self.timer_context.check_deadline_overrun(send_time, &self.upcoming_messages) {
             Some(send_time_overrun) => {
-                let mut upcoming_messages = self.upcoming_messages.lock().unwrap();
-                upcoming_messages.push_back(OutputMsg::new(self.address, dst, send_time_overrun, msg, buffer)?);
+                // With NIC speed capping send_time is monotonic
+                assert_eq!(send_time, send_time_overrun);
+                self.upcoming_messages.lock().unwrap().push_back(message);
             },
-            None => {
-                self.outgoing_messages.insert(OutputMsg::new(self.address,  dst, send_time, msg, buffer)?)?;
-            }
+            None => self.outgoing_messages.insert(message)?,
         }
 
+        // Cap NIC speed to the simulated bandwidth
+        let wire_size = msg.len() + self.uplink_overhead;
+        let xmit_end = send_time + Duration::from_nanos((wire_size * 8 * 1_000_000_000 / self.uplink_bandwidth.get()) as u64);
+        *next_send_floor = xmit_end;
+
         debug!("new packet: send_time = {:?}, src = {}, dst = {}, size = {}", send_time, vsg_address::to_ipv4addr(self.address), vsg_address::to_ipv4addr(dst), msg.len());
+        self.send_burst_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
+    }
+
+    pub fn stop_send(&self, callback: Option<&Arc<PollSendCallback>>) {
+        let now = self.timer_context.simulation_now();
+        info!("[{:?}] stop_send: burst of {}", now, self.send_burst_count.load(Ordering::Relaxed));
+        self.send_burst_count.store(0, Ordering::Relaxed);
+        if let Some(callback) = callback {
+            info!("[{:?}] stop_send: capped send burst", now);
+            self.poll_send(callback);
+        }
     }
 
     pub fn recv<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, &'b mut [u8])> {
@@ -330,6 +388,19 @@ impl Context {
         } else {
             Some(())
         }
+    }
+
+    pub fn poll_send(&self, callback: &Arc<PollSendCallback>) {
+        let next_send_floor = *self.next_send_floor.lock().unwrap();
+        let now = self.timer_context.simulation_now();
+        let later =  if next_send_floor > now {
+            info!("[{:?}] poll_send: next possible send at {:?}", now, next_send_floor);
+            Some(next_send_floor)
+        } else {
+            None
+        };
+
+        self.timer_context.schedule_poll_send_callback(now, later, callback);
     }
 }
 
@@ -389,21 +460,21 @@ pub mod test_helpers {
     #[macro_export]
     macro_rules! valid_args {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! valid_args_h1 {
         () => {
-            &["-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T01:00:00"]
+            &["-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T01:00:00"]
         }
     }
 
     #[macro_export]
     macro_rules! invalid_args {
         () => {
-            &["-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00"]
+            &["-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00"]
         }
     }
 

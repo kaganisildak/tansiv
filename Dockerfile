@@ -15,7 +15,10 @@ RUN apt-get install -y git \
   libglib2.0-dev \
   cargo \
   clang \
-  simgrid
+  simgrid \
+  libboost-dev \
+  build-essential
+
 
 RUN apt-get install -y libclang-dev \
     curl \

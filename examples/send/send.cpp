@@ -56,8 +56,8 @@ int main(int argc, char* argv[])
   make_addr(src_str, src_id);
   uint32_t dest                = inet_addr(dest_str);
   uint32_t src                 = inet_addr(src_str);
-  int vsg_argc                 = 6;
-  const char* const vsg_argv[] = {"-a", socket_name, "-n", src_str, "-t", "1970-01-01T00:00:00"};
+  const char* const vsg_argv[] = {"-a", socket_name, "-n", src_str, "-w100000000", "-x24", "-t", "1970-01-01T00:00:00"};
+  int vsg_argc                 = sizeof(vsg_argv) / sizeof(vsg_argv[0]);
   std::atomic<bool> callback_called(false);
   vsg_context* context = vsg_init(vsg_argc, vsg_argv, NULL, recv_cb, (uintptr_t)&callback_called, deadline_cb, 0);
 

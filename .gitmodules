@@ -4,7 +4,8 @@
 	branch = dev/waitfree
 [submodule "src/qemu"]
 	path = src/qemu
-	url = https://gitlab.inria.fr/lcossero/qemu.git
+	url = https://gitlab.inria.fr/lrilling/qemu.git
+	branch = tantap
 [submodule "tools/packer"]
 	path = tools/packer
 	url = https://gitlab.inria.fr/tansiv/packer.git

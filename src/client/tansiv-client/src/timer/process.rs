@@ -239,6 +239,14 @@ impl TimerContext {
     pub fn check_deadline_overrun(&self, _send_time: StdDuration, mut _upcoming_messages: &Mutex<VecDeque<OutputMsg>>) -> Option<StdDuration> {
         return None;
     }
+
+    pub fn poll_send_latency(&self) -> StdDuration {
+        unimplemented!()
+    }
+
+    pub fn schedule_poll_send_callback(&self, _now: StdDuration, _later: Option<StdDuration>, _callback: &Arc<crate::PollSendCallback>) {
+        unimplemented!()
+    }
 }
 
 impl Drop for TimerContext {

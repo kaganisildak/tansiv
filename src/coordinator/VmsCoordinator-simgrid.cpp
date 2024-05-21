@@ -162,8 +162,8 @@ static void vm_coordinator()
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d)", m->src.c_str(), m->dst.c_str(),
-               m->size);
+      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d, sent_time=%.9f, recv_time=%.9f)", m->src.c_str(), m->dst.c_str(),
+               m->size, m->sent_time, deadline);
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(pending_comms);

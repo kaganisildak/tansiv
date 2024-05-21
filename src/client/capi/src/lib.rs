@@ -2,13 +2,15 @@
 #[macro_use(local_vsg_address_str, local_vsg_address, remote_vsg_address)]
 extern crate tansiv_client;
 
-use tansiv_client::{Context, Error, Result};
+use tansiv_client::{Context, Error, PollSendCallback, Result};
 use libc::{self, uintptr_t};
 #[allow(unused_imports)]
 use log::{debug, error};
 use static_assertions::const_assert;
+use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
+use std::task::Poll;
 
 unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F) -> Result<(T, c_int)>
     where F: FnOnce(&mut dyn Iterator<Item = std::borrow::Cow<'static, std::ffi::OsStr>>) -> Result<T>
@@ -42,6 +44,8 @@ unsafe fn parse_os_args<F, T>(argc: c_int, argv: *const *const c_char, parse: F)
 
 type CRecvCallback = unsafe extern "C" fn(uintptr_t);
 type CDeadlineCallback = unsafe extern "C" fn(uintptr_t, libc::timespec);
+type CPollSendCallback = unsafe extern "C" fn(uintptr_t);
+type FFIPollSendCallback = Arc<PollSendCallback>;
 
 fn duration_to_timespec(duration: std::time::Duration) -> libc::timespec {
     libc::timespec {
@@ -167,6 +171,46 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn vsg_poll_send_callback_new(callback: CPollSendCallback, arg: uintptr_t) -> *const FFIPollSendCallback {
+    let callback: Box<Arc<PollSendCallback>> = Box::new(Arc::new(move || callback(arg)));
+    Box::into_raw(callback)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vsg_poll_send_callback_free(callback: *const FFIPollSendCallback) {
+    if !callback.is_null() {
+        drop(Box::from_raw(callback as *mut FFIPollSendCallback));
+    }
+}
+
+/// Checks if messages can be sent in burst and otherwise schedules a call to `callback`
+/// whenever in simulation time a message can be written in the output queue.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+/// * `callback` should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
+///
+/// # Return values
+///
+/// * `true` if messages can be sent in burst now.
+///
+/// * `0` whenever `context` is `NULL` or `callback` is NULL.
+///
+/// * `0` otherwise, with `callback` scheduled.
+#[no_mangle]
+pub unsafe extern "C" fn vsg_may_start_send(context: *const Context, callback: *const FFIPollSendCallback) -> c_int {
+    if let Some(context) = context.as_ref() {
+        if !callback.is_null() {
+            let callback = ManuallyDrop::new(Box::from_raw(callback as *mut FFIPollSendCallback));
+            return context.may_start_send(&callback) as c_int;
+        }
+    }
+    return 0;
+}
+
 /// Sends a message having source address `src`, destination address `dst` and a payload stored in
 /// `msg[0..msglen]`.
 ///
@@ -184,6 +228,8 @@ pub unsafe extern fn vsg_gettimeofday(context: *const Context, timeval: *mut lib
 ///   vsg can handle.
 ///
 /// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
+///
+/// * Fails with `libc::EAGAIN` whenever sender should back off.
 #[no_mangle]
 pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msglen: u32, msg: *const u8) -> c_int {
     if let Some(context) = context.as_ref() {
@@ -202,6 +248,7 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
         match (*context).send(dst, payload) {
             Ok(_) => 0,
             Err(e) => match e {
+                Error::FlowControlLimited => libc::EAGAIN,
                 Error::NoMemoryAvailable => libc::ENOMEM,
                 Error::SizeTooBig => libc::EMSGSIZE,
                 _ => // Unknown error, fallback to EIO
@@ -210,6 +257,26 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
         }
     } else {
         libc::EINVAL
+    }
+}
+
+/// Records the end of a send burst and, iff `callback` is not NULL, schedules a call to `callback`
+/// whenever in simulation time a message can be written in the output queue.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+/// * `callback`, if not NULL, should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
+#[no_mangle]
+pub unsafe extern "C" fn vsg_stop_send(context: *const Context, callback: *const FFIPollSendCallback) {
+    if let Some(context) = context.as_ref() {
+        if callback.is_null() {
+            context.stop_send(None)
+        } else {
+            let callback = ManuallyDrop::new(Box::from_raw(callback as *mut FFIPollSendCallback));
+            context.stop_send(Some(&callback))
+        }
     }
 }
 
@@ -309,6 +376,29 @@ pub unsafe extern fn vsg_poll(context: *const Context) -> c_int {
     }
 }
 
+/// Schedule a call to `callback` whenever in simulation time a message can be written in the output queue.
+///
+/// # Safety
+///
+/// * `context` should point to a valid [`Context`], as previously returned by [`vsg_init`].
+/// * `callback` should point to a valid [`PollSendCallback`], as previously returned by
+///   [`vsg_poll_send_callback_new`].
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever `context` is NULL or `callback` is NULL.
+#[no_mangle]
+pub unsafe extern fn vsg_poll_send(context: *const Context, callback: *const FFIPollSendCallback) -> c_int {
+    if let Some(context) = context.as_ref() {
+        if !callback.is_null() {
+            let callback = ManuallyDrop::new(Box::from_raw(callback as *mut FFIPollSendCallback));
+            (*context).poll_send(&callback);
+            return 0;
+        }
+    }
+    libc::EINVAL
+}
+
 #[cfg(test)]
 mod test {
     use tansiv_client::test_helpers::*;
@@ -368,12 +458,12 @@ mod test {
 
     macro_rules! valid_args {
         () => {
-            os_args!("-atiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-atiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
     macro_rules! invalid_args {
         () => {
-            os_args!("-btiti", "-n", local_vsg_address_str!(), "-t1970-01-01T00:00:00")
+            os_args!("-btiti", "-n", local_vsg_address_str!(), "-w100000000", "-x24", "-t1970-01-01T00:00:00")
         }
     }
 

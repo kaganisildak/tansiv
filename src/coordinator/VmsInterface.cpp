@@ -14,7 +14,7 @@
 // big enough buffer for incoming messages
 #define SCRATCH_BUFFER_LEN 2048
 
-#define LOG_MESSAGES 1
+//#define LOG_MESSAGES 1
 
 // Enable to get some log about message create/copy/move
 // #define LOG_MESSAGES 1
@@ -332,7 +332,7 @@ Message::Message(uint64_t seconds, uint64_t nseconds, in_addr_t src_enc, in_addr
   this->data = new uint8_t[size];
   memcpy(this->data, payload, size);
 #ifdef LOG_MESSAGES
-  printf("Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
+  fprintf(stderr, "Creating new Message@%p: size=%d, data@%p\n", this, this->size, this->data);
 #endif
 };
 
@@ -340,7 +340,7 @@ Message::Message(const Message& other)
     : Message(other.seconds, other.nseconds, other.src_enc, other.dst_enc, other.size, other.data)
 {
 #ifdef LOG_MESSAGES
-  printf("Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+  fprintf(stderr, "Copied Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
 #endif
 }
 
@@ -349,7 +349,7 @@ Message::Message(Message&& other) : data(nullptr)
   // uses the assignement
   *this = std::move(other);
 #ifdef LOG_MESSAGES
-  printf("Moved Message[%p]: size=%d, data@%p from Message[%p]\n", this, this->size, this->data, &other);
+  fprintf(stderr, "Moved Message[%p]: size=%d, data@%p from Message[%p]\n", this, this->size, this->data, &other);
 #endif
 }
 
@@ -370,7 +370,7 @@ Message& Message::operator=(Message&& other)
     other.data = nullptr;
   }
 #ifdef LOG_MESSAGES
-  printf("Moved assigned Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
+  fprintf(stderr, "Moved assigned Message[%p]: size=%d, data@%p from message[%p]\n", this, this->size, this->data, &other);
 #endif
   return *this;
 }
@@ -380,7 +380,7 @@ Message::~Message()
   if (this->data != nullptr) {
     delete[] this->data;
 #ifdef LOG_MESSAGES
-    printf("Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
+    fprintf(stderr, "Destructing message[%p]: size=%d, data@%p\n", this, this->size, this->data);
 #endif
   }
 }
