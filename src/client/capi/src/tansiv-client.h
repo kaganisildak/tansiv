@@ -20,6 +20,7 @@ struct vsg_context* vsg_init(int argc, const char* const argv[], int* next_arg_p
 void vsg_cleanup(struct vsg_context* context);
 
 int vsg_start(const struct vsg_context* context, struct timespec* offset);
+int vsg_is_started(const struct vsg_context* context);
 int vsg_stop(const struct vsg_context* context);
 
 struct vsg_poll_send_cb *vsg_poll_send_callback_new(vsg_poll_send_cb_t callback, uintptr_t arg);
