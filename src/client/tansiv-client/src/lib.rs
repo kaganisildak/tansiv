@@ -148,6 +148,10 @@ impl Context {
         res
     }
 
+    pub fn is_started(&self) -> bool {
+        self.start_once.is_completed()
+    }
+
     pub fn stop(&self) {
         self.timer_context.stop()
     }

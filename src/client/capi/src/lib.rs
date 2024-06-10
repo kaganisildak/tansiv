@@ -136,6 +136,15 @@ pub unsafe extern fn vsg_start(context: *const Context, offset: *mut libc::times
     }
 }
 
+#[no_mangle]
+pub unsafe extern fn vsg_is_started(context: *const Context) -> c_int {
+    if let Some(context) = context.as_ref() {
+        return context.is_started() as c_int;
+    } else {
+        libc::EINVAL
+    }
+}
+
 /// Stop the simulation.
 ///
 /// # Safety
