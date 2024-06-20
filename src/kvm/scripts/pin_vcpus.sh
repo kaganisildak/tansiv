@@ -34,10 +34,9 @@ parse_qemu_monitor() {
     # echo "Raw output from $socket_path:"
     # echo "$output"
     
-    echo "Extract thread id from $socket_path:"
+    echo "Extract vCPUs thread IDs from $socket_path:"
     thread_ids=($(echo "$output" | grep -Eo "thread_id=[0-9]+" | grep -Eo "[0-9]+"))
-    echo "Extracted thread IDs from $socket_name: ${thread_ids[@]}"
-
+    echo "Extracted vCPUs thread IDs from $socket_name: ${thread_ids[@]}"
     # Create a cgroup for the VM
     echo "Creating a cgroup for the VM"
     cgroup_name="tansiv_$(basename $socket_path)"
@@ -51,7 +50,7 @@ parse_qemu_monitor() {
     # Now, let's move the VM process in the cgroup
     # The qemu_pid should be the second process with the socket_path
     # The first one is the boot.py wrapper
-    qemu_pid=$(pgrep -f "$socket_path" | sed -n '2 p')
+    qemu_pid=$(pgrep -f "$socket_path" | sed -n '1 p')
 
     if [ -n "$qemu_pid" ]; then
     
@@ -61,8 +60,8 @@ parse_qemu_monitor() {
         echo "Pinning QEMU main loop thread $qemu_pid to CPU $main_loop_cpu"
 
         # Create a sub-cgroup for this thread
-        echo "Creating a sub-cgroup for thread $qemu_pid"
-        thread_cgroup="$cgroup_path/thread_$qemu_pid"
+        echo "Creating a sub-cgroup for main loop with tid $qemu_pid"
+        thread_cgroup="$cgroup_path/main_loop"
         sudo mkdir -p "$thread_cgroup"
 
         echo "threaded" | tee "$thread_cgroup/cgroup.type"
@@ -87,8 +86,8 @@ parse_qemu_monitor() {
         echo "Pinning thread ID $thread_id to CPU $cpu_id"
 
         # Create a sub-cgroup for this thread
-        echo "Creating a sub-cgroup for thread $thread_id"
-        thread_cgroup="$cgroup_path/thread_$thread_id"
+        echo "Creating a sub-cgroup for vCPU with tid $thread_id"
+        thread_cgroup="$cgroup_path/vcpu_$i"
         sudo mkdir -p "$thread_cgroup"
 
         echo "threaded" | tee "$thread_cgroup/cgroup.type"
