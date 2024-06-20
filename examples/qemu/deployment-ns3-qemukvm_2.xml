@@ -1,8 +1,8 @@
 <?xml version='1.0'?>
 <platform version="4.1">
   <actor host="nova-1.lyon.grid5000.fr" function="vsg_vm">
-    <subnet value="192.168.120.0"/>  <!-- ns-3 will assign the 2nd IP of the subnet to the node -->
-    <mask value="255.255.255.0"/> 
+    <ip value="192.168.120.1"/> 
+    <mask value="/24"/>  <!-- 255.255.255.0 or /24 format works-->
     <ifg         value="36"/> <!-- PPP header: -2; Ethernet: +38 -->
     <mac         value="02:ca:fe:f0:0d:78"/>
     <boot_script value="boot.py"/>
@@ -24,13 +24,13 @@
     <argument value="--qemu_args"/>
     <argument value="-object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1"/>
     <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
-    <argument value="192.168.120.2/24"/>  <!-- how vsg knows me-->
+    <argument value="192.168.120.1/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.10/24"/> <!-- management -->
     <argument value="1"/> <!-- descriptor -->
   </actor>
 
     <actor host="nova-2.lyon.grid5000.fr" function="vsg_vm">
-    <subnet value="192.168.121.0"/>  <!-- ns-3 will assign the 2nd IP of the subnet to the node -->
+    <ip value="192.168.120.2"/>
     <mask value="255.255.255.0"/> 
     <ifg         value="36"/> <!-- PPP header: -2; Ethernet: +38 -->
     <mac         value="02:ca:fe:f0:0d:79"/>
@@ -53,7 +53,7 @@
     <argument value="--qemu_args"/>
     <argument value="-object memory-backend-file,size=1M,share=on,mem-path=/dev/shm/ivshmem1,id=hostmem1"/>
     <argument value="--autoconfig_net"/> <!-- this configure the tap/bridges useful for the secondary management interface -->
-    <argument value="192.168.121.2/24"/>  <!-- how vsg knows me-->
+    <argument value="192.168.120.2/24"/>  <!-- how vsg knows me-->
     <argument value="10.0.0.11/24"/> <!-- management -->
     <argument value="2"/> <!-- descriptor -->
   </actor>

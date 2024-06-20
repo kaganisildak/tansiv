@@ -48,6 +48,7 @@ ns3::NetDeviceContainer spokes_devices;
 ns3::Ipv4InterfaceContainer hub_interfaces;
 ns3::Ipv4InterfaceContainer spokes_interfaces;
 int nSpokes = 0;
+ns3::Ipv4AddressHelper hub_address_helper;
 
 static double compute_min_latency()
 {
@@ -62,7 +63,6 @@ static double get_next_event()
 static bool packet_received(ns3::Ptr<ns3::NetDevice> device, ns3::Ptr<const ns3::Packet> packet,
                             short unsigned int protocol, const ns3::Address& from)
 {
-  // LOG("Packet received!");
   int packet_id = packet->GetUid();
   auto it       = std::find_if(pending_packets.begin(), pending_packets.end(),
                                [&packet_id](ns3::Ptr<ns3::Packet>& arg) { return arg->GetUid() == packet_id; });
@@ -89,8 +89,6 @@ static void tansiv_actor(ns3::Ptr<ns3::PointToPointNetDevice> ns3_net_device, ns
   // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start
   // AFTER all the registrations.
   LOG("Registering VM " << host_name);
-  // std::vector<std::string> fork_command(args.size() - 2);
-  // std::copy(args.begin() + 2, args.end(), fork_command.begin());
   vms_interface->register_vm(host_name, ip, file, cmd_line);
   // Create ns3 node
   LOG("Registering NetDevice of " << host_name);
@@ -110,8 +108,6 @@ static void vm_coordinator()
   while (vms_interface->vmActive()) {
 
     // first we check if a VM stops. If so, we recompute the minimum latency.
-    // TODOs
-
     // then we go forward with the VM.
     double time                = ns3::Simulator::Now().ToDouble(ns3::Time::S);
     double next_reception_time = get_next_event();
@@ -167,7 +163,6 @@ static void vm_coordinator()
       } else if (pos_dst >= tansiv_addresses.size()) {
         LOG("Destination address " << m->dst.c_str() << "not found!");
       } else {
-
         ns3::Ipv4Address dest_ipv4_address = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_dst]);
         ns3::Ipv4Address src_ipv4_address  = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_src]);
         ipHeader.SetDestination(dest_ipv4_address);
@@ -194,17 +189,6 @@ static void vm_coordinator()
     while (ready_to_deliver.size() > 0) {
       vsg::Message* m = ready_to_deliver.back();
       ready_to_deliver.pop_back();
-
-      // Edit the message to correct the destination mac
-      ptrdiff_t pos_dst =
-          std::find(tansiv_addresses.begin(), tansiv_addresses.end(), ns3::Ipv4Address(m->dst.c_str())) -
-          tansiv_addresses.begin();
-
-      uint8_t mac_dst[6];
-      ns3::Mac48Address::ConvertFrom(tansiv_actors[pos_dst]->GetAddress()).CopyTo(mac_dst);
-      for (auto i = 0; i < 6; i++) {
-        m->data[header_size - 14 + i] = mac_dst[i];
-      }
 
       LOG("[coordinator]: delivering data from vm [" << m->src << "] to vm [" << m->dst << "] (size=" << m->size
                                                      << ")");
@@ -274,7 +258,7 @@ void create_star(std::string latency, std::string bandwidth)
   internet.Install(spokes);
 }
 
-void add_star_spoke(std::string host_name, std::string ip_subnet, std::string mask, ns3::Time ifg, std::string mac,
+void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3::Time ifg, std::string mac,
                     std::string boot_command, std::vector<std::string> boot_args)
 {
   // Create P2P link with the hub
@@ -283,12 +267,26 @@ void add_star_spoke(std::string host_name, std::string ip_subnet, std::string ma
   hub_devices.Add(nd.Get(0));
   spokes_devices.Add(nd.Get(1));
 
-  // Assign addresses to node and hub
+  // Assign address to the node
   LOG("Assigning IP addresses");
-  ns3::Ipv4AddressHelper address;
-  address.SetBase(ip_subnet.c_str(), mask.c_str());
-  hub_interfaces.Add(address.Assign(hub_devices.Get(nSpokes)));
-  spokes_interfaces.Add(address.Assign(spokes_devices.Get(nSpokes)));
+
+  ns3::Ptr<ns3::Ipv4> ipv4 = spokes.Get(nSpokes)->GetObject<ns3::Ipv4>();
+  int32_t interface        = ipv4->AddInterface(spokes_devices.Get(nSpokes));
+  ns3::Ipv4InterfaceAddress address =
+      ns3::Ipv4InterfaceAddress(ns3::Ipv4Address(ip.c_str()), ns3::Ipv4Mask(mask.c_str()));
+
+  ipv4->AddAddress(interface, address);
+
+  ipv4->SetUp(interface);
+
+  ns3::Ipv4InterfaceContainer spoke_ipv4_container;
+
+  spoke_ipv4_container.Add(ipv4, interface);
+
+  spokes_interfaces.Add(spoke_ipv4_container);
+
+  // Assign address to the hub
+  hub_address_helper.Assign(hub_devices.Get(nSpokes));
 
   // Get net_devices
   LOG("Getting net devices");
@@ -361,6 +359,7 @@ double bandwidth_str_to_double(std::string bandwidth)
 
 int main(int argc, char* argv[])
 {
+  // Parse coordinator args
   std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
 
   force_min_latency = lookup_args_double("--force", -1, argc, argv);
@@ -368,6 +367,9 @@ int main(int argc, char* argv[])
   LOG("Forcing the minimum latency to " << force_min_latency);
 
   vms_interface = new vsg::VmsInterface(socket_name);
+
+  // Set up dummy IP addresses for the hub interfaces
+  hub_address_helper.SetBase("0.0.0.0", "255.255.255.0");
 
   // Parse platform file
   tinyxml2::XMLDocument platform;
@@ -399,7 +401,7 @@ int main(int argc, char* argv[])
     std::string host_name = actor->Attribute("host");
     LOG("Host name is " << host_name);
 
-    std::string subnet = parse_actor_field(actor, "subnet");
+    std::string ip = parse_actor_field(actor, "ip");
 
     std::string mask = parse_actor_field(actor, "mask");
 
@@ -420,10 +422,13 @@ int main(int argc, char* argv[])
     }
     ns3::Time ifg_time = ns3::Time::FromDouble((ifg * 8) / bandwidth_str_to_double(bandwidth), ns3::Time::S);
     LOG("ifg_time is " << ifg_time);
-    add_star_spoke(host_name, subnet, mask, ifg_time, mac, boot_script, boot_args);
+    add_star_spoke(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);
 
     actor = actor->NextSiblingElement("actor");
   }
+
+  // Populate routing tables
+  ns3::Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
   vm_coordinator();
 
