@@ -18,14 +18,14 @@
 
 #define MAX_NODES 100
 
-vsg::VmsInterface* vms_interface;
+vsg::VmsInterface *vms_interface;
 
 /* Messages currently in the simulation */
 std::vector<ns3::Ptr<ns3::Packet>> pending_packets;
-std::vector<vsg::Message*> pending_messages;
+std::vector<vsg::Message *> pending_messages;
 
 /* Messages that that were delivered in the simulation */
-std::vector<vsg::Message*> ready_to_deliver;
+std::vector<vsg::Message *> ready_to_deliver;
 
 /* ns-3 net devices and addresses for each actor */
 std::vector<ns3::Ptr<ns3::PointToPointNetDevice>> tansiv_actors;
@@ -50,30 +50,23 @@ ns3::Ipv4InterfaceContainer spokes_interfaces;
 int nSpokes = 0;
 ns3::Ipv4AddressHelper hub_address_helper;
 
-static double compute_min_latency()
-{
-  return min_latency;
-}
+static double compute_min_latency() { return min_latency; }
 
-static double get_next_event()
-{
-  return ns3::Simulator::GetNextEventTime().ToDouble(ns3::Time::S);
-}
+static double get_next_event() { return ns3::Simulator::GetNextEventTime().ToDouble(ns3::Time::S); }
 
 static bool packet_received(ns3::Ptr<ns3::NetDevice> device, ns3::Ptr<const ns3::Packet> packet,
-                            short unsigned int protocol, const ns3::Address& from)
-{
+                            short unsigned int protocol, const ns3::Address &from) {
   int packet_id = packet->GetUid();
-  auto it       = std::find_if(pending_packets.begin(), pending_packets.end(),
-                               [&packet_id](ns3::Ptr<ns3::Packet>& arg) { return arg->GetUid() == packet_id; });
+  auto it = std::find_if(pending_packets.begin(), pending_packets.end(),
+                         [&packet_id](ns3::Ptr<ns3::Packet> &arg) { return arg->GetUid() == packet_id; });
 
   if (it == pending_packets.end()) {
     // Packet not in pending_packets
     LOG("Received packet is not in pending_packets!");
   } else {
     LOG("Packet arrived at device " << device->GetAddress());
-    int index             = std::distance(pending_packets.begin(), it);
-    vsg::Message* message = pending_messages[index];
+    int index = std::distance(pending_packets.begin(), it);
+    vsg::Message *message = pending_messages[index];
     ready_to_deliver.push_back(message);
     pending_packets.erase(pending_packets.begin() + index);
     pending_messages.erase(pending_messages.begin() + index);
@@ -84,8 +77,7 @@ static bool packet_received(ns3::Ptr<ns3::NetDevice> device, ns3::Ptr<const ns3:
 
 static void tansiv_actor(ns3::Ptr<ns3::PointToPointNetDevice> ns3_net_device, ns3::Address ip_ns3,
                          ns3::Address mac_address, std::string host_name, std::string ip, std::string file,
-                         std::vector<std::string> cmd_line)
-{
+                         std::vector<std::string> cmd_line) {
   // IMPORTANT: before any simcall, we register the VM to the interface. This way, the coordinator actor will start
   // AFTER all the registrations.
   LOG("Registering VM " << host_name);
@@ -100,8 +92,7 @@ static void tansiv_actor(ns3::Ptr<ns3::PointToPointNetDevice> ns3_net_device, ns
   tansiv_mac_addresses.push_back(mac_address);
 }
 
-static void vm_coordinator()
-{
+static void vm_coordinator() {
 
   double min_latency = compute_min_latency();
 
@@ -109,16 +100,16 @@ static void vm_coordinator()
 
     // first we check if a VM stops. If so, we recompute the minimum latency.
     // then we go forward with the VM.
-    double time                = ns3::Simulator::Now().ToDouble(ns3::Time::S);
+    double time = ns3::Simulator::Now().ToDouble(ns3::Time::S);
     double next_reception_time = get_next_event();
-    double deadline            = std::min(time + min_latency - 1e-9, next_reception_time);
+    double deadline = std::min(time + min_latency - 1e-9, next_reception_time);
 
     LOG("next deadline = " << deadline << " [time+min_latency=" << time + min_latency - 1e-9
                            << ", next_reception_time=" << next_reception_time << "]");
 
-    std::vector<vsg::Message*> messages = vms_interface->goTo(deadline);
-    for (vsg::Message* m : messages) {
-      time                = ns3::Simulator::Now().ToDouble(ns3::Time::S);
+    std::vector<vsg::Message *> messages = vms_interface->goTo(deadline);
+    for (vsg::Message *m : messages) {
+      time = ns3::Simulator::Now().ToDouble(ns3::Time::S);
       double send_timeeps = m->sent_time + std::numeric_limits<double>::epsilon();
       if (m->sent_time + send_timeeps <= time)
         LOG("violation of the causality constraint : trying to send a message at time " << m->sent_time << "["
@@ -145,7 +136,7 @@ static void vm_coordinator()
       // virtio-net header (12 bytes)
       // the ethernet header (14 next bytes)
       // The IP header (20 next bytes)
-      const uint8_t* buffer = m->data + header_size + 20;
+      const uint8_t *buffer = m->data + header_size + 20;
 
       ns3::Ptr<ns3::Packet> p = ns3::Create<ns3::Packet>(buffer, m->size - header_size - 20);
 
@@ -164,7 +155,7 @@ static void vm_coordinator()
         LOG("Destination address " << m->dst.c_str() << "not found!");
       } else {
         ns3::Ipv4Address dest_ipv4_address = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_dst]);
-        ns3::Ipv4Address src_ipv4_address  = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_src]);
+        ns3::Ipv4Address src_ipv4_address = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_src]);
         ipHeader.SetDestination(dest_ipv4_address);
         ipHeader.SetSource(src_ipv4_address);
         ipHeader.SetTtl(m->data[header_size + 8]);      // TTL is the 9th byte of the ip header
@@ -187,7 +178,7 @@ static void vm_coordinator()
       ns3::Simulator::Run();
     }
     while (ready_to_deliver.size() > 0) {
-      vsg::Message* m = ready_to_deliver.back();
+      vsg::Message *m = ready_to_deliver.back();
       ready_to_deliver.pop_back();
 
       LOG("[coordinator]: delivering data from vm [" << m->src << "] to vm [" << m->dst << "] (size=" << m->size
@@ -201,8 +192,7 @@ static void vm_coordinator()
   LOG("end of simulation");
 }
 
-int lookup_args(std::string argname, int argc, char* argv[])
-{
+int lookup_args(std::string argname, int argc, char *argv[]) {
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == argname) {
       return i + 1;
@@ -211,8 +201,7 @@ int lookup_args(std::string argname, int argc, char* argv[])
   return -1;
 }
 
-double lookup_args_double(std::string argname, double default_value, int argc, char* argv[])
-{
+double lookup_args_double(std::string argname, double default_value, int argc, char *argv[]) {
   std::string outvalue;
   int idx = lookup_args(argname, argc, argv);
   // handle errors
@@ -222,8 +211,7 @@ double lookup_args_double(std::string argname, double default_value, int argc, c
   return std::stod(argv[idx]);
 }
 
-std::string lookup_args_str(std::string argname, std::string default_value, int argc, char* argv[])
-{
+std::string lookup_args_str(std::string argname, std::string default_value, int argc, char *argv[]) {
   int idx = lookup_args(argname, argc, argv);
   // handle errors
   if (idx == -1) {
@@ -232,8 +220,7 @@ std::string lookup_args_str(std::string argname, std::string default_value, int 
   return std::string(argv[idx]);
 }
 
-void create_star(std::string latency, std::string bandwidth)
-{
+void create_star(std::string latency, std::string bandwidth) {
   ns3::Time::SetResolution(ns3::Time::NS);
   ns3::Config::SetDefault("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue(0));
   ns3::Config::SetDefault("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue(0));
@@ -259,8 +246,7 @@ void create_star(std::string latency, std::string bandwidth)
 }
 
 void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3::Time ifg, std::string mac,
-                    std::string boot_command, std::vector<std::string> boot_args)
-{
+                    std::string boot_command, std::vector<std::string> boot_args) {
   // Create P2P link with the hub
   LOG("Creating P2P link between node and hub");
   ns3::NetDeviceContainer nd = pointToPoint.Install(hub.Get(0), spokes.Get(nSpokes));
@@ -271,7 +257,7 @@ void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3
   LOG("Assigning IP addresses");
 
   ns3::Ptr<ns3::Ipv4> ipv4 = spokes.Get(nSpokes)->GetObject<ns3::Ipv4>();
-  int32_t interface        = ipv4->AddInterface(spokes_devices.Get(nSpokes));
+  int32_t interface = ipv4->AddInterface(spokes_devices.Get(nSpokes));
   ns3::Ipv4InterfaceAddress address =
       ns3::Ipv4InterfaceAddress(ns3::Ipv4Address(ip.c_str()), ns3::Ipv4Mask(mask.c_str()));
 
@@ -314,7 +300,7 @@ void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3
   ns3::QueueSizeValue queue_size = ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, UINT32_MAX);
   ns3::PointerValue ptr;
   net_device->GetAttribute("TxQueue", ptr);
-  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue     = ptr.Get<ns3::Queue<ns3::Packet>>();
+  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue = ptr.Get<ns3::Queue<ns3::Packet>>();
   ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq = txQueue->GetObject<ns3::DropTailQueue<ns3::Packet>>();
   dtq->SetAttribute("MaxSize", queue_size);
 
@@ -332,16 +318,14 @@ void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3
   tansiv_actor(net_device, ip_ns3, mac_address, host_name, ip_str, boot_command, boot_args);
 }
 
-std::string parse_actor_field(tinyxml2::XMLElement* actor, const char* field)
-{
-  tinyxml2::XMLElement* element = actor->FirstChildElement(field);
-  std::string element_text      = element->Attribute("value");
+std::string parse_actor_field(tinyxml2::XMLElement *actor, const char *field) {
+  tinyxml2::XMLElement *element = actor->FirstChildElement(field);
+  std::string element_text = element->Attribute("value");
   LOG(field << " is " << element_text);
   return element_text;
 }
 
-double bandwidth_str_to_double(std::string bandwidth)
-{
+double bandwidth_str_to_double(std::string bandwidth) {
   if (bandwidth.find("Gbps") != std::string::npos) {
     return std::stod(bandwidth.substr(0, bandwidth.size() - 4)) * 1e9;
   }
@@ -357,8 +341,7 @@ double bandwidth_str_to_double(std::string bandwidth)
   return 1.0;
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char *argv[]) {
   // Parse coordinator args
   std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
 
@@ -378,11 +361,11 @@ int main(int argc, char* argv[])
     LOG("Error: failed to platform deployment file!");
     return 1;
   }
-  tinyxml2::XMLElement* platform_elem = platform.FirstChildElement("platform");
-  std::string bandwidth               = parse_actor_field(platform_elem, "bandwidth");
-  std::string latency                 = parse_actor_field(platform_elem, "latency");
-  min_latency                         = std::stod(parse_actor_field(platform_elem, "min_latency"));
-  header_size                         = std::stoi(parse_actor_field(platform_elem, "header_size"));
+  tinyxml2::XMLElement *platform_elem = platform.FirstChildElement("platform");
+  std::string bandwidth = parse_actor_field(platform_elem, "bandwidth");
+  std::string latency = parse_actor_field(platform_elem, "latency");
+  min_latency = std::stod(parse_actor_field(platform_elem, "min_latency"));
+  header_size = std::stoi(parse_actor_field(platform_elem, "header_size"));
 
   create_star(latency, bandwidth);
 
@@ -394,8 +377,8 @@ int main(int argc, char* argv[])
     return 1;
   }
   // Iterate over all actors
-  tinyxml2::XMLElement* deployment_platform_elem = deployment.FirstChildElement("platform");
-  tinyxml2::XMLElement* actor                    = deployment_platform_elem->FirstChildElement("actor");
+  tinyxml2::XMLElement *deployment_platform_elem = deployment.FirstChildElement("platform");
+  tinyxml2::XMLElement *actor = deployment_platform_elem->FirstChildElement("actor");
   LOG("Starting to parse deployment file");
   while (actor != nullptr) {
     std::string host_name = actor->Attribute("host");
@@ -413,7 +396,7 @@ int main(int argc, char* argv[])
 
     std::vector<std::string> boot_args;
     boot_args.push_back(boot_script);
-    tinyxml2::XMLElement* argument = actor->FirstChildElement("argument");
+    tinyxml2::XMLElement *argument = actor->FirstChildElement("argument");
     while (argument != nullptr) {
       std::string argument_text = argument->Attribute("value");
       boot_args.push_back(argument_text);

@@ -9,11 +9,11 @@
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(vm_coordinator, "Logging specific to the VmsCoordinator");
 
-vsg::VmsInterface* vms_interface;
+vsg::VmsInterface *vms_interface;
 
 std::vector<simgrid::s4u::CommPtr> pending_comms;
 
-std::vector<vsg::Message*> pending_messages;
+std::vector<vsg::Message *> pending_messages;
 
 static std::vector<simgrid::s4u::ActorPtr> tansiv_actors;
 
@@ -21,17 +21,16 @@ const std::string vsg_vm_name = "vsg_vm";
 
 double force_min_latency = -1;
 
-static double compute_min_latency()
-{
+static double compute_min_latency() {
   if (force_min_latency >= 0) {
     return force_min_latency;
   }
   double min_latency = std::numeric_limits<double>::infinity();
 
-  for (simgrid::s4u::ActorPtr const& sender : tansiv_actors) {
-    for (simgrid::s4u::ActorPtr const& receiver : tansiv_actors) {
+  for (simgrid::s4u::ActorPtr const &sender : tansiv_actors) {
+    for (simgrid::s4u::ActorPtr const &receiver : tansiv_actors) {
       if (sender != receiver) {
-        std::vector<simgrid::s4u::Link*> links;
+        std::vector<simgrid::s4u::Link *> links;
         double latency = 0;
         sender->get_host()->route_to(receiver->get_host(), links, &latency);
         if (latency < min_latency)
@@ -46,10 +45,9 @@ static double compute_min_latency()
   return min_latency;
 }
 
-static double get_next_event()
-{
-  simgrid::s4u::Engine* engine = simgrid::s4u::Engine::get_instance();
-  double time            = simgrid::s4u::Engine::get_clock();
+static double get_next_event() {
+  simgrid::s4u::Engine *engine = simgrid::s4u::Engine::get_instance();
+  double time = simgrid::s4u::Engine::get_clock();
   double next_event_time = std::numeric_limits<double>::infinity();
   for (auto model : engine->get_all_models()) {
     double model_event = time + model->next_occurring_event(time);
@@ -60,8 +58,7 @@ static double get_next_event()
   return next_event_time;
 }
 
-static void tansiv_actor(std::vector<std::string> args)
-{
+static void tansiv_actor(std::vector<std::string> args) {
 
   XBT_INFO("running receiver");
 
@@ -82,8 +79,7 @@ static void tansiv_actor(std::vector<std::string> args)
   tansiv_actors.push_back(simgrid::s4u::Actor::self());
 }
 
-static void vm_coordinator()
-{
+static void vm_coordinator() {
 
   // IMPORTANT: we ensure that all the receiver actors registered their VMs to the interface before going further
   simgrid::s4u::this_actor::yield();
@@ -93,11 +89,11 @@ static void vm_coordinator()
 
     // first we check if a VM stops. If so, we recompute the minimum latency.
     bool deads = false;
-    for (auto const& host : vms_interface->get_dead_vm_hosts()) {
+    for (auto const &host : vms_interface->get_dead_vm_hosts()) {
 
       auto erased_section_begin =
           std::remove_if(tansiv_actors.begin(), tansiv_actors.end(),
-                         [host](const simgrid::s4u::ActorPtr& o) { return (o->get_host()->get_name() == host); });
+                         [host](const simgrid::s4u::ActorPtr &o) { return (o->get_host()->get_name() == host); });
 
       tansiv_actors.erase(erased_section_begin, tansiv_actors.end());
       deads = true;
@@ -106,16 +102,16 @@ static void vm_coordinator()
       min_latency = compute_min_latency();
 
     // then we go forward with the VM.
-    double time                = simgrid::s4u::Engine::get_clock();
+    double time = simgrid::s4u::Engine::get_clock();
     double next_reception_time = get_next_event();
-    double deadline            = std::min(time + min_latency, next_reception_time);
+    double deadline = std::min(time + min_latency, next_reception_time);
 
     XBT_DEBUG("next deadline = %f [time+min_latency=%f, next_reception_time=%f]", deadline, time + min_latency,
               next_reception_time);
 
-    std::vector<vsg::Message*> messages = vms_interface->goTo(deadline);
-    for (vsg::Message* m : messages) {
-      time                = simgrid::s4u::Engine::get_clock();
+    std::vector<vsg::Message *> messages = vms_interface->goTo(deadline);
+    for (vsg::Message *m : messages) {
+      time = simgrid::s4u::Engine::get_clock();
       double send_timeeps = m->sent_time + std::numeric_limits<double>::epsilon();
       xbt_assert(
           m->sent_time + send_timeeps >= time,
@@ -127,19 +123,18 @@ static void vm_coordinator()
         simgrid::s4u::this_actor::sleep_until(m->sent_time);
       }
 
-
       std::string src_host_name = vms_interface->getHostOfVm(m->src);
       xbt_assert(not src_host_name.empty(), "The VM %s tries to send a message but we do not know its PM",
                  m->src.c_str());
 
       std::string dest_host_name = vms_interface->getHostOfVm(m->dst);
       if (not dest_host_name.empty()) {
-        auto src_host  = simgrid::s4u::Host::by_name(src_host_name);
+        auto src_host = simgrid::s4u::Host::by_name(src_host_name);
         auto dest_host = simgrid::s4u::Host::by_name(dest_host_name);
-	// Ethernet adds an overhead of 24 bytes per packet: preamble + frame start delimiter =  8
-	//                                                   frame checksum (FCS)             =  4
-	//                                                   inter packet gap (IGP)           = 12
-        auto comm      = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24);
+        // Ethernet adds an overhead of 24 bytes per packet: preamble + frame start delimiter =  8
+        //                                                   frame checksum (FCS)             =  4
+        //                                                   inter packet gap (IGP)           = 12
+        auto comm = simgrid::s4u::Comm::sendto_async(src_host, dest_host, m->size + 24);
         pending_comms.push_back(comm);
         pending_messages.push_back(m);
       } else {
@@ -157,13 +152,13 @@ static void vm_coordinator()
         changed_pos >=
         0) { // deadline was on next_reception_time, ie, latency was high enough for the next msg to arrive before this
       simgrid::s4u::CommPtr comm = pending_comms[changed_pos];
-      vsg::Message* m            = pending_messages[changed_pos];
+      vsg::Message *m = pending_messages[changed_pos];
 
       pending_comms.erase(pending_comms.begin() + changed_pos);
       pending_messages.erase(pending_messages.begin() + changed_pos);
 
-      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d, sent_time=%.9f, recv_time=%.9f)", m->src.c_str(), m->dst.c_str(),
-               m->size, m->sent_time, deadline);
+      XBT_INFO("[coordinator]: delivering data from vm [%s] to vm [%s] (size=%d, sent_time=%.9f, recv_time=%.9f)",
+               m->src.c_str(), m->dst.c_str(), m->size, m->sent_time, deadline);
       vms_interface->deliverMessage(m);
 
       changed_pos = simgrid::s4u::Comm::test_any(pending_comms);
@@ -176,8 +171,7 @@ static void vm_coordinator()
   XBT_INFO("end of simulation");
 }
 
-int lookup_args(std::string argname, int argc, char* argv[])
-{
+int lookup_args(std::string argname, int argc, char *argv[]) {
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == argname) {
       return i + 1;
@@ -186,8 +180,7 @@ int lookup_args(std::string argname, int argc, char* argv[])
   return -1;
 }
 
-double lookup_args_double(std::string argname, double default_value, int argc, char* argv[])
-{
+double lookup_args_double(std::string argname, double default_value, int argc, char *argv[]) {
   std::string outvalue;
   int idx = lookup_args(argname, argc, argv);
   // handle errors
@@ -197,8 +190,7 @@ double lookup_args_double(std::string argname, double default_value, int argc, c
   return std::stod(argv[idx]);
 }
 
-std::string lookup_args_str(std::string argname, std::string default_value, int argc, char* argv[])
-{
+std::string lookup_args_str(std::string argname, std::string default_value, int argc, char *argv[]) {
   int idx = lookup_args(argname, argc, argv);
   // handle errors
   if (idx == -1) {
@@ -207,11 +199,10 @@ std::string lookup_args_str(std::string argname, std::string default_value, int 
   return std::string(argv[idx]);
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char *argv[]) {
   xbt_assert(argc > 2, "Usage: %s platform_file deployment_file\n", argv[0]);
 
-  force_min_latency       = lookup_args_double("--force", -1, argc, argv);
+  force_min_latency = lookup_args_double("--force", -1, argc, argv);
   std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
 
   simgrid::s4u::Engine e(&argc, argv);
@@ -222,12 +213,12 @@ int main(int argc, char* argv[])
   e.load_platform(argv[1]);
   // Mark the upload links in the cluster as serial. This won't work when we use something else than clusters.
   for (auto l : e.get_all_links()) {
-     auto name = l->get_name();
-     const char* pattern = "_UP"; // UP links are automatically created for <cluster> tags
-     if (name.compare (name.length() - strlen(pattern), strlen(pattern), std::string(pattern)) == 0) {
-       XBT_INFO("Setting link '%s' as serial", name.c_str());
-       l->set_concurrency_limit(1);
-     }
+    auto name = l->get_name();
+    const char *pattern = "_UP"; // UP links are automatically created for <cluster> tags
+    if (name.compare(name.length() - strlen(pattern), strlen(pattern), std::string(pattern)) == 0) {
+      XBT_INFO("Setting link '%s' as serial", name.c_str());
+      l->set_concurrency_limit(1);
+    }
   }
 
   vms_interface = new vsg::VmsInterface(socket_name);
