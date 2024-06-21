@@ -336,9 +336,25 @@ double bandwidth_str_to_double(std::string bandwidth) {
     return std::stod(bandwidth.substr(0, bandwidth.size() - 4)) * 1e3;
   }
   if (bandwidth.find("bps") != std::string::npos) {
-    return std::stod(bandwidth.substr(0, bandwidth.size() - 4));
+    return std::stod(bandwidth.substr(0, bandwidth.size() - 3));
   }
-  return 1.0;
+  throw std::invalid_argument("Invalid bandwidth format.");
+}
+
+std::string bandwdith_str_to_bps(std::string bandwidth) {
+  if (bandwidth.find("Gbps") != std::string::npos) {
+    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000'000);
+  }
+  if (bandwidth.find("Mbps") != std::string::npos) {
+    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000);
+  }
+  if (bandwidth.find("Kbps") != std::string::npos) {
+    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000);
+  }
+  if (bandwidth.find("bps") != std::string::npos) {
+    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 3)) * 1);
+  }
+  throw std::invalid_argument("Invalid bandwidth format.");
 }
 
 int main(int argc, char *argv[]) {
@@ -403,6 +419,11 @@ int main(int argc, char *argv[]) {
       LOG("Argument value is " << argument_text);
       argument = argument->NextSiblingElement("argument");
     }
+    // Push bandwidth to boot args
+    boot_args.push_back("--vsg_bandwidth");
+    boot_args.push_back(bandwdith_str_to_bps(bandwidth));
+    // We can use the default value (24) for the ethernet overhead
+
     ns3::Time ifg_time = ns3::Time::FromDouble((ifg * 8) / bandwidth_str_to_double(bandwidth), ns3::Time::S);
     LOG("ifg_time is " << ifg_time);
     add_star_spoke(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);

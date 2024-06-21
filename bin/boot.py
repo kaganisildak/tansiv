@@ -35,6 +35,8 @@ class VM(object):
         ip_management: IPv4Interface,
         qemu_cmd: str,
         image: Path,
+        vsg_bandwidth: int,
+        vsg_overhead: int,
         qemu_args: str = "",
         hostname: Optional[str] = None,
         public_key: Optional[str] = None,
@@ -56,6 +58,9 @@ class VM(object):
         self._hostname = hostname
         self.public_key = public_key
         self.autoconfig_net = autoconfig_net
+
+        self.vsg_bandwidth = vsg_bandwidth
+        self.vsg_overhead = vsg_overhead
 
         self.__qemu_args = qemu_args
         self.mem = mem
@@ -409,6 +414,7 @@ class TansivQemuKVM(TansivQemu):
             f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
             f" -overcommit cpu-pm=on"
+            f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead}"
         )
         return cmd
 
@@ -684,6 +690,20 @@ The default value is too low for realistics benchmarks.""",
         help="Mac address for the main network interface. Default is derivated from the VM id.",
     )
 
+    parser.add_argument(
+        "--vsg_bandwidth",
+        type=int,
+        help="Link bandwidth for the vsg protocol. Value must be in Bps. Default is 100000.",
+        default=100_000,
+    )
+
+    parser.add_argument(
+        "--vsg_overhead",
+        type=int,
+        help="Message ethernet overhead for vsg protocol. Value must be in bytes. Default is 24.",
+        default=24,
+    )
+
     logging.basicConfig(level=logging.DEBUG)
 
     args = parser.parse_args()
@@ -720,6 +740,9 @@ The default value is too low for realistics benchmarks.""",
         d["cpuset"] = args.cpuset
     d["descriptor"] = args.descriptor
     d["mac_address"] = args.mac
+
+    d["vsg_bandwidth"] = args.vsg_bandwidth
+    d["vsg_overhead"] = args.vsg_overhead
 
     # check the required third party software
     check_call("genisoimage --version", shell=True)
