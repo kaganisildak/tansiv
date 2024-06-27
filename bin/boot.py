@@ -408,6 +408,7 @@ class TansivQemuKVM(TansivQemu):
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
             f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
+            f" -overcommit cpu-pm=on"
         )
         return cmd
 
@@ -715,7 +716,8 @@ The default value is too low for realistics benchmarks.""",
     d["num_buffers"] = args.num_buffers
 
     d["cores"] = args.cores
-    d["cpuset"] = args.cpuset
+    if args.mode in ["xen", "libvirt", "libvirt-vmi"]:
+        d["cpuset"] = args.cpuset
     d["descriptor"] = args.descriptor
     d["mac_address"] = args.mac
 
