@@ -92,10 +92,6 @@ impl TimerContextInner {
     }
 
     pub fn set_next_deadline(self: &Pin<Arc<Self>>, deadline: StdDuration) {
-        unsafe {
-            if !(*self.tsc_infos.lock().unwrap()).is_null() {
-                deadline_handler_debug!("Current tsc offset from shared page is {}\n", (*(*self.tsc_infos.lock().unwrap())).tsc_offset);}
-            }
         let next_deadline_val = *self.next_deadline.lock().unwrap();
        
         let timer_deadline = (deadline - next_deadline_val).as_nanos() as u64;
