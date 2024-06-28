@@ -347,7 +347,7 @@ class TansivQemu(VM):
         ...                Path("image.qcow2"),
         ...                num_buffers=42)
         >>> tansiv_qemu.prepare_cmd(Path("image_copy.qcow2"), Path("cloud_init.iso"))
-        'qemu-system-x86_64  -m 1g --vsg mynet0,socket=socket,src=192.168.120.1,num_buffers=42 -accel kvm -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor unix:/tmp/qemu-monitor-1,server,nowait -cpu max,invtsc=on -drive file=image_copy.qcow2  -cdrom cloud_init.iso -netdev tantap,id=mynet0,ifname=tantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet0,mac=02:ca:fe:f0:0d:01 -netdev tap,id=mynet1,ifname=mantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet1,mac=54:52:fe:f0:0d:01 -gdb tcp::1235,server,nowait'
+        'qemu-system-x86_64  -m 1g --vsg mynet0,socket=socket,src=192.168.120.1,num_buffers=42 -accel kvm -smp sockets=1,cores=1,threads=1,maxcpus=1 -monitor unix:/srv/tansiv/qemu-monitor-1,server,nowait -cpu max,invtsc=on -drive file=image_copy.qcow2  -cdrom cloud_init.iso -netdev tantap,id=mynet0,ifname=tantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet0,mac=02:ca:fe:f0:0d:01 -netdev tap,id=mynet1,ifname=mantap1,script=no,downscript=no -device virtio-net-pci,netdev=mynet1,mac=54:52:fe:f0:0d:01 -gdb tcp::1235,server,nowait'
 
         """
         if self.virtio_net_nb_queues[0] == 1:
@@ -406,7 +406,7 @@ class TansivQemuKVM(TansivQemu):
         cmd = (
             f"{qemu_args}"
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
-            f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
+            f" -monitor unix:/srv/tansiv/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
             f" -overcommit cpu-pm=on"
         )
