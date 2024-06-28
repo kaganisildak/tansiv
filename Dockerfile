@@ -34,6 +34,7 @@ RUN apt-get install -y libclang-dev \
     libjson-c-dev \ 
     libyajl-dev \   
     libxen-dev \
+    python3-jinja2 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y autoremove \
     && apt-get -y clean \
