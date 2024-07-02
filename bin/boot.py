@@ -408,7 +408,7 @@ class TansivQemuKVM(TansivQemu):
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
             f" -monitor unix:/srv/tansiv/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
-            f" -overcommit cpu-pm=on"
+            # f" -overcommit cpu-pm=on"
         )
         return cmd
 
