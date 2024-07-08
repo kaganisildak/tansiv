@@ -400,7 +400,10 @@ class TansivQemuICount(TansivQemu):
     @property
     def qemu_args(self):
         qemu_args = super().qemu_args
-        cmd = f"{qemu_args} -icount shift=0,sleep=off,align=off -rtc clock=vm"
+        cmd = (
+            f"{qemu_args} -icount shift=0,sleep=off,align=off -rtc clock=vm"
+            f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead}"
+        )
         return cmd
 
 
@@ -413,7 +416,6 @@ class TansivQemuKVM(TansivQemu):
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
             f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
-            f" -overcommit cpu-pm=on"
             f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead}"
         )
         return cmd
