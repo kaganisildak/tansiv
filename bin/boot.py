@@ -414,7 +414,7 @@ class TansivQemuKVM(TansivQemu):
         cmd = (
             f"{qemu_args}"
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
-            f" -monitor unix:/tmp/qemu-monitor-{self.descriptor},server,nowait"
+            f" -monitor unix:/srv/tansiv/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
             f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead}"
         )
