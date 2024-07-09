@@ -343,16 +343,16 @@ double bandwidth_str_to_double(std::string bandwidth) {
 
 std::string bandwdith_str_to_bps(std::string bandwidth) {
   if (bandwidth.find("Gbps") != std::string::npos) {
-    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000'000);
+    return std::to_string(std::stoull(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000'000);
   }
   if (bandwidth.find("Mbps") != std::string::npos) {
-    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000);
+    return std::to_string(std::stoull(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000'000);
   }
   if (bandwidth.find("Kbps") != std::string::npos) {
-    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000);
+    return std::to_string(std::stoull(bandwidth.substr(0, bandwidth.size() - 4)) * 1'000);
   }
   if (bandwidth.find("bps") != std::string::npos) {
-    return std::to_string(std::stoi(bandwidth.substr(0, bandwidth.size() - 3)) * 1);
+    return std::to_string(std::stoull(bandwidth.substr(0, bandwidth.size() - 3)) * 1);
   }
   throw std::invalid_argument("Invalid bandwidth format.");
 }
