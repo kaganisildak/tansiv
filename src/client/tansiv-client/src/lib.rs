@@ -308,7 +308,10 @@ impl Context {
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
         let send_time = self.timer_context.simulation_now();
+        self.send_timestamped(dst, msg, send_time)
+    }
 
+    pub fn send_timestamped(&self, dst: libc::in_addr_t, msg: &[u8], send_time: Duration) -> Result<()> {
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
         // This would violate the property that send times must be after the previous deadline

@@ -219,6 +219,19 @@ pub unsafe extern "C" fn vsg_may_start_send(context: *const Context, callback: *
     return 0;
 }
 
+fn send_result_to_int(ret: Result<()>) -> c_int {
+    match ret {
+        Ok(_) => 0,
+        Err(e) => match e {
+            Error::FlowControlLimited => libc::EAGAIN,
+            Error::NoMemoryAvailable => libc::ENOMEM,
+            Error::SizeTooBig => libc::EMSGSIZE,
+            _ => // Unknown error, fallback to EIO
+                libc::EIO,
+        },
+    }
+}
+
 /// Sends a message having source address `src`, destination address `dst` and a payload stored in
 /// `msg[0..msglen]`.
 ///
@@ -253,16 +266,58 @@ pub unsafe extern fn vsg_send(context: *const Context, dst: libc::in_addr_t, msg
         };
         let payload = std::slice::from_raw_parts(ptr, msglen as usize);
 
-        match (*context).send(dst, payload) {
-            Ok(_) => 0,
-            Err(e) => match e {
-                Error::FlowControlLimited => libc::EAGAIN,
-                Error::NoMemoryAvailable => libc::ENOMEM,
-                Error::SizeTooBig => libc::EMSGSIZE,
-                _ => // Unknown error, fallback to EIO
-                    libc::EIO,
-            },
-        }
+        send_result_to_int((*context).send(dst, payload))
+    } else {
+        libc::EINVAL
+    }
+}
+
+/// Sends a message having source address `src`, destination address `dst`, a payload stored in
+/// `msg[0..msglen]` and timestamped at `send_time` (simulation clock).
+///
+/// It is the responsibility of the caller to ensure that `send_time` is consistent with the
+/// simulation clock maintained internally.
+///
+/// # Safety
+///
+/// * `context` should point to a valid context, as previously returned by [`vsg_init`].
+///
+/// * If `msglen` is `0`, it is allowed that `msg` is `NULL`.
+///
+/// # Error codes
+///
+/// * Fails with `libc::EINVAL` whenever context is `NULL` or `msg` is `NULL` with `msglen > 0` or
+///   `send_time` has any negative component.
+///
+/// * Fails with `libc::EMSGSIZE` whenever the payload is bigger than the maximum message size that
+///   vsg can handle.
+///
+/// * Fails with `libc::ENOMEM` whenever there is no more buffers to hold the message to send.
+///
+/// * Fails with `libc::EAGAIN` whenever sender should back off.
+#[no_mangle]
+pub unsafe extern fn vsg_send_timestamped(context: *const Context, dst: libc::in_addr_t, msglen: u32, msg: *const u8, send_time: libc::timespec) -> c_int {
+    if let Some(context) = context.as_ref() {
+        // We can tolerate msg.is_null() if msglen == 0 but std::slice::from_raw_parts() requires
+        // non null pointers.
+        let ptr = if msglen == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            if msg.is_null() {
+                return libc::EINVAL;
+            };
+            msg
+        };
+        let payload = std::slice::from_raw_parts(ptr, msglen as usize);
+
+        let send_time = if send_time.tv_sec >= 0 && send_time.tv_nsec >= 0 {
+            use std::time::Duration;
+            Duration::from_secs(send_time.tv_sec as u64) + Duration::from_nanos(send_time.tv_nsec as u64)
+        } else {
+            return libc::EINVAL;
+        };
+
+        send_result_to_int((*context).send_timestamped(dst, payload, send_time))
     } else {
         libc::EINVAL
     }
