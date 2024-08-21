@@ -6,6 +6,7 @@ use libc;
 #[allow(unused_imports)]
 use log::{debug, info, error};
 use output_msg_set::{OutputMsgSet, OutputMsg};
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -306,7 +307,7 @@ impl Context {
     }
 
     pub fn send(&self, dst: libc::in_addr_t, msg: &[u8]) -> Result<()> {
-        let mut send_time = self.timer_context.simulation_now();
+        let send_time = self.timer_context.simulation_now();
 
         // It is possible that the deadline is reached just after recording the send time and
         // before inserting the message, which leads to sending the message at the next deadline.
@@ -326,9 +327,7 @@ impl Context {
         let mut next_send_floor = self.next_send_floor.lock().unwrap();
 
         // Cap NIC speed to the simulated bandwidth
-        if send_time < *next_send_floor {
-            send_time = *next_send_floor;
-        }
+        let send_time = max(send_time, *next_send_floor);
 
         let message = OutputMsg::new(self.address, dst, send_time, msg, buffer)?;
 
