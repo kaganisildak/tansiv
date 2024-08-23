@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -91,4 +92,18 @@ bool ioctl_init_check(int fd)
         return -1;
     }
     return info.status;
+}
+
+int ioctl_register_tap(int fd, const char net_device_name[IFNAMSIZ])
+{
+    int error;
+    struct tansiv_register_tap_ioctl info;
+    strncpy(info.net_device_name, net_device_name, IFNAMSIZ);
+
+    error = ioctl(fd, TANSIV_REGISTER_TAP, &info);
+    if (error < 0) {
+        perror("ioctl_register_tap");
+        return -1;
+    }
+    return error;
 }

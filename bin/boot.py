@@ -359,8 +359,8 @@ class TansivQemu(VM):
             multi_queues_opt_tap = ""
             multi_queues_opt_virtio = ""
         else:
-            multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=off"
-            multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on"
+            multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=on"
+            multi_queues_opt_virtio = f",mq=on,vectors={str(2 * self.virtio_net_nb_queues[0] + 2)},rss=on,hash=on,csum=on,guest_csum=off"
 
         # The following code can be removed if we do not want to support multi queue for the management interface
         if self.virtio_net_nb_queues[1] == 1:
@@ -416,7 +416,7 @@ class TansivQemuKVM(TansivQemu):
             f" -accel kvm -smp sockets=1,cores={self.cores},threads=1,maxcpus={self.cores}"
             f" -monitor unix:/srv/tansiv/qemu-monitor-{self.descriptor},server,nowait"
             f" -cpu max,invtsc=on"
-            f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead}"
+            f" -vsg uplink_bandwidth={self.vsg_bandwidth},uplink_overhead={self.vsg_overhead},tap_device_name={self.tapname[0]}"
         )
         return cmd
 
@@ -522,9 +522,27 @@ class TansivXen(VM):
             check_call(cmd_xl, shell=True, stdout=stdout, cwd=working_dir)
 
         # get the domid
-        domid = check_output(f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir).decode().strip()
+        domid = (
+            check_output(
+                f"xl domid tansiv-{self.descriptor}", shell=True, cwd=working_dir
+            )
+            .decode()
+            .strip()
+        )
         with (working_dir / "out").open("w") as stdout:
-            Popen(["/opt/tansiv/bin/xen_tansiv_bridge", f"tansiv-{self.descriptor}", f"{self.socket_name}", f"{self.tantap.ip}", f"{self.num_buffers}", f"{domid}", f"vif{domid}.0"], stdout=stdout, cwd=working_dir)
+            Popen(
+                [
+                    "/opt/tansiv/bin/xen_tansiv_bridge",
+                    f"tansiv-{self.descriptor}",
+                    f"{self.socket_name}",
+                    f"{self.tantap.ip}",
+                    f"{self.num_buffers}",
+                    f"{domid}",
+                    f"vif{domid}.0",
+                ],
+                stdout=stdout,
+                cwd=working_dir,
+            )
 
 
 def terminate(*args):

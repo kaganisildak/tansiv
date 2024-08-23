@@ -2,20 +2,31 @@
 #include <linux/fs.h>
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
+#include <linux/if.h>
+#include <linux/in.h>
 #include <linux/init.h>
+#include <linux/ip.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/kvm_host.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/netdevice.h>
 #include <linux/pid.h>
+#include <linux/poll.h>
 #include <linux/sched/signal.h>
+#include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
+#include <linux/tcp.h>
 #include <linux/timekeeping.h>
 #include <linux/uaccess.h>
+#include <linux/udp.h>
 #include <linux/workqueue.h>
+
+#include <net/tcp.h>
+#include <net/udp.h>
 
 #include <asm/kvm_host.h>
 
@@ -25,6 +36,8 @@
 #define DEFAULT_NUMBER_VCPUS 8
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE 500
+#define PACKETS_BUFFER_SIZE 1000
+#define PACKETS_MAX_SIZE 1600
 
 #define FORBIDDEN_MMAP_FLAG (VM_WRITE | VM_EXEC | VM_SHARED)
 
@@ -117,6 +130,11 @@ struct tansiv_vm {
     struct page *page; // pointer to a page used to share the guest tsc offset and scaling
                        // ratio with userspace
     struct tansiv_vm_tsc_infos *tsc_infos; // data shared in the page
+    // stuff for vhost/tap driver intercept support
+    char net_device_name[IFNAMSIZ]; // VM network interface name
+    struct net_device *dev;         // Net device associated with this VM
+    struct circular_buffer packets; // Buffer of intercepted network packets
+    spinlock_t packets_lock; // spinlock for the packet buffer
 };
 
 /* Global variables */
@@ -126,6 +144,7 @@ static struct file *logs_file;             // file descriptor for the VM logs
 static struct circular_buffer logs_buffer; // circular buffer for the VM logs
 static struct work_struct logs_work;       // work struct to write in the logs file
 static spinlock_t logs_buffer_lock;        // spinlock for the logs buffer
+static DECLARE_WAIT_QUEUE_HEAD(device_wait); // waitqueue
 
 /* Init an array of struct pids */
 static int init_struct_pid_array(struct struct_pid_array *array, ssize_t size)
@@ -268,6 +287,7 @@ struct tansiv_vm *init_vm(void)
     vm->lapic_tsc_deadline = 0;
     vm->page = page;
     vm->tsc_infos = kmap(page);
+    cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff *));
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
 
@@ -315,6 +335,66 @@ static int device_release(struct inode *inode, struct file *file)
     module_put(THIS_MODULE);
     pr_info("tansiv-timer: device closed\n");
     return 0;
+}
+
+/* Callback to intercept vhost/tap driver packets */
+void tap_cb(void *buff)
+{
+    struct sk_buff *skb;
+    struct net_device *dev;
+    struct tansiv_vm *vm;
+
+    if (buff == NULL) {
+        pr_warn("tansiv-timer: intercepted NULL skb!");
+        return;
+    }
+
+    skb = (struct sk_buff *)buff;
+
+    if (skb == NULL) {
+        pr_warn("tansiv-timer: skb is NULL!");
+        return;
+    }
+
+    if (skb->data - ETH_HLEN < skb->head) {
+        pr_warn("tansiv-timer: skb ethernet header is not in headroom!");
+        return;
+    }
+
+    // Put back the ethernet header in the linear part of the skb
+    skb_push(skb, ETH_HLEN);
+
+    /* Find the corresponding net_device */
+    dev = skb->dev;
+    if (dev == NULL) {
+        pr_warn("tansiv-timer: skb->dev is NULL!");
+        return;
+    }
+
+    /* Find the vm struct with this net_device */
+    vm = dev->tansiv_vm;
+    if (vm == NULL) {
+        pr_warn("tansiv-timer: skb->dev->vm is NULL!");
+        return;
+    }
+
+    /* Forward the packet to userspace */
+    spin_lock(&vm->packets_lock);
+    cb_push(&vm->packets, &skb);
+    wake_up_interruptible(&device_wait);
+    spin_unlock(&vm->packets_lock);
+}
+
+struct net_device *find_netdev(char *name)
+{
+    struct net_device *dev;
+    for_each_netdev(&init_net, dev)
+    {
+        if (strcmp(dev->name, name) == 0) {
+            return dev;
+        }
+    }
+    return NULL;
 }
 
 /* IOCTL handler */
@@ -463,6 +543,30 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         }
         break;
     }
+    case TANSIV_REGISTER_TAP: {
+        struct tansiv_register_tap_ioctl __user * tmp = (struct tansiv_register_tap_ioctl *)ioctl_param;
+        struct tansiv_register_tap_ioctl register_tap;
+        struct net_device *dev;
+
+        if (copy_from_user(&register_tap, tmp, sizeof(struct tansiv_register_tap_ioctl))) {
+            return -EFAULT;
+        }
+
+        strncpy(vm->net_device_name, register_tap.net_device_name, IFNAMSIZ);
+
+        dev = find_netdev(vm->net_device_name);
+        if (dev == NULL) {
+            pr_warn("tansiv-timer: TANSIV_REGISTER_TAP: unknown netdev\n");
+            return -ENODEV;
+        }
+        vm->dev = dev;
+
+        dev->tansiv_cb = tap_cb;
+        dev->tansiv_vm = vm;
+
+        break;
+
+    }
     default:
         pr_err("tansiv-timer: Unknown ioctl command\n");
         return -EINVAL;
@@ -489,14 +593,153 @@ static int device_mmap(struct file *file, struct vm_area_struct *vma)
     return 0;
 }
 
+static ssize_t device_do_read(struct tansiv_vm *vm, struct iov_iter *to)
+{
+    struct sk_buff *skb;
+    ssize_t ret = 0;
+    
+    if (vm->packets.used > 0) {
+        cb_pop(&vm->packets, &skb);
+        if (skb != NULL) {
+            ret = skb_copy_datagram_iter(skb, 0, to, skb->len);
+            ret = ret ? ret : skb->len;
+            kfree_skb(skb);
+        } else
+            pr_warn("tansiv-timer: device_do_read: skb is NULL!");
+    }
+
+    return ret;
+}
+
+/* read (kernel -> userspace) */
+static ssize_t device_read_iter(struct kiocb *iocb, struct iov_iter *to)
+{
+    ssize_t ret;
+    struct file *file = iocb->ki_filp;
+    struct tansiv_vm *vm = file->private_data;
+    spin_lock_irq(&vm->packets_lock);
+    if (vm->packets.used == 0) {
+        ret = -EAGAIN;
+    }
+    else {
+        ret = device_do_read(vm, to);
+    }
+    spin_unlock_irq(&vm->packets_lock);
+
+    return ret;
+}
+
+/* poll */
+static __poll_t device_poll(struct file *file, poll_table *wait)
+{
+    struct tansiv_vm *vm = file->private_data;
+    __poll_t mask = EPOLLERR;
+
+    if (vm == NULL)
+        goto out;
+
+    mask = 0;
+    poll_wait(file, &device_wait, wait);
+    if (vm->packets.used > 0)
+        mask |= POLLIN | EPOLLRDNORM;
+
+out:
+    return mask;
+}
+
+/* Inspired from tap_get_user of tap.c */
+static ssize_t device_do_write(struct tansiv_vm *vm, struct iov_iter *from)
+{
+    struct sk_buff *skb;
+    enum skb_drop_reason drop_reason;
+    struct iphdr *ip_h;
+    struct udphdr *udp_h;
+    struct tcphdr *tcp_h;
+    unsigned int tcp_len;
+    unsigned int udp_len;
+    int err = 0;
+    unsigned long total_len = iov_iter_count(from);
+    unsigned long len = total_len;
+    if (len < ETH_HLEN) {
+        pr_warn("tansiv-timer: Packet smaller than the eth header size!\n");
+        return -EINVAL;
+    }
+
+    skb = alloc_skb_with_frags(NET_SKB_PAD + NET_IP_ALIGN + len, 0,
+                               PAGE_ALLOC_COSTLY_ORDER, &err, GFP_ATOMIC | __GFP_NOWARN);
+    if (skb == NULL) {
+        pr_warn("tansiv-timer: Error when allocating skb\n");
+        return -1;
+    }
+
+    skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
+    skb_put(skb, len);
+    skb->data_len = 0;
+
+    err = skb_copy_datagram_from_iter(skb, 0, from, len);
+    if (err) {
+        pr_warn("tansiv-timer: Error when copying packet from userspace!\n");
+        drop_reason = SKB_DROP_REASON_SKB_UCOPY_FAULT;
+        kfree_skb_reason(skb, drop_reason);
+        return err;
+    }
+
+    skb_set_network_header(skb, ETH_HLEN);
+    skb_reset_mac_header(skb);
+    skb->protocol = eth_hdr(skb)->h_proto;
+
+    rcu_read_lock();
+    skb->dev = vm->dev;
+    skb->pkt_type = PACKET_OTHERHOST;
+
+    skb_probe_transport_header(skb);
+
+    if (htons(skb->protocol) == ETH_P_IP) {
+        ip_h = ip_hdr(skb);
+        switch (ip_h->protocol) {
+        case IPPROTO_TCP:
+            tcp_h = tcp_hdr(skb);
+            tcp_len = skb->len - ip_hdrlen(skb) - ETH_HLEN;
+            tcp_h->check = 0;
+            tcp_h->check = tcp_v4_check(tcp_len, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)tcp_h, tcp_len, 0));
+            break;
+        case IPPROTO_UDP:
+            udp_h = udp_hdr(skb);
+            udp_len = skb->len - ip_hdrlen(skb) - ETH_HLEN;
+            udp_h->check = 0;
+            udp_h->check = udp_v4_check(udp_len, ip_h->saddr, ip_h->daddr,
+                                        csum_partial((char *)udp_h, udp_len, 0));
+            break;
+        default:
+            break;
+        }
+    }
+
+    dev_queue_xmit(skb);
+    rcu_read_unlock();
+
+    return len;
+}
+
+
+/* write (userspace -> kernel) */
+static ssize_t device_write_iter(struct kiocb *iocb, struct iov_iter *from)
+{
+    struct file *file = iocb->ki_filp;
+    struct tansiv_vm *vm = file->private_data;
+    return device_do_write(vm, from);
+}
+
 /* File operations */
 static struct file_operations fops = {
-    .read = NULL,
-    .write = NULL,
+    .read_iter = device_read_iter,
+    .write_iter = device_write_iter,
     .unlocked_ioctl = device_ioctl,
     .open = device_open,
     .release = device_release,
     .mmap = device_mmap,
+    .poll = device_poll,
 };
 
 /* sysfs file to export the tsc frequency

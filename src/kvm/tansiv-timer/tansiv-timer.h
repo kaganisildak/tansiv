@@ -1,6 +1,7 @@
 #ifndef TANSIV_TIMER_H
 #define TANSIV_TIMER_H
 
+#include <linux/if.h>
 #include <linux/ioctl.h>
 #include <sys/types.h>
 
@@ -21,6 +22,8 @@ module
 #define TANSIV_INIT_END _IOW(MAJOR_NUM, 3, int)
 
 #define TANSIV_INIT_CHECK _IOWR(MAJOR_NUM, 4, int)
+
+#define TANSIV_REGISTER_TAP _IOW(MAJOR_NUM, 5, int)
 
 
 #define DEVICE_FILE_NAME "tansiv_dev"
@@ -54,10 +57,15 @@ struct tansiv_init_check_ioctl {
     bool status; // true if the initialization is done
 };
 
+struct tansiv_register_tap_ioctl {
+    char net_device_name[IFNAMSIZ];
+};
+
 int ioctl_register_vm(int fd, pid_t pid);
 unsigned long long int ioctl_register_deadline(int fd, unsigned long long int deadline, unsigned long long int deadline_tsc);
 int ioctl_register_vcpu(int fd, pid_t vcpu_pid);
 int ioctl_init_end(int fd);
 bool ioctl_init_check(int fd);
+int ioctl_register_tap(int fd, const char net_device_name[IFNAMSIZ]);
 
 #endif
