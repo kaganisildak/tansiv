@@ -356,7 +356,7 @@ class TansivQemu(VM):
 
         """
         if self.virtio_net_nb_queues[0] == 1:
-            multi_queues_opt_tap = ""
+            multi_queues_opt_tap = ",vhost=on"
             multi_queues_opt_virtio = ""
         else:
             multi_queues_opt_tap = f",queues={self.virtio_net_nb_queues[0]},vhost=on"
