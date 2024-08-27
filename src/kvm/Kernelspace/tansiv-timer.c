@@ -56,7 +56,7 @@ struct struct_pid_array {
     ssize_t used;
 };
 
-/* Circular buffer for the logs */
+/* Circular buffer utilitary struct */
 struct circular_buffer {
     void *buffer;
     void *buffer_end;
@@ -72,7 +72,7 @@ static void cb_init(struct circular_buffer *cb, ssize_t size, ssize_t item_size)
 {
     cb->buffer = kmalloc(size * item_size, GFP_KERNEL);
     if (cb->buffer == NULL) {
-        pr_err("tansiv-timer: Failed to allocate memory for the logs buffer\n");
+        pr_err("tansiv-timer: Failed to allocate memory for the circular buffer\n");
         return;
     }
     cb->buffer_end = cb->buffer + size * item_size;
@@ -114,6 +114,12 @@ static void cb_pop(struct circular_buffer *cb, void *item)
     cb->used--;
 }
 
+// State for read
+enum read_state {
+    STATE_SEND_SKBUFF,
+    STATE_SEND_TIMESTAMP,
+};
+
 /* Internal struct representing a VM */
 struct tansiv_vm {
     struct pid pid;                     // VM pid
@@ -127,6 +133,7 @@ struct tansiv_vm {
     u64 timer_start; // tsc value at which the timer was started (estimated by rdtsc
                      // around hrtimer_start)
     u64 lapic_tsc_deadline; // tsc value stored in the tsc-deadline register
+    u64 simulation_offset; // guest tsc value corresponding to the simulation offset
     struct page *page; // pointer to a page used to share the guest tsc offset and scaling
                        // ratio with userspace
     struct tansiv_vm_tsc_infos *tsc_infos; // data shared in the page
@@ -134,7 +141,9 @@ struct tansiv_vm {
     char net_device_name[IFNAMSIZ]; // VM network interface name
     struct net_device *dev;         // Net device associated with this VM
     struct circular_buffer packets; // Buffer of intercepted network packets
+    struct circular_buffer timestamps; // Buffer of timestamps of the intercepted packets
     spinlock_t packets_lock; // spinlock for the packet buffer
+    enum read_state state; // State for the read file operation
 };
 
 /* Global variables */
@@ -144,6 +153,10 @@ static struct file *logs_file;             // file descriptor for the VM logs
 static struct circular_buffer logs_buffer; // circular buffer for the VM logs
 static struct work_struct logs_work;       // work struct to write in the logs file
 static spinlock_t logs_buffer_lock;        // spinlock for the logs buffer
+static bool enable_logs = false;           // Enable/Disable logging
+module_param(enable_logs, bool, 0444);
+MODULE_PARM_DESC(enable_logs, "Enable or disable logs (default: disabled)");
+
 static DECLARE_WAIT_QUEUE_HEAD(device_wait); // waitqueue
 
 /* Init an array of struct pids */
@@ -199,9 +212,12 @@ static enum hrtimer_restart timer_handler(struct hrtimer *timer)
     struct tansiv_vm *vm = container_of(timer, struct tansiv_vm, timer);
 
     /* Logs */
-    if (logs_buffer.size == logs_buffer.used) {
-        pr_err("tansiv-timer: Buffer is full\n");
+    if (enable_logs) {
+        if (logs_buffer.size == logs_buffer.used) {
+            pr_err("tansiv-timer: Buffer is full\n");
+        }
     }
+    
     if (vm->lapic_tsc_deadline == timer->tsc_deadline) {
         // The tsc_deadline value was not updated for some reason, for ex
         // hrtimer already expired when it was processed by the kernel
@@ -224,13 +240,16 @@ static enum hrtimer_restart timer_handler(struct hrtimer *timer)
     // ktime_get(),
     // programmed_tsc,
     // vm->deadline);
-    sprintf(buffer, "timer-handler;%d;%d;%lld;%lld;%llu;%llu\n", pid_nr(&vm->pid),
+    if (enable_logs) {
+        sprintf(buffer, "timer-handler;%d;%d;%lld;%lld;%llu;%llu\n", pid_nr(&vm->pid),
             raw_smp_processor_id(), timer->_softexpires, ktime_get(), programmed_tsc,
             vm->deadline);
-    spin_lock_irq(&logs_buffer_lock);
-    cb_push(&logs_buffer, buffer);
-    spin_unlock_irq(&logs_buffer_lock);
-    schedule_work(&logs_work);
+        spin_lock_irq(&logs_buffer_lock);
+        cb_push(&logs_buffer, buffer);
+        spin_unlock_irq(&logs_buffer_lock);
+        schedule_work(&logs_work);
+    }
+    
     // pr_info("tansiv-timer: Timer expired. CPU: %d ; VM: %d ; VM deadline: %llu ;
     // hrtimer deadline: %lld ;  programmed tsc: %llu; diff: %llu \n",
     // raw_smp_processor_id(),
@@ -285,9 +304,12 @@ struct tansiv_vm *init_vm(void)
     vm->deadline_tsc = 0;
     vm->timer_start = 0;
     vm->lapic_tsc_deadline = 0;
+    vm->simulation_offset = 0;
     vm->page = page;
     vm->tsc_infos = kmap(page);
-    cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff *));
+    vm->state = STATE_SEND_SKBUFF;
+    cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff*));
+    cb_init(&vm->timestamps, PACKETS_BUFFER_SIZE, sizeof(__u64));
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
 
@@ -337,19 +359,27 @@ static int device_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+struct tansiv_cb_struct {
+	struct sk_buff *skb;
+	__u64 timestamp;
+};
+
 /* Callback to intercept vhost/tap driver packets */
-void tap_cb(void *buff)
+void tap_cb(void *arg)
 {
     struct sk_buff *skb;
     struct net_device *dev;
     struct tansiv_vm *vm;
+    struct tansiv_cb_struct *cb_struct;
 
-    if (buff == NULL) {
+    if (arg == NULL) {
         pr_warn("tansiv-timer: intercepted NULL skb!");
         return;
     }
 
-    skb = (struct sk_buff *)buff;
+    cb_struct = (struct tansiv_cb_struct *)arg;
+
+    skb = cb_struct->skb;
 
     if (skb == NULL) {
         pr_warn("tansiv-timer: skb is NULL!");
@@ -378,9 +408,12 @@ void tap_cb(void *buff)
         return;
     }
 
+
     /* Forward the packet to userspace */
     spin_lock(&vm->packets_lock);
-    cb_push(&vm->packets, &skb);
+    cb_push(&vm->packets, &cb_struct->skb);
+    cb_push(&vm->timestamps, &cb_struct->timestamp);
+    kfree(cb_struct);
     wake_up_interruptible(&device_wait);
     spin_unlock(&vm->packets_lock);
 }
@@ -484,17 +517,25 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         // vm->tsc_offset,
         // deadline.deadline);
 
-        /* Logs */
-        if (logs_buffer.size < logs_buffer.used) {
-            pr_err("tansiv-timer: Buffer is full\n");
-        }
-        sprintf(buffer, "register-deadline;%d;%d;%llu;%llu;%llu\n", pid_nr(&vm->pid), cpu,
-                vm->deadline, tsc_before_guest, tsc_after_guest);
-        spin_lock_irq(&logs_buffer_lock);
-        cb_push(&logs_buffer, buffer);
-        spin_unlock_irq(&logs_buffer_lock);
-        schedule_work(&logs_work);
 
+        /* Register simulation offset if first deadline */
+        if (vm->simulation_offset == 0) {
+            vm->simulation_offset = kvm_tansiv_get_simulation_start(pid_nr(&vm->pid));
+        }
+
+        /* Logs */
+        if (enable_logs) {
+            if (logs_buffer.size < logs_buffer.used) {
+                pr_err("tansiv-timer: Buffer is full\n");
+            }
+            sprintf(buffer, "register-deadline;%d;%d;%llu;%llu;%llu\n", pid_nr(&vm->pid), cpu,
+                vm->deadline, tsc_before_guest, tsc_after_guest);
+            spin_lock_irq(&logs_buffer_lock);
+            cb_push(&logs_buffer, buffer);
+            spin_unlock_irq(&logs_buffer_lock);
+            schedule_work(&logs_work);
+        }
+        
         if (copy_to_user(tmp, &deadline, sizeof(struct tansiv_deadline_ioctl))) {
             return -EFAULT;
         }
@@ -593,21 +634,66 @@ static int device_mmap(struct file *file, struct vm_area_struct *vma)
     return 0;
 }
 
+// TODO: support partial reads
 static ssize_t device_do_read(struct tansiv_vm *vm, struct iov_iter *to)
 {
     struct sk_buff *skb;
+    __u64 timestamp;
     ssize_t ret = 0;
-    
-    if (vm->packets.used > 0) {
-        cb_pop(&vm->packets, &skb);
-        if (skb != NULL) {
-            ret = skb_copy_datagram_iter(skb, 0, to, skb->len);
-            ret = ret ? ret : skb->len;
-            kfree_skb(skb);
-        } else
-            pr_warn("tansiv-timer: device_do_read: skb is NULL!");
-    }
 
+    switch (vm->state) {
+        case STATE_SEND_SKBUFF:
+            if (vm->packets.used > 0) {
+                cb_pop(&vm->packets, &skb);
+                if (skb != NULL) {
+                    // pr_info("tansiv-timer: Forwarding skb of size %d\n", skb->len);
+                    if (skb_copy_datagram_iter(skb, 0, to, skb->len))
+                        pr_warn("tansiv-timer: device_do_read: skb_copy_datagram_iter failed!");
+                    ret = skb->len;
+                    kfree_skb(skb);
+                    vm->state = STATE_SEND_TIMESTAMP;
+                } else
+                    pr_warn("tansiv-timer: device_do_read: skb is NULL!");
+                }
+            break;
+
+        case STATE_SEND_TIMESTAMP:
+            __u64 now_guest;
+            __u64 now_guest_simulation;
+            __u64 now_guest_ns;
+            if (vm->timestamps.used > 0) {
+                cb_pop(&vm->timestamps, &timestamp);
+                if (iov_iter_count(to) < sizeof(__u64)) {
+                    ret = -EINVAL; // Not enough space in user buffer
+                    break;
+                }
+
+                // It's time to convert the timestamp (host TSC scale) to a timespec (simulation
+                // seconds scale)
+                // Guest TSC scale
+                now_guest = timestamp + vm->tsc_infos->tsc_offset;
+                
+                // Simulation nanoseconds
+                if (vm->simulation_offset) {
+                    now_guest_simulation = now_guest - vm->simulation_offset;
+                }
+                else
+                    now_guest_simulation = 0ULL;
+
+                // Guest nanoseconds scale
+                now_guest_ns = div64_u64(now_guest_simulation * 1000000ULL, tsc_khz);
+
+                // pr_info("tansiv-timer: Forwarding timestamp %llu\n", now_guest_ns);
+                if (copy_to_iter(&now_guest_ns, sizeof(__u64), to) != sizeof(__u64))
+                    pr_warn("tansiv-timer: device_do_read: copy_to_iter failed!");
+                vm->state = STATE_SEND_SKBUFF;
+            }
+            break;
+           
+        default:
+            ret = -EINVAL; // Invalid state
+            break;
+    }
     return ret;
 }
 
@@ -618,7 +704,7 @@ static ssize_t device_read_iter(struct kiocb *iocb, struct iov_iter *to)
     struct file *file = iocb->ki_filp;
     struct tansiv_vm *vm = file->private_data;
     spin_lock_irq(&vm->packets_lock);
-    if (vm->packets.used == 0) {
+    if (vm->packets.used == 0 && vm->timestamps.used == 0) {
         ret = -EAGAIN;
     }
     else {
@@ -640,7 +726,7 @@ static __poll_t device_poll(struct file *file, poll_table *wait)
 
     mask = 0;
     poll_wait(file, &device_wait, wait);
-    if (vm->packets.used > 0)
+    if (vm->packets.used > 0 || vm->timestamps.used > 0)
         mask |= POLLIN | EPOLLRDNORM;
 
 out:
@@ -772,14 +858,16 @@ static int __init tansiv_timer_init(void)
     pr_info("tansiv-timer: Device created on /dev/%s\n", DEVICE_FILE_NAME);
 
     /* Logs */
-    s = kasprintf(GFP_KERNEL, "/tmp/tansiv_kernel.csv");
-    logs_file = filp_open(s, O_CREAT | O_WRONLY | O_APPEND, 0644);
+    if (enable_logs) {
+        s = kasprintf(GFP_KERNEL, "/tmp/tansiv_kernel.csv");
+        logs_file = filp_open(s, O_CREAT | O_WRONLY | O_APPEND, 0644);
 
-    pr_info("tansiv-timer: starting circular buffer initialization\n");
-    cb_init(&logs_buffer, LOGS_BUFFER_SIZE, sizeof(char[LOGS_LINE_SIZE]));
+        pr_info("tansiv-timer: starting circular buffer initialization\n");
+        cb_init(&logs_buffer, LOGS_BUFFER_SIZE, sizeof(char[LOGS_LINE_SIZE]));
 
-    spin_lock_init(&logs_buffer_lock);
-    INIT_WORK(&logs_work, write_logs);
+        spin_lock_init(&logs_buffer_lock);
+        INIT_WORK(&logs_work, write_logs);
+    }
 
     if (!sysfs_create_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr))
         pr_info("tansiv-timer: tsc frequency exported in sysfs");
@@ -798,7 +886,8 @@ static void __exit cancel_tansiv_timer(void)
     class_destroy(cls);
     unregister_chrdev(MAJOR_NUM, DEVICE_FILE_NAME);
     /* Circular buffer */
-    cb_free(&logs_buffer);
+    if (enable_logs)
+        cb_free(&logs_buffer);
     /* Sysfs */
     sysfs_remove_file(&cpu_subsys.dev_root->kobj, &tsc_khz_attr.attr);
     pr_info("tansiv-timer: Exit success\n");
