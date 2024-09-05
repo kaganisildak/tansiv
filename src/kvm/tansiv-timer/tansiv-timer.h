@@ -26,8 +26,8 @@ module
 #define TANSIV_REGISTER_TAP _IOW(MAJOR_NUM, 5, int)
 
 
-#define DEVICE_FILE_NAME "tansiv_dev"
-#define DEVICE_PATH "/dev/tansiv_dev"
+#define DEVICE_FILE_NAME "tansiv_dev_kvm"
+#define DEVICE_PATH "/dev/tansiv_dev_kvm"
 
 /* IOCTL parameters */
 

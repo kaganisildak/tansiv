@@ -32,11 +32,11 @@
 
 #include "../include/tansiv-timer.h"
 
-#define DEVICE_NAME "tansiv_dev"
+#define DEVICE_NAME "tansiv_dev_kvm"
 #define DEFAULT_NUMBER_VCPUS 8
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE 500
-#define PACKETS_BUFFER_SIZE 1000
+#define PACKETS_BUFFER_SIZE 10000
 #define PACKETS_MAX_SIZE 1600
 
 #define FORBIDDEN_MMAP_FLAG (VM_WRITE | VM_EXEC | VM_SHARED)
@@ -386,6 +386,8 @@ void tap_cb(void *arg)
         return;
     }
 
+    skb_dump("tansiv-timer", skb, true);
+
     if (skb->data - ETH_HLEN < skb->head) {
         pr_warn("tansiv-timer: skb ethernet header is not in headroom!");
         return;
@@ -411,10 +413,12 @@ void tap_cb(void *arg)
 
     /* Forward the packet to userspace */
     spin_lock(&vm->packets_lock);
-    cb_push(&vm->packets, &cb_struct->skb);
-    cb_push(&vm->timestamps, &cb_struct->timestamp);
-    kfree(cb_struct);
-    wake_up_interruptible(&device_wait);
+    if (vm->packets.used < vm->packets.size) {
+        cb_push(&vm->packets, &cb_struct->skb);
+        cb_push(&vm->timestamps, &cb_struct->timestamp);
+        kfree(cb_struct);
+        wake_up_interruptible(&device_wait);
+    }
     spin_unlock(&vm->packets_lock);
 }
 

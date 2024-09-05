@@ -33,7 +33,7 @@
 
 #include "../include/tansiv-timer-xen.h"
 
-#define DEVICE_NAME "tansiv_dev"
+#define DEVICE_NAME "tansiv_dev_xen"
 #define LOGS_BUFFER_SIZE 500
 #define LOGS_LINE_SIZE 500
 #define PACKETS_BUFFER_SIZE 1000

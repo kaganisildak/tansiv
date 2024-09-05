@@ -18,8 +18,8 @@ module
  * Last argument is the type to get from the process to the kernel module
  */
 
-#define DEVICE_FILE_NAME "tansiv_dev"
-#define DEVICE_PATH "/dev/tansiv_dev"
+#define DEVICE_FILE_NAME "tansiv_dev_xen"
+#define DEVICE_PATH "/dev/tansiv_dev_xen"
 
 /* IOCTL parameters */
 
