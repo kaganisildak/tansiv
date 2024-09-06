@@ -386,8 +386,6 @@ void tap_cb(void *arg)
         return;
     }
 
-    skb_dump("tansiv-timer", skb, true);
-
     if (skb->data - ETH_HLEN < skb->head) {
         pr_warn("tansiv-timer: skb ethernet header is not in headroom!");
         return;
