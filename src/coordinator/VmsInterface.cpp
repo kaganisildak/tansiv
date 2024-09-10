@@ -272,7 +272,7 @@ void VmsInterface::deliverMessage(Message *m) {
     int socket = vm_sockets[m->dst];
 
     flatbuffers::FlatBufferBuilder builder(2048);
-    auto packet_meta = tansiv::PacketMeta(m->src_enc, m->dst_enc);
+    auto packet_meta = tansiv::PacketMeta(m->src_enc, m->dst_enc, m->receive_date);
     auto payload_offset = builder.CreateVector<uint8_t>(m->data, m->size);
     auto deliver_packet = tansiv::CreateDeliverPacket(builder, &packet_meta, payload_offset);
     auto msg =

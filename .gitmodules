@@ -5,7 +5,7 @@
 [submodule "src/qemu"]
 	path = src/qemu
 	url = https://gitlab.inria.fr/tansiv/qemu.git
-	branch = main
+	branch = tansiv-opti
 [submodule "tools/packer"]
 	path = tools/packer
 	url = https://gitlab.inria.fr/tansiv/packer.git

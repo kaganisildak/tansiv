@@ -389,6 +389,21 @@ impl Context {
         }
     }
 
+    pub fn recv_date<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, u64, &'b mut [u8])> {
+        match self.input_queue.pop() {
+            Some(msg_in) => {
+                if msg.len() >= msg_in.payload().len() {
+                    let msg = &mut msg[..msg_in.payload().len()];
+                    msg.copy_from_slice(&msg_in.payload());
+                    Ok((msg_in.src(), msg_in.dst(), msg_in.receive_date(), msg))
+                } else {
+                    Err(Error::SizeTooBig)
+                }
+            },
+            None => Err(Error::NoMessageAvailable),
+        }
+    }
+
     pub fn poll(&self) -> Option<()> {
         if self.input_queue.is_empty() {
             None
