@@ -328,6 +328,7 @@ impl Context {
         };
 
         let mut next_send_floor = self.next_send_floor.lock().unwrap();
+        *next_send_floor = max(*next_send_floor, self.timer_context.simulation_previous_deadline());
 
         // Cap NIC speed to the simulated bandwidth
         let send_time = max(send_time, *next_send_floor);
