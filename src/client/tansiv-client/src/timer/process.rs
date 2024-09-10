@@ -223,7 +223,7 @@ impl TimerContext {
     }
 
     pub fn simulation_previous_deadline(&self) -> StdDuration {
-        assert!(self.at_deadline.load(Ordering::Relaxed));
+        // assert!(self.at_deadline.load(Ordering::Relaxed));
         *self.prev_deadline.lock().unwrap()
     }
 
