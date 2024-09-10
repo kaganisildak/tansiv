@@ -35,6 +35,8 @@ public:
   std::string dst;
   // this will be dynamically allocated according to size
   uint8_t *data;
+
+  uint64_t receive_date; // in ns, simulation scale
 };
 
 class VmsInterface {

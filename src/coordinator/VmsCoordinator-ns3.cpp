@@ -25,7 +25,7 @@ std::vector<ns3::Ptr<ns3::Packet>> pending_packets;
 std::vector<vsg::Message *> pending_messages;
 
 /* Messages that that were delivered in the simulation */
-std::vector<vsg::Message *> ready_to_deliver;
+std::list<vsg::Message *> ready_to_deliver;
 
 /* ns-3 net devices and addresses for each actor */
 std::vector<ns3::Ptr<ns3::PointToPointNetDevice>> tansiv_actors;
@@ -56,22 +56,6 @@ static double get_next_event() { return ns3::Simulator::GetNextEventTime().ToDou
 
 static bool packet_received(ns3::Ptr<ns3::NetDevice> device, ns3::Ptr<const ns3::Packet> packet,
                             short unsigned int protocol, const ns3::Address &from) {
-  int packet_id = packet->GetUid();
-  auto it = std::find_if(pending_packets.begin(), pending_packets.end(),
-                         [&packet_id](ns3::Ptr<ns3::Packet> &arg) { return arg->GetUid() == packet_id; });
-
-  if (it == pending_packets.end()) {
-    // Packet not in pending_packets
-    LOG("Received packet is not in pending_packets!");
-  } else {
-    LOG("Packet arrived at device " << device->GetAddress());
-    int index = std::distance(pending_packets.begin(), it);
-    vsg::Message *message = pending_messages[index];
-    ready_to_deliver.push_back(message);
-    pending_packets.erase(pending_packets.begin() + index);
-    pending_messages.erase(pending_messages.begin() + index);
-  }
-
   return true;
 }
 
@@ -101,11 +85,9 @@ static void vm_coordinator() {
     // first we check if a VM stops. If so, we recompute the minimum latency.
     // then we go forward with the VM.
     double time = ns3::Simulator::Now().ToDouble(ns3::Time::S);
-    double next_reception_time = get_next_event();
-    double deadline = std::min(time + min_latency - 1e-9, next_reception_time);
+    double deadline = time + min_latency;
 
-    LOG("next deadline = " << deadline << " [time+min_latency=" << time + min_latency - 1e-9
-                           << ", next_reception_time=" << next_reception_time << "]");
+    LOG("next deadline = " << deadline << " [time+min_latency=" << time + min_latency << "]");
 
     std::vector<vsg::Message *> messages = vms_interface->goTo(deadline);
     for (vsg::Message *m : messages) {
@@ -152,7 +134,7 @@ static void vm_coordinator() {
       if (pos_src >= tansiv_addresses.size()) {
         LOG("Source address " << m->src.c_str() << " not found!");
       } else if (pos_dst >= tansiv_addresses.size()) {
-        LOG("Destination address " << m->dst.c_str() << "not found!");
+        LOG("Destination address " << m->dst.c_str() << " not found!");
       } else {
         ns3::Ipv4Address dest_ipv4_address = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_dst]);
         ns3::Ipv4Address src_ipv4_address = ns3::Ipv4Address::ConvertFrom(tansiv_addresses[pos_src]);
@@ -166,7 +148,7 @@ static void vm_coordinator() {
         pending_packets.push_back(p);
         pending_messages.push_back(m);
 
-        LOG("Inserting message from " << m->src.c_str() << " to " << m->dst.c_str());
+        LOG("Inserting message from " << m->src.c_str() << " to " << m->dst.c_str() << " of size " << m->size);
         tansiv_actors[pos_src]->Send(p, tansiv_addresses[pos_dst], 0x0800);
       }
     }
@@ -174,19 +156,57 @@ static void vm_coordinator() {
     // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
     // so we do not have to sleep until "infinity" because the simulation is done
     if (deadline != std::numeric_limits<double>::infinity()) {
-      ns3::Simulator::Stop(ns3::Time::FromDouble(deadline, ns3::Time::S) + ns3::NanoSeconds(1) - ns3::Simulator::Now());
+      ns3::Simulator::Stop(ns3::Time::FromDouble(deadline, ns3::Time::S) - ns3::Simulator::Now());
       ns3::Simulator::Run();
     }
+
+    // Now get all the messages that will be received in the next time slice
+
+
+    ns3::Time next_deadline =  ns3::Simulator::Now() + ns3::Time::FromDouble(min_latency, ns3::Time::Unit::S);
+    // LOG("Getting all events until " << next_deadline << " (Now is " << ns3::Simulator::Now() << " )");
+
+    std::vector<std::tuple<ns3::Time, uint64_t, uint32_t>> next_events = ns3::Simulator::GetNextEventsUntil(next_deadline);
+
+    for (const auto& elem: next_events) {
+      ns3::Time receive_date;
+      uint64_t packet_id;
+      uint32_t dest_id;
+
+      std::tie(receive_date, packet_id, dest_id) = elem;
+
+      // Ignore hub event
+      if (dest_id == 0) {
+        continue;
+      }
+
+      // Find the message
+      auto it = std::find_if(pending_packets.begin(), pending_packets.end(),
+                         [&packet_id](ns3::Ptr<ns3::Packet> &arg) { return arg->GetUid() == packet_id; });
+      if (it == pending_packets.end()) {
+        //Packet not in pending_packets
+        LOG("Received packet is not in pending_packets!");
+      } else {
+        int index = std::distance(pending_packets.begin(), it);
+        vsg::Message *message = pending_messages[index];
+        message->receive_date = (uint64_t) receive_date.ToInteger(ns3::Time::NS);
+        ready_to_deliver.push_back(message);
+        pending_packets.erase(pending_packets.begin() + index);
+        pending_messages.erase(pending_messages.begin() + index);
+      }
+
+    }
+
     while (ready_to_deliver.size() > 0) {
-      vsg::Message *m = ready_to_deliver.back();
-      ready_to_deliver.pop_back();
+      vsg::Message *m = ready_to_deliver.front();
+      ready_to_deliver.pop_front();
 
       LOG("[coordinator]: delivering data from vm [" << m->src << "] to vm [" << m->dst << "] (size=" << m->size
-                                                     << ")");
+                                                     << " receive_date=" << m->receive_date << " )");
       vms_interface->deliverMessage(m);
     }
     LOG("Timestep finished preparing the next iteration [current_time="
-        << ns3::Simulator::Now().ToDouble(ns3::Time::S) << "] [next_event = " << get_next_event() << "]");
+        << ns3::Simulator::Now().ToDouble(ns3::Time::S) << "]");
   }
   vms_interface->end_simulation(true, false);
   LOG("end of simulation");

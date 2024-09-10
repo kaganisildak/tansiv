@@ -148,7 +148,7 @@ static int fb_send_deliver(int socket)
   flatbuffers::FlatBufferBuilder builder;
 
   std::string data    = MESSAGE;
-  auto packet_meta    = tansiv::PacketMeta(inet_addr(SRC), inet_addr(DEST));
+  auto packet_meta    = tansiv::PacketMeta(inet_addr(SRC), inet_addr(DEST), 0);
   auto payload_offset = builder.CreateVector<uint8_t>((uint8_t*) data.c_str(), data.length());
   auto deliver_packet = tansiv::CreateDeliverPacket(builder, &packet_meta, payload_offset);
   auto msg            = tansiv::CreateFromTansivMsg(builder, tansiv::FromTansiv_DeliverPacket, deliver_packet.Union());

@@ -120,6 +120,11 @@ enum read_state {
     STATE_SEND_TIMESTAMP,
 };
 
+struct packet_to_send {
+    uint64_t timestamp; // simulation ns scale
+    struct sk_buff *skb;
+};
+
 /* Internal struct representing a VM */
 struct tansiv_vm {
     struct pid pid;                     // VM pid
@@ -142,6 +147,10 @@ struct tansiv_vm {
     struct net_device *dev;         // Net device associated with this VM
     struct circular_buffer packets; // Buffer of intercepted network packets
     struct circular_buffer timestamps; // Buffer of timestamps of the intercepted packets
+    struct circular_buffer packets_to_send; // Buffer for packets to forward to the network driver
+    struct hrtimer packet_timer;
+    spinlock_t packets_to_send_lock;
+
     spinlock_t packets_lock; // spinlock for the packet buffer
     enum read_state state; // State for the read file operation
 };
@@ -288,6 +297,93 @@ void update_tsc_infos(void *opaque, u64 tsc_offset, u64 tsc_scaling_ratio)
     }
 }
 
+enum hrtimer_restart packet_to_send_timer_callback(struct hrtimer *timer)
+{
+    struct packet_to_send *packet;
+    struct packet_to_send *next_packet;
+    uint64_t next_deadline;
+    uint64_t now;
+    uint64_t now_ns;
+
+    struct tansiv_vm *vm = container_of(timer, struct tansiv_vm, packet_timer);
+
+    if (vm == NULL) {
+        pr_warn("tansiv-timer: packet_to_send_timer_callback cant find the vm!\n");
+    }
+
+    spin_lock(&vm->packets_to_send_lock);
+    cb_pop(&vm->packets_to_send, &packet);
+    spin_unlock(&vm->packets_to_send_lock);
+
+    dev_queue_xmit(packet->skb);
+
+    kfree(packet);
+
+    spin_lock_irq(&vm->packets_to_send_lock);
+    
+    if (vm->packets_to_send.used > 0) {
+        memcpy(&next_packet, vm->packets_to_send.tail, vm->packets_to_send.item_size);
+
+        if (next_packet == NULL) {
+            pr_warn("tansiv-timer: next packet is NULL!\n");
+        }
+
+        else {
+            next_deadline = next_packet->timestamp;
+            // Convert it to ns
+            now = rdtsc() + vm->tsc_infos->tsc_offset - vm->simulation_offset;
+            now_ns = div64_u64(now * 1000000ULL, tsc_khz);
+
+            if (next_deadline > now_ns) {
+                hrtimer_forward_now(timer, ns_to_ktime(next_deadline - now_ns));
+            }
+            else {
+                hrtimer_forward_now(timer, 0);
+            }
+            spin_unlock_irq(&vm->packets_to_send_lock);
+            return HRTIMER_RESTART;
+        }
+    }
+
+    spin_unlock_irq(&vm->packets_to_send_lock);
+
+    return HRTIMER_NORESTART;
+}
+
+void start_sending_packets(void* arg) {
+    struct packet_to_send *next_packet;
+    uint64_t next_deadline;
+    uint64_t now;
+    uint64_t now_ns;
+    struct tansiv_vm *vm = (struct tansiv_vm *) arg;
+
+    spin_lock_irq(&vm->packets_to_send_lock);
+    
+    if (!hrtimer_active(&vm->packet_timer) && vm->packets_to_send.used > 0) {
+        memcpy(&next_packet, vm->packets_to_send.tail, vm->packets_to_send.item_size);
+
+        if (next_packet == NULL) {
+            pr_warn("tansiv-timer: next packet is NULL!\n");
+        }
+
+        next_deadline = next_packet->timestamp;
+        // Convert it to ns
+        now = rdtsc() + vm->tsc_infos->tsc_offset - vm->simulation_offset;
+        now_ns = div64_u64(now * 1000000ULL, tsc_khz);
+
+        if (next_deadline > now_ns) {
+            // pr_info("tansiv-timer: next_deadline is %llu, now_ns is %llu\n", next_deadline, now_ns);
+            hrtimer_start(&vm->packet_timer, ns_to_ktime(next_deadline - now_ns), HRTIMER_MODE_REL_HARD);
+        }
+        else {
+            // pr_info("tansiv-timer: loading timer in 0 ns\n");
+            hrtimer_start(&vm->packet_timer, 0, HRTIMER_MODE_REL_HARD);
+        }
+    }
+
+    spin_unlock_irq(&vm->packets_to_send_lock);
+}
+
 /* Initialize a new VM */
 struct tansiv_vm *init_vm(void)
 {
@@ -310,6 +406,11 @@ struct tansiv_vm *init_vm(void)
     vm->state = STATE_SEND_SKBUFF;
     cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff*));
     cb_init(&vm->timestamps, PACKETS_BUFFER_SIZE, sizeof(__u64));
+    cb_init(&vm->packets_to_send, PACKETS_BUFFER_SIZE, sizeof(struct packet_to_send*));
+    hrtimer_init(&vm->packet_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_HARD);
+    vm->packet_timer.function = &packet_to_send_timer_callback;
+    spin_lock_init(&vm->packets_to_send_lock);
+    spin_lock_init(&vm->packets_lock);
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
 
@@ -477,6 +578,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         // First deadline : update hook to recover tsc infos
         if (vm->deadline == 0) {
             kvm_setup_tsc_infos(pid_nr(&vm->pid), vm, &update_tsc_infos);
+            kvm_setup_packet_send_cb(pid_nr(&vm->pid), vm, &start_sending_packets);
         }
 
         last_deadline_tsc = vm->deadline_tsc;
@@ -746,8 +848,26 @@ static ssize_t device_do_write(struct tansiv_vm *vm, struct iov_iter *from)
     unsigned int tcp_len;
     unsigned int udp_len;
     int err = 0;
-    unsigned long total_len = iov_iter_count(from);
-    unsigned long len = total_len;
+    uint64_t timestamp;
+    unsigned long total_len;
+    unsigned long len; 
+    struct packet_to_send *packet;
+
+    // Let's read the first 8 bytes (timestamp)
+    if (iov_iter_count(from) < sizeof(uint64_t)) {
+        pr_warn("tansiv-timer: Not enough data written!\n");
+    }
+
+    err = copy_from_iter(&timestamp, sizeof(uint64_t), from);
+
+    if (err != sizeof(uint64_t)) {
+        pr_warn("tansiv-timer: Not enough data written!\n");
+    }
+
+    // pr_info("tansiv-timer: timestamp %llu written from userspace\n", timestamp);
+
+    total_len = iov_iter_count(from);
+    len = total_len;
     if (len < ETH_HLEN) {
         pr_warn("tansiv-timer: Packet smaller than the eth header size!\n");
         return -EINVAL;
@@ -804,7 +924,19 @@ static ssize_t device_do_write(struct tansiv_vm *vm, struct iov_iter *from)
         }
     }
 
-    dev_queue_xmit(skb);
+    packet = kmalloc(sizeof(struct packet_to_send), GFP_KERNEL);
+    if (packet == NULL) {
+        pr_warn("tansiv-timer: kmalloc failed for packet to send!\n");
+        return -1;
+    }
+
+    packet->timestamp = timestamp;
+    packet->skb = skb;
+
+    spin_lock_irq(&vm->packets_to_send_lock);
+    cb_push(&vm->packets_to_send, &packet);
+    spin_unlock_irq(&vm->packets_to_send_lock);
+
     rcu_read_unlock();
 
     return len;
