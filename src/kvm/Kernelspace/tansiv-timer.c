@@ -52,7 +52,7 @@ struct tansiv_vm_tsc_infos {
 
 /* Array of pid structs */
 struct struct_pid_array {
-    struct pid *array;
+    struct pid **array;
     ssize_t size;
     ssize_t used;
 };
@@ -123,7 +123,7 @@ enum read_state {
 
 /* Internal struct representing a VM */
 struct tansiv_vm {
-    struct pid pid;                     // VM pid
+    struct pid *pid;                    // VM pid
     struct hrtimer timer;               // VM timer
     struct struct_pid_array vcpus_pids; // Array of vcpu pids
     bool init_status;                   // true if the VM is fully initialized
@@ -164,7 +164,7 @@ static DECLARE_WAIT_QUEUE_HEAD(device_wait); // waitqueue
 /* Init an array of struct pids */
 static int init_struct_pid_array(struct struct_pid_array *array, ssize_t size)
 {
-    array->array = kmalloc(sizeof(struct pid) * size, GFP_KERNEL);
+    array->array = kmalloc(sizeof(struct pid *) * size, GFP_KERNEL);
     if (array->array == NULL) {
         pr_err("tansiv-timer: failed to allocate memory for the vcpu pids array");
         return -ENOMEM;
@@ -175,10 +175,10 @@ static int init_struct_pid_array(struct struct_pid_array *array, ssize_t size)
 }
 
 /* Register a pid */
-static int register_target_pid(pid_t pid, struct pid *target_pid)
+static int register_target_pid(pid_t pid, struct pid **target_pid)
 {
     rcu_read_lock();
-    *target_pid = *find_get_pid(pid);
+    *target_pid = find_get_pid(pid);
     rcu_read_unlock();
     if (!target_pid) {
         return -ENOENT;
@@ -194,7 +194,7 @@ static int insert_struct_pid_array(struct struct_pid_array *array, pid_t pid)
 {
     int error;
     if (array->used == array->size) {
-        array->array = krealloc(array->array, sizeof(struct pid) * (2 * array->size + 1),
+        array->array = krealloc(array->array, sizeof(struct pid *) * (2 * array->size + 1),
                                 GFP_KERNEL);
         if (array->array == NULL) {
             return -ENOMEM;
@@ -202,6 +202,9 @@ static int insert_struct_pid_array(struct struct_pid_array *array, pid_t pid)
         array->size = 2 * array->size + 1;
     }
     error = register_target_pid(pid, &array->array[array->used]);
+    if (!error) {
+        array->used++;
+    }
     return error;
 }
 
@@ -243,7 +246,7 @@ static enum hrtimer_restart timer_handler(struct hrtimer *timer)
     // programmed_tsc,
     // vm->deadline);
     if (enable_logs) {
-        sprintf(buffer, "timer-handler;%d;%d;%lld;%lld;%llu;%llu\n", pid_nr(&vm->pid),
+        sprintf(buffer, "timer-handler;%d;%d;%lld;%lld;%llu;%llu\n", pid_nr(vm->pid),
             raw_smp_processor_id(), timer->_softexpires, ktime_get(), programmed_tsc,
             vm->deadline);
         spin_lock_irq(&logs_buffer_lock);
@@ -255,13 +258,13 @@ static enum hrtimer_restart timer_handler(struct hrtimer *timer)
     // pr_info("tansiv-timer: Timer expired. CPU: %d ; VM: %d ; VM deadline: %llu ;
     // hrtimer deadline: %lld ;  programmed tsc: %llu; diff: %llu \n",
     // raw_smp_processor_id(),
-    // pid_nr(&vm->pid),
+    // pid_nr(vm->pid),
     // vm->deadline,
     // timer->_softexpires,
     // programmed_tsc,
     // tsc-vm->lapic_tsc_deadline
     // );
-    kvm_request_immediate_exit(pid_nr(&vm->pid));
+    kvm_request_immediate_exit(pid_nr(vm->pid));
     return HRTIMER_NORESTART;
 }
 
@@ -327,10 +330,10 @@ void free_vm(struct tansiv_vm *vm)
     ssize_t i;
     hrtimer_cancel(&vm->timer);
 
-    unregister_target_pid(&vm->pid);
+    unregister_target_pid(vm->pid);
 
     for (i = 0; i < vm->vcpus_pids.used; i++) {
-        unregister_target_pid(&vm->vcpus_pids.array[i]);
+        unregister_target_pid(vm->vcpus_pids.array[i]);
     }
     kfree(vm->vcpus_pids.array);
 
@@ -467,7 +470,6 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         pr_info("TANSIV_REGISTER_VM: pid = %d\n", _vm_info.pid);
         error = register_target_pid(_vm_info.pid, &vm->pid);
         if (error) {
-            unregister_target_pid(&vm->pid);
             pr_err("Error while registering target pid\n");
             return -EFAULT;
         }
@@ -493,7 +495,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
 
         // First deadline : update hook to recover tsc infos
         if (vm->deadline == 0) {
-            kvm_setup_tsc_infos(pid_nr(&vm->pid), vm, &update_tsc_infos);
+            kvm_setup_tsc_infos(pid_nr(vm->pid), vm, &update_tsc_infos);
         }
 
         last_deadline_tsc = vm->deadline_tsc;
@@ -503,19 +505,19 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         cpu = raw_smp_processor_id();
         if (hrtimer_active(&vm->timer)) {
             pr_err("tansiv-timer: error, timer of vm %d is already active",
-                   pid_nr(&vm->pid));
+                   pid_nr(vm->pid));
         }
         tsc_before = rdtsc();
         // hrtimer_start(&vm->timer, ns_to_ktime(deadline.deadline),
         // HRTIMER_MODE_REL_PINNED_HARD);
         tsc_after = rdtsc();
 
-        vm->tsc_offset = kvm_get_tsc_offset(pid_nr(&vm->pid));
-        vm->tsc_scaling_ratio = kvm_get_tsc_scaling_ratio(pid_nr(&vm->pid));
+        vm->tsc_offset = kvm_get_tsc_offset(pid_nr(vm->pid));
+        vm->tsc_scaling_ratio = kvm_get_tsc_scaling_ratio(pid_nr(vm->pid));
         // Average of both TSC values
         vm->timer_start = (tsc_before + tsc_after) >> 1;
 
-        vmx_timer_value = kvm_set_preemption_timer(pid_nr(&vm->pid), vm->deadline_tsc);
+        vmx_timer_value = kvm_set_preemption_timer(pid_nr(vm->pid), vm->deadline_tsc);
         deadline.vmx_timer_value = vmx_timer_value;
 
         // pr_info("tansiv-timer: loading value %llu to set the VMX Preemption Timer.
@@ -528,7 +530,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
 
         // pr_info("tansiv-timer: TANSIV_REGISTER_DEADLINE: Starting hrtimer. CPU: %d ;
         // VM: %d ; deadline : %llu ; tsc before: %llu; tsc after: %llu; scaling_ratio:
-        // %llu; offset: %llu; deadline value: %llu \n", cpu, pid_nr(&vm->pid),
+        // %llu; offset: %llu; deadline value: %llu \n", cpu, pid_nr(vm->pid),
         // vm->deadline,
         // tsc_before_guest,
         // tsc_after_guest,
@@ -539,7 +541,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
 
         /* Register simulation offset if first deadline */
         if (vm->simulation_offset == 0) {
-            vm->simulation_offset = kvm_tansiv_get_simulation_start(pid_nr(&vm->pid));
+            vm->simulation_offset = kvm_tansiv_get_simulation_start(pid_nr(vm->pid));
         }
 
         /* Logs */
@@ -547,7 +549,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
             if (logs_buffer.size < logs_buffer.used) {
                 pr_err("tansiv-timer: Buffer is full\n");
             }
-            sprintf(buffer, "register-deadline;%d;%d;%llu;%llu;%llu\n", pid_nr(&vm->pid), cpu,
+            sprintf(buffer, "register-deadline;%d;%d;%llu;%llu;%llu\n", pid_nr(vm->pid), cpu,
                 vm->deadline, tsc_before_guest, tsc_after_guest);
             spin_lock_irq(&logs_buffer_lock);
             cb_push(&logs_buffer, buffer);
@@ -564,15 +566,19 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
     case TANSIV_REGISTER_VCPU: {
         struct tansiv_vcpu_ioctl __user *tmp = (struct tansiv_vcpu_ioctl *)ioctl_param;
         struct tansiv_vcpu_ioctl vcpu;
+        int error;
 
         if (copy_from_user(&vcpu, tmp, sizeof(struct tansiv_vcpu_ioctl))) {
             return -EFAULT;
         }
 
-        pr_info("TANSIV_REGISTER_VCPU: pid = %d, vcpu pid = %d\n", pid_nr(&vm->pid),
+        pr_info("TANSIV_REGISTER_VCPU: pid = %d, vcpu pid = %d\n", pid_nr(vm->pid),
                 vcpu.vcpu_pid);
 
-        insert_struct_pid_array(&vm->vcpus_pids, vcpu.vcpu_pid);
+        error = insert_struct_pid_array(&vm->vcpus_pids, vcpu.vcpu_pid);
+        if (error) {
+            return error;
+        }
         pr_info("TANSIV_REGISTER_VCPU: success");
         break;
     }
