@@ -14,6 +14,7 @@
 #include <linux/netdevice.h>
 #include <linux/pid.h>
 #include <linux/poll.h>
+#include <linux/rcupdate.h>
 #include <linux/sched/signal.h>
 #include <linux/skbuff.h>
 #include <linux/spinlock.h>
@@ -144,6 +145,7 @@ struct tansiv_vm {
     struct circular_buffer timestamps; // Buffer of timestamps of the intercepted packets
     spinlock_t packets_lock; // spinlock for the packet buffer
     enum read_state state; // State for the read file operation
+    struct rcu_head rcu;
 };
 
 /* Global variables */
@@ -307,11 +309,14 @@ struct tansiv_vm *init_vm(void)
     vm->simulation_offset = 0;
     vm->page = page;
     vm->tsc_infos = kmap(page);
+    vm->dev = NULL;
     vm->state = STATE_SEND_SKBUFF;
     cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff*));
     cb_init(&vm->timestamps, PACKETS_BUFFER_SIZE, sizeof(__u64));
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
+
+    init_rcu_head(&vm->rcu);
 
     return vm;
 }
@@ -346,15 +351,25 @@ static int device_open(struct inode *inode, struct file *file)
     return 0;
 }
 
+static void __device_release(struct rcu_head *rcu)
+{
+    struct tansiv_vm *vm = container_of(rcu, struct tansiv_vm, rcu);
+    free_vm(vm);
+    kfree(vm);
+
+    module_put(THIS_MODULE);
+    pr_info("tansiv-timer: vm freed\n");
+}
+
 /* Close the device */
 static int device_release(struct inode *inode, struct file *file)
 {
     struct tansiv_vm *vm = file->private_data;
     pr_info("tansiv-timer: device_release(%p, %p)\n", inode, file);
-    free_vm(vm);
-    kfree(vm);
-
-    module_put(THIS_MODULE);
+    if (vm->dev) {
+	dev_put(vm->dev);
+    }
+    call_rcu(&vm->rcu, __device_release);
     pr_info("tansiv-timer: device closed\n");
     return 0;
 }
@@ -365,6 +380,7 @@ struct tansiv_cb_struct {
 };
 
 /* Callback to intercept vhost/tap driver packets */
+/* Called under rcu_read_lock() */
 void tap_cb(void *arg)
 {
     struct sk_buff *skb;
@@ -402,7 +418,8 @@ void tap_cb(void *arg)
     }
 
     /* Find the vm struct with this net_device */
-    vm = dev->tansiv_vm;
+    smp_rmb(); /* Matches smp_wmb in device_ioctl() case TANSIV_REGISTER_TAP */
+    vm = rcu_dereference(dev->tansiv_vm);
     if (vm == NULL) {
         pr_warn("tansiv-timer: skb->dev->vm is NULL!");
         return;
@@ -591,21 +608,27 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         struct tansiv_register_tap_ioctl register_tap;
         struct net_device *dev;
 
+        /* TOOD: maybe one day support dynamic VM net devices? */
+        if (vm->dev) {
+            return -EBUSY;
+        }
+
         if (copy_from_user(&register_tap, tmp, sizeof(struct tansiv_register_tap_ioctl))) {
             return -EFAULT;
         }
 
         strncpy(vm->net_device_name, register_tap.net_device_name, IFNAMSIZ);
 
-        dev = find_netdev(vm->net_device_name);
+        dev = dev_get_by_name(&init_net, vm->net_device_name);
         if (dev == NULL) {
             pr_warn("tansiv-timer: TANSIV_REGISTER_TAP: unknown netdev\n");
             return -ENODEV;
         }
         vm->dev = dev;
 
-        dev->tansiv_cb = tap_cb;
-        dev->tansiv_vm = vm;
+        rcu_assign_pointer(dev->tansiv_vm, vm);
+        smp_wmb(); /* Matches smp_rmb() in tab_cb() */
+        rcu_assign_pointer(dev->tansiv_cb, tap_cb);
 
         break;
 
