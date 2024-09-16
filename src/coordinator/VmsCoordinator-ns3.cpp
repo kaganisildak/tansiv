@@ -102,21 +102,20 @@ static void vm_coordinator() {
     // then we go forward with the VM.
     double time = ns3::Simulator::Now().ToDouble(ns3::Time::S);
     double next_reception_time = get_next_event();
-    double deadline = std::min(time + min_latency - 1e-9, next_reception_time);
+    double deadline = std::min(time + min_latency, next_reception_time);
 
-    LOG("next deadline = " << deadline << " [time+min_latency=" << time + min_latency - 1e-9
+    LOG("next deadline = " << deadline << " [time+min_latency=" << time + min_latency
                            << ", next_reception_time=" << next_reception_time << "]");
 
     std::vector<vsg::Message *> messages = vms_interface->goTo(deadline);
     for (vsg::Message *m : messages) {
       time = ns3::Simulator::Now().ToDouble(ns3::Time::S);
-      double send_timeeps = m->sent_time + std::numeric_limits<double>::epsilon();
-      if (m->sent_time + send_timeeps <= time)
-        LOG("violation of the causality constraint : trying to send a message at time " << m->sent_time << "["
-                                                                                        << send_timeeps
-                                                                                        << "] whereas we are already "
-                                                                                           "at time "
-                                                                                        << time << "[" << time << "]");
+      if (m->sent_time < time) {
+        LOG("violation of the causality constraint : trying to send a message at time " << m->sent_time 
+                                                                                        << "whereas we are already "
+                                                                                        << "at time "
+                                                                                        << time);
+      }
 
       if (m->sent_time > time) {
         LOG("going to time " << m->sent_time);
