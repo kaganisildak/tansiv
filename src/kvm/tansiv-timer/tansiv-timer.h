@@ -3,6 +3,7 @@
 
 #include <linux/if.h>
 #include <linux/ioctl.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 /* Major device number */
@@ -34,6 +35,9 @@ module
 /* TANSIV_REGISTER_VM */
 struct tansiv_vm_ioctl {
     pid_t pid;
+    uint32_t uplink_overhead;  // In bytes per packet (preamble, inter-frame
+                               // gap...)
+    uint64_t uplink_bandwidth; // In bits per second
 };
 
 /* TANSIV_REGISTER_DEADLINE */
@@ -58,14 +62,15 @@ struct tansiv_init_check_ioctl {
 };
 
 struct tansiv_register_tap_ioctl {
-    char net_device_name[IFNAMSIZ];
+    int tap_fd;
+    int vhost_net_fd;
 };
 
-int ioctl_register_vm(int fd, pid_t pid);
+int ioctl_register_vm(int fd, pid_t pid, uint64_t uplink_bandwidth, uint32_t uplink_overhead);
 unsigned long long int ioctl_register_deadline(int fd, unsigned long long int deadline, unsigned long long int deadline_tsc);
 int ioctl_register_vcpu(int fd, pid_t vcpu_pid);
 int ioctl_init_end(int fd);
 bool ioctl_init_check(int fd);
-int ioctl_register_tap(int fd, const char net_device_name[IFNAMSIZ]);
+int ioctl_register_tap(int fd, int tap_fd, int vhost_net_fd);
 
 #endif

@@ -34,6 +34,9 @@ module
 /* TANSIV_REGISTER_VM */
 struct tansiv_vm_ioctl {
     pid_t pid;
+    uint32_t uplink_overhead;  // In bytes per packet (preamble, inter-frame
+                               // gap...)
+    uint64_t uplink_bandwidth; // In bits per second
 };
 
 /* TANSIV_REGISTER_DEADLINE */
@@ -58,14 +61,13 @@ struct tansiv_init_check_ioctl {
 };
 
 struct tansiv_register_tap_ioctl {
-    char net_device_name[IFNAMSIZ];
+    int tap_fd;
+    int vhost_net_fd;
 };
 
-int ioctl_register_vm(pid_t pid);
 unsigned long long int ioctl_register_deadline(pid_t pid, unsigned long long int deadline, unsigned long long int deadline_tsc);
 int ioctl_register_vcpu(pid_t pid, pid_t vcpu_pid);
 int ioctl_init_end(pid_t pid);
 bool ioctl_init_check(pid_t pid);
-int ioctl_register_tap(int fd, const char net_device_name[IFNAMSIZ]);
 
 #endif

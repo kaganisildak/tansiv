@@ -24,10 +24,13 @@ void close_device(int fd) {
 }
 
 /* Register a VM */
-int ioctl_register_vm(int fd, pid_t pid) {
+int ioctl_register_vm(int fd, pid_t pid, uint64_t uplink_bandwidth, uint32_t uplink_overhead) {
     int error;
-    struct tansiv_vm_ioctl info;
-    info.pid = pid;
+    struct tansiv_vm_ioctl info = {
+        .pid = pid,
+	.uplink_bandwidth = uplink_bandwidth,
+	.uplink_overhead = uplink_overhead,
+    };
 
     error = ioctl(fd, TANSIV_REGISTER_VM, &info);
     if (error < 0) {
@@ -94,11 +97,13 @@ bool ioctl_init_check(int fd)
     return info.status;
 }
 
-int ioctl_register_tap(int fd, const char net_device_name[IFNAMSIZ])
+int ioctl_register_tap(int fd, int tap_fd, int vhost_net_fd)
 {
     int error;
-    struct tansiv_register_tap_ioctl info;
-    strncpy(info.net_device_name, net_device_name, IFNAMSIZ);
+    struct tansiv_register_tap_ioctl info = {
+	    .tap_fd = tap_fd,
+	    .vhost_net_fd = vhost_net_fd,
+    };
 
     error = ioctl(fd, TANSIV_REGISTER_TAP, &info);
     if (error < 0) {

@@ -1,8 +1,11 @@
+#include <linux/atomic.h>
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/if.h>
+#include <linux/if_tap.h>
+#include <linux/if_tun.h>
 #include <linux/in.h>
 #include <linux/init.h>
 #include <linux/ip.h>
@@ -20,6 +23,7 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
+#include <linux/tansiv.h>
 #include <linux/tcp.h>
 #include <linux/timekeeping.h>
 #include <linux/uaccess.h>
@@ -138,6 +142,7 @@ struct tansiv_vm {
     struct page *page; // pointer to a page used to share the guest tsc offset and scaling
                        // ratio with userspace
     struct tansiv_vm_tsc_infos *tsc_infos; // data shared in the page
+    spinlock_t tsc_infos_lock;
     // stuff for vhost/tap driver intercept support
     char net_device_name[IFNAMSIZ]; // VM network interface name
     struct net_device *dev;         // Net device associated with this VM
@@ -145,6 +150,18 @@ struct tansiv_vm {
     struct circular_buffer timestamps; // Buffer of timestamps of the intercepted packets
     spinlock_t packets_lock; // spinlock for the packet buffer
     enum read_state state; // State for the read file operation
+    /* Rate limit state */
+    unsigned long long int next_send_floor; // In guest TSC time
+    atomic_t send_burst_count;              // Only for statistics
+    u32 uplink_overhead;                    // Constant in bytes per packet (preamble,
+                                            // inter-frame gap...)
+#define UPLINK_BIT_DURATION_SHIFT (30)
+#define UPLINK_BYTE_DURATION_SHIFT (UPLINK_BIT_DURATION_SHIFT - 3)
+    u64 uplink_gibit_duration;              // Constant in guest tsc ticks per 2^30 bits
+                                            // At least 7 bits precision to
+                                            // cover 1000s (resp. 100s) of
+                                            // traffic from 1 bps to 1 Tbps with
+                                            // 1 GHz (resp. 10 GHz) TSC
     struct rcu_head rcu;
 };
 
@@ -283,14 +300,27 @@ void write_logs(struct work_struct *unused)
     }
 }
 
+/* Called with IRQ disabled */
 void update_tsc_infos(void *opaque, u64 tsc_offset, u64 tsc_scaling_ratio)
 {
     struct tansiv_vm *vm = (struct tansiv_vm *)opaque;
     // Should be OK as we do the mmap before starting to schedule deadlines
     if (vm->tsc_infos != NULL) {
+        spin_lock(&vm->tsc_infos_lock);
         vm->tsc_infos->tsc_offset = tsc_offset;
         vm->tsc_infos->tsc_scaling_ratio = tsc_scaling_ratio;
+        spin_unlock(&vm->tsc_infos_lock);
     }
+}
+
+static void read_tsc_infos(struct tansiv_vm *vm, u64 *tsc_offset, u64 *tsc_scaling_ratio)
+{
+    struct tansiv_vm_tsc_infos *infos = vm->tsc_infos;
+
+    spin_lock_irq(&vm->tsc_infos_lock);
+    *tsc_offset = infos->tsc_offset;
+    *tsc_scaling_ratio = infos->tsc_scaling_ratio;
+    spin_unlock_irq(&vm->tsc_infos_lock);
 }
 
 /* Initialize a new VM */
@@ -312,12 +342,18 @@ struct tansiv_vm *init_vm(void)
     vm->simulation_offset = 0;
     vm->page = page;
     vm->tsc_infos = kmap(page);
+    spin_lock_init(&vm->tsc_infos_lock);
     vm->dev = NULL;
     vm->state = STATE_SEND_SKBUFF;
     cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff*));
     cb_init(&vm->timestamps, PACKETS_BUFFER_SIZE, sizeof(__u64));
 
     init_struct_pid_array(&vm->vcpus_pids, DEFAULT_NUMBER_VCPUS);
+
+    vm->next_send_floor = 0;
+    vm->send_burst_count = (atomic_t) ATOMIC_INIT(0);
+    vm->uplink_gibit_duration = 0;
+    vm->uplink_overhead = 0;
 
     init_rcu_head(&vm->rcu);
 
@@ -382,6 +418,30 @@ struct tansiv_cb_struct {
 	__u64 timestamp;
 };
 
+static void timestamp_to_guest_tsc(struct tansiv_vm *vm, struct tansiv_cb_struct *desc)
+{
+
+    unsigned long long int next_send_floor, packet_duration;
+    u64 tsc_offset, tsc_scaling_ratio, ts_guest;
+
+    read_tsc_infos(vm, &tsc_offset, &tsc_scaling_ratio);
+    // Guest TSC scale
+    ts_guest = kvm_scale_tsc(desc->timestamp, tsc_scaling_ratio) + tsc_offset;
+    /* Cap NIC speed to the simulated bandwidth */
+    next_send_floor = vm->next_send_floor;
+    if (next_send_floor > ts_guest) {
+        ts_guest = next_send_floor;
+    }
+    desc->timestamp = ts_guest;
+
+    /* Prepare for next packet */
+    /* Whatever the current scaling ratio, the guest TSC rate simulates the same
+     * rate as the host TSC. */
+    packet_duration = ((desc->skb->len + vm->uplink_overhead) * vm->uplink_gibit_duration) >> UPLINK_BYTE_DURATION_SHIFT;
+    vm->next_send_floor = ts_guest + packet_duration;
+    atomic_inc(&vm->send_burst_count);
+}
+
 /* Callback to intercept vhost/tap driver packets */
 /* Called under rcu_read_lock() */
 static void tap_cb(void *arg)
@@ -421,13 +481,14 @@ static void tap_cb(void *arg)
     }
 
     /* Find the vm struct with this net_device */
-    smp_rmb(); /* Matches smp_wmb in device_ioctl() case TANSIV_REGISTER_TAP */
+    smp_rmb(); /* smp_wmb in do_register_tap() */
     vm = rcu_dereference(dev->tansiv_vm);
     if (vm == NULL) {
         pr_warn("tansiv-timer: skb->dev->vm is NULL!");
         return;
     }
 
+    timestamp_to_guest_tsc(vm, cb_struct);
 
     /* Forward the packet to userspace */
     spin_lock(&vm->packets_lock);
@@ -440,16 +501,181 @@ static void tap_cb(void *arg)
     spin_unlock(&vm->packets_lock);
 }
 
-struct net_device *find_netdev(char *name)
+/* Latency to trigger a timer in host TSC ticks */
+static unsigned int poll_send_latency(void)
 {
-    struct net_device *dev;
-    for_each_netdev(&init_net, dev)
-    {
-        if (strcmp(dev->name, name) == 0) {
-            return dev;
-        }
+    return 0;
+}
+
+static enum hrtimer_restart poll_send_timer(struct hrtimer *timer)
+{
+    struct tansiv_netdevice *dev = container_of(timer, struct tansiv_netdevice, poll_send_timer);
+    dev->ops->poll_send_cb(dev);
+    return HRTIMER_NORESTART;
+}
+
+static void schedule_poll_send(struct tansiv_netdevice *dev, u64 expire_host_tsc)
+{
+    u64 expire_host_ns = div64_u64(expire_host_tsc * 1000000ULL, tsc_khz);
+    ktime_t expire = ns_to_ktime(expire_host_ns);
+
+    spin_lock(&dev->poll_send_timer_lock);
+    if (likely(dev->poll_send_timer_allowed)) {
+        hrtimer_start(&dev->poll_send_timer, expire, HRTIMER_MODE_ABS_SOFT);
     }
-    return NULL;
+    spin_unlock(&dev->poll_send_timer_lock);
+}
+
+static int next_send_floor_host_tsc(struct tansiv_vm *vm, u64 *host_tsc)
+{
+    u64 tsc_offset, tsc_scaling_ratio;
+    int err;
+
+    read_tsc_infos(vm, &tsc_offset, &tsc_scaling_ratio);
+    err = kvm_unscale_tsc_delta(vm->next_send_floor - tsc_offset, tsc_scaling_ratio, host_tsc);
+    if (err)
+        pr_err("tansiv-timer: guest_tsc next_send_floor out of range %llu\n", vm->next_send_floor);
+    return err;
+}
+
+/* Called under rcu_read_lock() */
+static bool may_start_send(struct tansiv_netdevice *dev)
+{
+    unsigned long long int now_host_tsc = rdtsc_ordered();
+    unsigned long long int next_send_host_tsc;
+    struct tansiv_vm *vm;
+
+    vm = rcu_dereference(dev->vm);
+
+    BUG_ON(atomic_read(&vm->send_burst_count) != 0);
+
+    if (next_send_floor_host_tsc(vm, &next_send_host_tsc))
+        return true;
+
+    if (next_send_host_tsc > now_host_tsc + poll_send_latency()) {
+        schedule_poll_send(dev, next_send_host_tsc);
+        return false;
+    }
+    return true;
+}
+
+static void log_send_burst(struct tansiv_vm *vm)
+{
+    pr_debug("tansiv_stop_send: burst of %u\n", atomic_read(&vm->send_burst_count));
+}
+
+static void poll_send(struct tansiv_netdevice *dev)
+{
+    struct tansiv_vm *vm = rcu_dereference(dev->vm);
+    unsigned long long int now_host_tsc = rdtsc_ordered();
+    unsigned long long int next_send_host_tsc;
+
+    if (next_send_floor_host_tsc(vm, &next_send_host_tsc) ||
+        next_send_host_tsc <= now_host_tsc)
+        dev->ops->poll_send_cb(dev);
+    else
+        schedule_poll_send(dev, next_send_host_tsc);
+}
+
+/* Called under rcu_read_lock() */
+static void stop_send(struct tansiv_netdevice *dev, bool more_available)
+{
+    struct tansiv_vm *vm = dev->vm;
+
+    atomic_inc(&vm->send_burst_count);
+    log_send_burst(vm);
+    atomic_set(&vm->send_burst_count, 0);
+    if (more_available) {
+        poll_send(dev);
+    }
+}
+
+static struct tansiv_net_operations net_ops = {
+    .poll_send_timer = poll_send_timer,
+    .may_start_send = may_start_send,
+    .stop_send = stop_send,
+};
+
+/* HACK: Added and exported in drivers/vhost/net.c, no relevant header to declare this cleanly */
+bool vhost_net_file_valid(struct file *);
+int vhost_net_tansiv_attach(struct vhost_net *, struct file *, struct tansiv_vm *, struct tansiv_net_operations *);
+
+static int do_register_tap(struct file *file, int tap_fd, int vhost_net_fd)
+{
+    struct tansiv_vm *vm = file->private_data;
+    struct file *dev_file, *vhost_net_file;
+    struct net_device *dev;
+    struct vhost_net *vhost_net_dev;
+    int err;
+
+    err = -EBADF;
+    dev_file = fget(tap_fd);
+    if (!dev_file) {
+        goto out;
+    }
+    vhost_net_file = fget(vhost_net_fd);
+    if (!vhost_net_file) {
+        goto out_fput_dev;
+    }
+
+    if (!vhost_net_file_valid(vhost_net_file)) {
+        err = -EINVAL;
+        goto out_fput;
+    }
+    vhost_net_dev = vhost_net_file->private_data;
+
+    rtnl_lock();
+    dev = tun_get_dev(dev_file);
+    if (PTR_ERR(dev) == -EINVAL)
+        dev = tap_get_dev(dev_file);
+    if (IS_ERR(dev)) {
+        err = PTR_ERR(dev);
+        if (err == -EINVAL)
+            pr_warn("tansiv-timer: TANSIV_REGISTER_TAP: unknown netdev\n");
+        goto out_unlock;
+    }
+    if (!dev) {
+        err = -ENODEV;
+        goto out_unlock;
+    }
+
+    if (vm->dev) {
+        /* TODO: maybe one day support dynamic VM net devices? */
+        if (vm->dev != dev) {
+            err = -EBUSY;
+            goto out_dev_put;
+        }
+        BUG_ON(dev->tansiv_vm != vm);
+        /* We already hold dev from a previous call, do not increment its refcount again */
+    } else {
+        BUG_ON(dev->tansiv_vm);
+        /* Balance dev_put() below to keep refcount incremented in the end */
+        dev_hold(dev);
+    }
+
+    err = vhost_net_tansiv_attach(vhost_net_dev, file, vm, &net_ops);
+    if (err) {
+        pr_warn("tansiv-timer: TANSIV_REGISTER_TAP: vhost_net dev already attached to a TANSIV vm??\n");
+        goto out_dev_put;
+    }
+
+    /* Success */
+
+    vm->dev = dev;
+    rcu_assign_pointer(dev->tansiv_vm, vm);
+    smp_wmb(); /* smp_rmb() in tab_cb() */
+    rcu_assign_pointer(dev->tansiv_cb, tap_cb);
+
+out_dev_put:
+    dev_put(dev);
+out_unlock:
+    rtnl_unlock();
+out_fput:
+    fput(vhost_net_file);
+out_fput_dev:
+    fput(dev_file);
+out:
+    return err;
 }
 
 /* IOCTL handler */
@@ -467,7 +693,13 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         if (copy_from_user(&_vm_info, tmp, sizeof(struct tansiv_vm_ioctl))) {
             return -EFAULT;
         }
-        pr_info("TANSIV_REGISTER_VM: pid = %d\n", _vm_info.pid);
+        pr_info("TANSIV_REGISTER_VM: pid = %d, uplink_bandwidth = %llu, uplink_overhead = %u\n", _vm_info.pid, _vm_info.uplink_bandwidth, _vm_info.uplink_overhead);
+        if (_vm_info.uplink_bandwidth == 0) {
+            pr_err("Invalid bandwidth: 0\n");
+            return -EINVAL;
+        }
+        vm->uplink_gibit_duration = div64_u64(tsc_khz * 1000 << UPLINK_BIT_DURATION_SHIFT, _vm_info.uplink_bandwidth);
+        vm->uplink_overhead = _vm_info.uplink_overhead;
         error = register_target_pid(_vm_info.pid, &vm->pid);
         if (error) {
             pr_err("Error while registering target pid\n");
@@ -612,30 +844,11 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
     case TANSIV_REGISTER_TAP: {
         struct tansiv_register_tap_ioctl __user * tmp = (struct tansiv_register_tap_ioctl *)ioctl_param;
         struct tansiv_register_tap_ioctl register_tap;
-        struct net_device *dev;
-
-        /* TOOD: maybe one day support dynamic VM net devices? */
-        if (vm->dev) {
-            return -EBUSY;
-        }
 
         if (copy_from_user(&register_tap, tmp, sizeof(struct tansiv_register_tap_ioctl))) {
             return -EFAULT;
         }
-
-        strncpy(vm->net_device_name, register_tap.net_device_name, IFNAMSIZ);
-
-        dev = dev_get_by_name(&init_net, vm->net_device_name);
-        if (dev == NULL) {
-            pr_warn("tansiv-timer: TANSIV_REGISTER_TAP: unknown netdev\n");
-            return -ENODEV;
-        }
-        vm->dev = dev;
-
-        rcu_assign_pointer(dev->tansiv_vm, vm);
-        smp_wmb(); /* Matches smp_rmb() in tab_cb() */
-        rcu_assign_pointer(dev->tansiv_cb, tap_cb);
-
+	return do_register_tap(file, register_tap.tap_fd, register_tap.vhost_net_fd);
         break;
 
     }
@@ -689,7 +902,6 @@ static ssize_t device_do_read(struct tansiv_vm *vm, struct iov_iter *to)
             break;
 
         case STATE_SEND_TIMESTAMP:
-            __u64 now_guest;
             __u64 now_guest_simulation;
             __u64 now_guest_ns;
             if (vm->timestamps.used > 0) {
@@ -699,14 +911,11 @@ static ssize_t device_do_read(struct tansiv_vm *vm, struct iov_iter *to)
                     break;
                 }
 
-                // It's time to convert the timestamp (host TSC scale) to a timespec (simulation
+                // It's time to convert the timestamp (guest TSC scale) to a timespec (simulation
                 // seconds scale)
-                // Guest TSC scale
-                now_guest = timestamp + vm->tsc_infos->tsc_offset;
-                
                 // Simulation nanoseconds
                 if (vm->simulation_offset) {
-                    now_guest_simulation = now_guest - vm->simulation_offset;
+                    now_guest_simulation = timestamp - vm->simulation_offset;
                 }
                 else
                     now_guest_simulation = 0ULL;
