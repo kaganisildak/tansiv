@@ -173,7 +173,7 @@ static void vm_coordinator() {
     // if deadline = infinity, then (1) there is only one remaining VM, and (2) it stops its execution
     // so we do not have to sleep until "infinity" because the simulation is done
     if (deadline != std::numeric_limits<double>::infinity()) {
-      ns3::Simulator::Stop(ns3::Time::FromDouble(deadline, ns3::Time::S) + ns3::NanoSeconds(1) - ns3::Simulator::Now());
+      ns3::Simulator::Stop(ns3::Time::FromDouble(deadline, ns3::Time::S) - ns3::Simulator::Now());
       ns3::Simulator::Run();
     }
     while (ready_to_deliver.size() > 0) {
