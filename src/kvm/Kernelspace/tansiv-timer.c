@@ -600,7 +600,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         // Average of both TSC values
         vm->timer_start = (tsc_before + tsc_after) >> 1;
 
-        vmx_timer_value = kvm_set_preemption_timer(pid_nr(&vm->pid), vm->deadline_tsc);
+        vmx_timer_value = kvm_set_preemption_timer(pid_nr(&vm->pid), vm->deadline);
         deadline.vmx_timer_value = vmx_timer_value;
 
         // pr_info("tansiv-timer: loading value %llu to set the VMX Preemption Timer.
