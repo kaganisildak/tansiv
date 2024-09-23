@@ -384,7 +384,7 @@ struct tansiv_cb_struct {
 
 /* Callback to intercept vhost/tap driver packets */
 /* Called under rcu_read_lock() */
-void tap_cb(void *arg)
+static void tap_cb(void *arg)
 {
     struct sk_buff *skb;
     struct net_device *dev;
