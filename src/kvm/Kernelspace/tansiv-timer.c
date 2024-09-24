@@ -404,9 +404,13 @@ static void __device_release(struct rcu_head *rcu)
 static int device_release(struct inode *inode, struct file *file)
 {
     struct tansiv_vm *vm = file->private_data;
+    struct net_device *dev = vm->dev;
     pr_info("tansiv-timer: device_release(%p, %p)\n", inode, file);
-    if (vm->dev) {
-	dev_put(vm->dev);
+    if (dev) {
+	/* Let the device stop calling tab_cb() after the next quiescent state */
+	rcu_assign_pointer(dev->tansiv_cb, NULL);
+	rcu_assign_pointer(dev->tansiv_vm, NULL);
+	dev_put(dev);
     }
     call_rcu(&vm->rcu, __device_release);
     pr_info("tansiv-timer: device closed\n");
