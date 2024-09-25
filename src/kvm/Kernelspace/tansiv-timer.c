@@ -586,7 +586,6 @@ static void stop_send(struct tansiv_netdevice *dev, bool more_available)
 {
     struct tansiv_vm *vm = dev->vm;
 
-    atomic_inc(&vm->send_burst_count);
     log_send_burst(vm);
     atomic_set(&vm->send_burst_count, 0);
     if (more_available) {
