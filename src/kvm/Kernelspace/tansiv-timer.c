@@ -837,8 +837,8 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
 
         // First deadline : update hook to recover tsc infos
         if (vm->deadline == 0) {
-            kvm_setup_tsc_infos(pid_nr(&vm->pid), vm, &update_tsc_infos);
-            kvm_setup_packet_send_cb(pid_nr(&vm->pid), vm, &start_sending_packets);
+            kvm_setup_tsc_infos(pid_nr(vm->pid), vm, &update_tsc_infos);
+            kvm_setup_packet_send_cb(pid_nr(vm->pid), vm, &start_sending_packets);
         }
 
         last_deadline_tsc = vm->deadline_tsc;
@@ -860,7 +860,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
         // Average of both TSC values
         vm->timer_start = (tsc_before + tsc_after) >> 1;
 
-        vmx_timer_value = kvm_set_preemption_timer(pid_nr(&vm->pid), vm->deadline);
+        vmx_timer_value = kvm_set_preemption_timer(pid_nr(vm->pid), vm->deadline);
         deadline.vmx_timer_value = vmx_timer_value;
 
         // pr_info("tansiv-timer: loading value %llu to set the VMX Preemption Timer.
