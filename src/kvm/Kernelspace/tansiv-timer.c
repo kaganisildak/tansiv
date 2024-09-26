@@ -407,10 +407,12 @@ static int device_release(struct inode *inode, struct file *file)
     struct net_device *dev = vm->dev;
     pr_info("tansiv-timer: device_release(%p, %p)\n", inode, file);
     if (dev) {
-	/* Let the device stop calling tab_cb() after the next quiescent state */
-	rcu_assign_pointer(dev->tansiv_cb, NULL);
-	rcu_assign_pointer(dev->tansiv_vm, NULL);
-	dev_put(dev);
+        /* Let the device stop calling tab_cb() after the next quiescent state */
+        rtnl_lock();
+        rcu_assign_pointer(dev->tansiv_cb, NULL);
+        rcu_assign_pointer(dev->tansiv_vm, NULL);
+        rtnl_unlock();
+        dev_put(dev);
     }
     call_rcu(&vm->rcu, __device_release);
     pr_info("tansiv-timer: device closed\n");
@@ -642,18 +644,17 @@ static int do_register_tap(struct file *file, int tap_fd, int vhost_net_fd)
         goto out_unlock;
     }
 
+    err = -EBUSY;
     if (vm->dev) {
         /* TODO: maybe one day support dynamic VM net devices? */
         if (vm->dev != dev) {
-            err = -EBUSY;
             goto out_dev_put;
         }
         BUG_ON(dev->tansiv_vm != vm);
-        /* We already hold dev from a previous call, do not increment its refcount again */
-    } else {
-        BUG_ON(dev->tansiv_vm);
-        /* Balance dev_put() below to keep refcount incremented in the end */
-        dev_hold(dev);
+    } else if (dev->tansiv_vm) {
+        BUG_ON(dev->tansiv_vm == vm);
+        /* Tap is already used by another VM */
+        goto out_dev_put;
     }
 
     err = vhost_net_tansiv_attach(vhost_net_dev, file, vm, &net_ops);
@@ -664,10 +665,14 @@ static int do_register_tap(struct file *file, int tap_fd, int vhost_net_fd)
 
     /* Success */
 
-    vm->dev = dev;
-    rcu_assign_pointer(dev->tansiv_vm, vm);
-    smp_wmb(); /* smp_rmb() in tab_cb() */
-    rcu_assign_pointer(dev->tansiv_cb, tap_cb);
+    if (!vm->dev) {
+        /* Balance dev_put() below to keep refcount incremented in the end */
+        dev_hold(dev);
+        vm->dev = dev;
+        rcu_assign_pointer(dev->tansiv_vm, vm);
+        smp_wmb(); /* smp_rmb() in tab_cb() */
+        rcu_assign_pointer(dev->tansiv_cb, tap_cb);
+    }
 
 out_dev_put:
     dev_put(dev);
