@@ -701,7 +701,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num,
             pr_err("Invalid bandwidth: 0\n");
             return -EINVAL;
         }
-        vm->uplink_gibit_duration = div64_u64(tsc_khz * 1000 << UPLINK_BIT_DURATION_SHIFT, _vm_info.uplink_bandwidth);
+        vm->uplink_gibit_duration = div64_u64(((u64)tsc_khz) * 1000ULL << UPLINK_BIT_DURATION_SHIFT, _vm_info.uplink_bandwidth);
         vm->uplink_overhead = _vm_info.uplink_overhead;
         error = register_target_pid(_vm_info.pid, &vm->pid);
         if (error) {
