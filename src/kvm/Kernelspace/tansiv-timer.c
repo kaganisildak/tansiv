@@ -409,11 +409,11 @@ void start_sending_packets(void* arg) {
 
         if (next_deadline > now_ns) {
             // pr_info("tansiv-timer: next_deadline is %llu, now_ns is %llu\n", next_deadline, now_ns);
-            hrtimer_start(&vm->packet_timer, ns_to_ktime(next_deadline - now_ns), HRTIMER_MODE_REL_HARD);
+            hrtimer_start(&vm->packet_timer, ns_to_ktime(next_deadline - now_ns), HRTIMER_MODE_REL_SOFT);
         }
         else {
             // pr_info("tansiv-timer: loading timer in 0 ns\n");
-            hrtimer_start(&vm->packet_timer, 0, HRTIMER_MODE_REL_HARD);
+            hrtimer_start(&vm->packet_timer, 0, HRTIMER_MODE_REL_SOFT);
         }
     }
 
@@ -445,7 +445,7 @@ struct tansiv_vm *init_vm(void)
     cb_init(&vm->packets, PACKETS_BUFFER_SIZE, sizeof(struct sk_buff*));
     cb_init(&vm->timestamps, PACKETS_BUFFER_SIZE, sizeof(__u64));
     cb_init(&vm->packets_to_send, PACKETS_BUFFER_SIZE, sizeof(struct packet_to_send*));
-    hrtimer_init(&vm->packet_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_HARD);
+    hrtimer_init(&vm->packet_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
     vm->packet_timer.function = &packet_to_send_timer_callback;
     spin_lock_init(&vm->packets_to_send_lock);
     spin_lock_init(&vm->packets_lock);
