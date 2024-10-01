@@ -625,8 +625,8 @@ static enum hrtimer_restart poll_send_timer(struct hrtimer *timer)
 
 static void schedule_poll_send(struct tansiv_netdevice *dev, u64 expire_host_tsc)
 {
-    u64 expire_host_ns = div64_u64(expire_host_tsc * 1000000ULL, tsc_khz);
-    ktime_t expire = ns_to_ktime(expire_host_ns);
+    u64 delay_host_ns = div64_u64((expire_host_tsc - dev->tsc_base) * 1000000ULL, tsc_khz);
+    ktime_t expire = ktime_add_ns(dev->ktime_base, delay_host_ns);
 
     spin_lock(&dev->poll_send_timer_lock);
     if (likely(dev->poll_send_timer_allowed)) {
