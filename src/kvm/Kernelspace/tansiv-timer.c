@@ -517,6 +517,7 @@ static enum hrtimer_restart poll_send_timer(struct hrtimer *timer)
 {
     struct tansiv_netdevice *dev = container_of(timer, struct tansiv_netdevice, poll_send_timer);
     dev->ops->poll_send_cb(dev);
+    pr_debug("tansiv-timer: poll_send_timer tsc = %llu\n", rdtsc());
     return HRTIMER_NORESTART;
 }
 
@@ -528,6 +529,7 @@ static void schedule_poll_send(struct tansiv_netdevice *dev, u64 expire_host_tsc
     spin_lock(&dev->poll_send_timer_lock);
     if (likely(dev->poll_send_timer_allowed)) {
         hrtimer_start(&dev->poll_send_timer, expire, HRTIMER_MODE_ABS_SOFT);
+        pr_debug("tansiv-timer: schedule_poll_send %llu\n", expire);
     }
     spin_unlock(&dev->poll_send_timer_lock);
 }
@@ -553,6 +555,7 @@ static bool may_start_send(struct tansiv_netdevice *dev)
 
     vm = rcu_dereference(dev->vm);
 
+    pr_debug("tansiv-timer: may_start_send pid = %d tsc = %llu\n", current->pid, now_host_tsc);
     BUG_ON(atomic_read(&vm->send_burst_count) != 0);
 
     if (next_send_floor_host_tsc(vm, &next_send_host_tsc))
@@ -565,9 +568,9 @@ static bool may_start_send(struct tansiv_netdevice *dev)
     return true;
 }
 
-static void log_send_burst(struct tansiv_vm *vm)
+static void log_send_burst(struct tansiv_vm *vm, bool more_available)
 {
-    pr_debug("tansiv_stop_send: burst of %u\n", atomic_read(&vm->send_burst_count));
+    pr_debug("tansiv_stop_send: burst of %u more_available = %d\n", atomic_read(&vm->send_burst_count), more_available);
 }
 
 static void poll_send(struct tansiv_netdevice *dev)
@@ -577,9 +580,10 @@ static void poll_send(struct tansiv_netdevice *dev)
     unsigned long long int next_send_host_tsc;
 
     if (next_send_floor_host_tsc(vm, &next_send_host_tsc) ||
-        next_send_host_tsc <= now_host_tsc)
+        next_send_host_tsc <= now_host_tsc) {
         dev->ops->poll_send_cb(dev);
-    else
+        pr_debug("tansiv-timer: poll_send immediate reschedule tsc = %llu\n", now_host_tsc);
+    } else
         schedule_poll_send(dev, next_send_host_tsc);
 }
 
@@ -588,7 +592,7 @@ static void stop_send(struct tansiv_netdevice *dev, bool more_available)
 {
     struct tansiv_vm *vm = dev->vm;
 
-    log_send_burst(vm);
+    log_send_burst(vm, more_available);
     atomic_set(&vm->send_burst_count, 0);
     if (more_available) {
         poll_send(dev);
