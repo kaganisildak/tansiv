@@ -32,6 +32,7 @@ int vsg_send(const struct vsg_context* context, uint32_t dest, uint32_t msglen, 
 int vsg_send_timestamped(const struct vsg_context* context, uint32_t dest, uint32_t msglen, const uint8_t* msg, struct timespec send_time);
 void vsg_stop_send(const struct vsg_context* context, struct vsg_poll_send_cb *callback);
 int vsg_recv(const struct vsg_context* context, uint32_t* src, uint32_t* dest, uint32_t* msglen, uint8_t* msg);
+int vsg_recv_date(const struct vsg_context* context, uint32_t* src, uint32_t* dest, uint32_t* msglen, uint64_t* receive_date, uint8_t* msg);
 int vsg_poll(const struct vsg_context* context);
 void vsg_poll_send(const struct vsg_context* context, struct vsg_poll_send_cb *callback);
 

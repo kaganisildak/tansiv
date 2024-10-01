@@ -415,6 +415,58 @@ pub unsafe extern fn vsg_recv(context: *const Context, psrc: *mut libc::in_addr_
     }
 }
 
+
+#[no_mangle]
+pub unsafe extern fn vsg_recv_date(context: *const Context, psrc: *mut libc::in_addr_t, pdst: *mut libc::in_addr_t, msglen: *mut u32, preceive_date: *mut u64, msg: *mut u8) -> c_int {
+    const_assert!(tansiv_client::MAX_PACKET_SIZE <= std::u32::MAX as usize);
+
+    if let Some(context) = context.as_ref() {
+        let len = if msglen.is_null() {
+            0
+        } else {
+            *msglen
+        };
+        // We can tolerate msg.is_null() if len == 0 but std::slice::from_raw_parts_mut() requires
+        // non null pointers.
+        let ptr = if len == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            if msg.is_null() {
+                return libc::EINVAL;
+            };
+            msg
+        };
+        let payload = std::slice::from_raw_parts_mut(ptr, len as usize);
+
+        match (*context).recv_date(payload) {
+            Ok((src, dst, receive_date, payload)) => {
+                if !psrc.is_null() {
+                    *psrc = src;
+                }
+                if !pdst.is_null() {
+                    *pdst = dst;
+                }
+                if !msglen.is_null() {
+                    *msglen = payload.len() as u32;
+                }
+                if !preceive_date.is_null() {
+                    *preceive_date = receive_date;
+                }
+                0
+            },
+            Err(e) => match e {
+                Error::NoMessageAvailable => libc::EAGAIN,
+                Error::SizeTooBig => libc::EMSGSIZE,
+                _ => // Unknown error, fallback to EIO
+                    libc::EIO,
+            },
+        }
+    } else {
+        libc::EINVAL
+    }
+}
+
+
 /// Checks if a message can be read from the input queue. If `0` is returned a message can be read
 /// from the input queue using [`vsg_recv`].
 ///

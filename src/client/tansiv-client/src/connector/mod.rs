@@ -72,8 +72,8 @@ pub fn create_at_deadline(builder: &mut FlatBufferBuilder) -> () {
 }
 
 #[cfg(any(test, feature = "test-helpers"))]
-fn prepare_deliver_packet<'a, 'b, 'c>(builder: &'a mut FlatBufferBuilder<'c>, src: u32, dst: u32, payload: &'b [u8]) -> (&'a mut FlatBufferBuilder<'c>, WIPOffset<tansiv::FromTansivMsg<'c>>) {
-    let fb_packet_meta = tansiv::PacketMeta::new(src, dst);
+fn prepare_deliver_packet<'a, 'b, 'c>(builder: &'a mut FlatBufferBuilder<'c>, src: u32, dst: u32, receive_date: u64, payload: &'b [u8]) -> (&'a mut FlatBufferBuilder<'c>, WIPOffset<tansiv::FromTansivMsg<'c>>) {
+    let fb_packet_meta = tansiv::PacketMeta::new(src, dst, receive_date);
     let fb_payload = builder.create_vector(payload);
 
     let deliver_packet = tansiv::DeliverPacket::create(
@@ -93,19 +93,19 @@ fn prepare_deliver_packet<'a, 'b, 'c>(builder: &'a mut FlatBufferBuilder<'c>, sr
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub fn create_deliver_packet(builder: &mut FlatBufferBuilder, src: u32, dst: u32, payload: &[u8]) {
-    let (builder, msg) = prepare_deliver_packet(builder, src, dst, payload);
+    let (builder, msg) = prepare_deliver_packet(builder, src, dst, 0, payload);
     builder.finish_size_prefixed(msg, None);
 }
 
 #[cfg(any(test, feature = "test-helpers"))]
 pub fn create_deliver_packet_unprefixed(builder: &mut FlatBufferBuilder, src: u32, dst: u32, payload: &[u8]) {
-    let (builder, msg) = prepare_deliver_packet(builder, src, dst, payload);
+    let (builder, msg) = prepare_deliver_packet(builder, src, dst, 0, payload);
     builder.finish(msg, None);
 }
 
 pub fn create_send_packet_from_payload(builder: &mut FlatBufferBuilder, send_time: Duration, src: u32, dst: u32, payload: &[u8]) -> () {
     let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_nanos() as u64);
-    let packet_meta = tansiv::PacketMeta::new(src, dst);
+    let packet_meta = tansiv::PacketMeta::new(src, dst, 0);
     let fb_payload = builder.create_vector(payload);
     let send_packet = tansiv::SendPacket::create(builder, &tansiv::SendPacketArgs {
         metadata: Some(&packet_meta),
@@ -191,6 +191,11 @@ impl DeliverPacket {
         msg.metadata().unwrap().dst()
     }
 
+    pub fn receive_date(&self) -> u64 {
+        let msg = self.deserialize();
+        msg.metadata().unwrap().receive_date()
+    }
+
     pub fn payload(&self) -> &[u8] {
         let msg = self.deserialize();
         msg.payload().unwrap()
@@ -236,7 +241,7 @@ impl fmt::Display for MsgIn {
         match self {
             // FIXME(msimonin) // real payload
             MsgIn::DeliverPacket(d) => {
-                write!(f, "DeliverPacket(src = {}, dst = {}, len = {}", to_ipv4addr(d.src()), to_ipv4addr(d.dst()), d.payload().len())
+                write!(f, "DeliverPacket(src = {}, dst = {}, len = {}, receive_date = {}", to_ipv4addr(d.src()), to_ipv4addr(d.dst()), d.payload().len(), d.receive_date())
             },
             _ => fmt::Debug::fmt(self, f),
         }
@@ -325,7 +330,7 @@ impl SendPacketBuilder {
 
     pub fn finish(self, send_time: Duration) -> SendPacket {
         let time = tansiv::Time::new(send_time.as_secs(), send_time.subsec_nanos() as u64);
-        let packet_meta = tansiv::PacketMeta::new(self.src, self.dst);
+        let packet_meta = tansiv::PacketMeta::new(self.src, self.dst, 0);
         let mut p = self.payload;
         let send_packet = tansiv::SendPacket::create(&mut p, &tansiv::SendPacketArgs {
             metadata: Some(&packet_meta),

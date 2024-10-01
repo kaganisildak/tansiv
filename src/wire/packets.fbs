@@ -25,6 +25,7 @@ struct Time {
 struct PacketMeta {
   src: uint32;
   dst: uint32;
+  receive_date: uint64;
 }
 
 union FromTansiv {GotoDeadline, DeliverPacket, EndSimulation}

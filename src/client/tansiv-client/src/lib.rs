@@ -328,6 +328,7 @@ impl Context {
         };
 
         let mut next_send_floor = self.next_send_floor.lock().unwrap();
+        *next_send_floor = max(*next_send_floor, self.timer_context.simulation_previous_deadline());
 
         // Cap NIC speed to the simulated bandwidth
         let send_time = max(send_time, *next_send_floor);
@@ -380,6 +381,21 @@ impl Context {
                     let msg = &mut msg[..msg_in.payload().len()];
                     msg.copy_from_slice(&msg_in.payload());
                     Ok((msg_in.src(), msg_in.dst(), msg))
+                } else {
+                    Err(Error::SizeTooBig)
+                }
+            },
+            None => Err(Error::NoMessageAvailable),
+        }
+    }
+
+    pub fn recv_date<'a, 'b>(&'a self, msg: &'b mut [u8]) -> Result<(libc::in_addr_t, libc::in_addr_t, u64, &'b mut [u8])> {
+        match self.input_queue.pop() {
+            Some(msg_in) => {
+                if msg.len() >= msg_in.payload().len() {
+                    let msg = &mut msg[..msg_in.payload().len()];
+                    msg.copy_from_slice(&msg_in.payload());
+                    Ok((msg_in.src(), msg_in.dst(), msg_in.receive_date(), msg))
                 } else {
                     Err(Error::SizeTooBig)
                 }
