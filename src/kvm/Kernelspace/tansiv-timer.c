@@ -617,21 +617,55 @@ static unsigned int poll_send_latency(void)
 
 static enum hrtimer_restart poll_send_timer(struct hrtimer *timer)
 {
+    
+    // Let's check if the timer really expired (maybe we are too early because
+    // of a deadline)
+    u64 tsc_offset, tsc_scaling_ratio, next_send_host_tsc;
+    int err;
+    u64 now_host, delta;
+    struct tansiv_vm *vm;
     struct tansiv_netdevice *dev = container_of(timer, struct tansiv_netdevice, poll_send_timer);
-    dev->ops->poll_send_cb(dev);
-    pr_debug("tansiv-timer[%p]: poll_send_timer tsc = %llu\n", timer, rdtsc());
-    return HRTIMER_NORESTART;
+    // spin_lock(&dev->poll_send_timer_lock);
+    vm = dev->vm;
+
+    read_tsc_infos(vm, &tsc_offset, &tsc_scaling_ratio);
+    err = kvm_unscale_tsc_delta(vm->next_send_floor - tsc_offset, tsc_scaling_ratio, &next_send_host_tsc);
+    if (err)
+        pr_err("tansiv-timer: error while calling kvm_unscale_tsc_delta\n");
+
+    now_host = rdtsc_ordered();
+    if (now_host < next_send_host_tsc) {
+        delta = div64_u64((next_send_host_tsc - now_host) * 1000000ULL, tsc_khz);
+        hrtimer_forward_now(timer, ns_to_ktime(delta));
+        // pr_info("tansiv-timer: Timer expired %llu ticks too early!\n",
+        // next_send_host_tsc - now_host);
+        // spin_unlock(&dev->poll_send_timer_lock);
+        return HRTIMER_RESTART;
+    }
+    else {
+        dev->ops->poll_send_cb(dev);
+        // pr_info("tansiv-timer: PID %d poll_send_timer tsc = %llu\n", current->pid, rdtsc());
+        // spin_unlock(&dev->poll_send_timer_lock);
+        return HRTIMER_NORESTART;
+    }
 }
 
 static void schedule_poll_send(struct tansiv_netdevice *dev, u64 expire_host_tsc)
 {
-    u64 delay_host_ns = div64_u64((expire_host_tsc - dev->tsc_base) * 1000000ULL, tsc_khz);
-    ktime_t expire = ktime_add_ns(dev->ktime_base, delay_host_ns);
+    unsigned long long now;
+    unsigned long long delta;
 
     spin_lock(&dev->poll_send_timer_lock);
     if (likely(dev->poll_send_timer_allowed)) {
-        hrtimer_start(&dev->poll_send_timer, expire, HRTIMER_MODE_ABS_SOFT);
-        pr_debug("tansiv-timer[%p]: schedule_poll_send %llu\n", &dev->poll_send_timer, expire);
+        now = rdtsc_ordered();
+        if (expire_host_tsc > now) {
+            delta = div64_u64((expire_host_tsc - now) * 1000000ULL, tsc_khz);
+        }
+        else {
+            delta = 0;
+        }
+        hrtimer_start(&dev->poll_send_timer, delta, HRTIMER_MODE_REL_SOFT);
+        // pr_info("tansiv-timer: PID %d schedule_poll_send delta: %llu\n", current->pid, delta);
     }
     spin_unlock(&dev->poll_send_timer_lock);
 }
