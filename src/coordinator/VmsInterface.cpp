@@ -8,7 +8,6 @@
 
 #include "socket.hpp"
 
-#define LOG(msg) std::clog << "[Interface:] " << msg << std::endl
 
 // big enough buffer for incoming messages
 #define SCRATCH_BUFFER_LEN 2048
@@ -17,6 +16,13 @@
 
 // Enable to get some log about message create/copy/move
 // #define LOG_MESSAGES 1
+
+#ifdef LOG_MESSAGES
+    #define LOG(msg) std::clog << "[Interface:] " << msg << std::endl
+#else
+    #define LOG(msg) do {} while(0)
+#endif
+
 
 namespace vsg {
 

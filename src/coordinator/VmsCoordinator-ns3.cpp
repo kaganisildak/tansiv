@@ -12,7 +12,14 @@
 #include <cassert>
 #include <limits.h>
 
-#define LOG(msg) std::clog << "[" << ns3::Simulator::Now().ToDouble(ns3::Time::S) << "s] " << msg << std::endl
+// Enable to get some log
+// #define LOG_MESSAGES 1
+
+#ifdef LOG_MESSAGES
+    #define LOG(msg) std::clog << "[" << ns3::Simulator::Now().ToDouble(ns3::Time::S) << "s] " << msg << std::endl
+#else
+    #define LOG(msg) do {} while(0)
+#endif
 
 #define DEFAULT_SOCKET_NAME "/tmp/ns3_connection_socket"
 
