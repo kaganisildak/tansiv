@@ -1,0 +1,14 @@
+<?xml version='1.0'?>
+<platform>
+    <type value="dumbbell" /> <!-- Type of topology -->
+    <bandwidth value="1000Mbps" />
+    <left_latency value="2ms" /> <!-- Latency between a left node and the
+    left router -->
+    <right_latency value="1ms" /> <!-- Latency between a right node and the
+    right router -->
+    <bottleneck_latency value="10ms" /> <!-- Latency between the 2 routers -->
+    <min_latency value="0.001" /> <!-- min latency between two nodes on the
+    topology-->
+    <header_size value="26" /> <!-- Ethernet header: +14; virtio-net header: +12 (+14 if mq enabled)
+    CANT BE BELOW 14 (Coordinator assumes Ethernet 14 bytes is part of the header) !-->
+</platform>

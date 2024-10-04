@@ -41,12 +41,14 @@ std::vector<ns3::Address> tansiv_mac_addresses;
 
 const std::string vsg_vm_name = "vsg_vm";
 
-double force_min_latency = -1;
 double min_latency;
 
 int header_size;
 
 ns3::InternetStackHelper internet;
+std::string type;
+
+// For the star topology
 ns3::PointToPointHelper pointToPoint;
 ns3::NodeContainer hub;
 ns3::NodeContainer spokes;
@@ -56,6 +58,33 @@ ns3::Ipv4InterfaceContainer hub_interfaces;
 ns3::Ipv4InterfaceContainer spokes_interfaces;
 int nSpokes = 0;
 ns3::Ipv4AddressHelper hub_address_helper;
+
+// For the dumbbell topology
+ns3::PointToPointHelper left_P2P;
+ns3::PointToPointHelper right_P2P;
+ns3::PointToPointHelper bottleneck_P2P;
+
+ns3::NodeContainer left_router;
+ns3::NodeContainer right_router;
+ns3::NodeContainer left_nodes;
+ns3::NodeContainer right_nodes;
+
+ns3::NetDeviceContainer left_router_devices;
+ns3::NetDeviceContainer left_nodes_devices;
+ns3::NetDeviceContainer right_router_devices;
+ns3::NetDeviceContainer right_nodes_devices;
+
+ns3::Ipv4InterfaceContainer left_router_interfaces;
+ns3::Ipv4InterfaceContainer left_nodes_interfaces;
+ns3::Ipv4InterfaceContainer right_router_interfaces;
+ns3::Ipv4InterfaceContainer right_nodes_interfaces;
+
+ns3::Ipv4AddressHelper left_router_address_helper;
+ns3::Ipv4AddressHelper right_router_address_helper;
+
+int n_left_nodes = 0;
+int n_right_nodes = 0;
+
 
 static double compute_min_latency() { return min_latency; }
 
@@ -183,9 +212,18 @@ static void vm_coordinator() {
       std::tie(receive_date, packet_id, dest_id) = elem;
 
       // Ignore hub event
-      if (dest_id == 0) {
-        continue;
+
+      if (!type.compare("dumbbell")) {
+        if (dest_id == 0 || dest_id == 1) {
+          continue;
+        }
       }
+      else { // star topology
+        if (dest_id == 0) {
+          continue;
+        }
+      }
+      
 
       // Find the message
       auto it = std::find_if(pending_packets.begin(), pending_packets.end(),
@@ -272,6 +310,211 @@ void create_star(std::string latency, std::string bandwidth) {
   internet.Install(spokes);
 }
 
+void create_dumbbell(std::string left_latency, std::string right_latency, std::string bottleneck_latency, std::string bandwidth) {
+  ns3::Time::SetResolution(ns3::Time::NS);
+  ns3::Config::SetDefault("ns3::RateErrorModel::ErrorRate", ns3::DoubleValue(0));
+  ns3::Config::SetDefault("ns3::BurstErrorModel::ErrorRate", ns3::DoubleValue(0));
+
+  LOG("Set default queue size");
+  // Global
+  ns3::Config::SetDefault(
+      "ns3::DropTailQueue<Packet>::MaxSize",
+      ns3::QueueSizeValue(ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, 100))); // ns-3 supports either bytes or packets
+
+  left_P2P.SetDeviceAttribute("DataRate", ns3::StringValue(bandwidth));
+  right_P2P.SetDeviceAttribute("DataRate", ns3::StringValue(bandwidth));
+  bottleneck_P2P.SetDeviceAttribute("DataRate", ns3::StringValue(bandwidth));
+
+  left_P2P.SetDeviceAttribute("Mtu", ns3::UintegerValue(3000));
+  right_P2P.SetDeviceAttribute("Mtu", ns3::UintegerValue(3000));
+  bottleneck_P2P.SetDeviceAttribute("Mtu", ns3::UintegerValue(3000));
+
+  left_P2P.SetChannelAttribute("Delay", ns3::StringValue(left_latency));
+  left_P2P.DisableFlowControl();
+
+  right_P2P.SetChannelAttribute("Delay", ns3::StringValue(right_latency));
+  right_P2P.DisableFlowControl();
+
+  bottleneck_P2P.SetChannelAttribute("Delay", ns3::StringValue(bottleneck_latency));
+  bottleneck_P2P.DisableFlowControl();
+
+  left_router.Create(1);
+  right_router.Create(1);
+  left_nodes.Create(MAX_NODES);
+  right_nodes.Create(MAX_NODES);
+
+  internet.Install(left_router);
+  internet.Install(right_router);
+  internet.Install(left_nodes);
+  internet.Install(right_nodes);
+
+  // Create P2P link between both routers
+  ns3::NetDeviceContainer nd = bottleneck_P2P.Install(left_router.Get(0), right_router.Get(0));
+  left_router_devices.Add(nd.Get(0));
+  right_router_devices.Add(nd.Get(1));
+
+  // Assign IPs
+  left_router_address_helper.Assign(left_router_devices.Get(0));
+  right_router_address_helper.Assign(right_router_devices.Get(0));
+
+  // Get net devices
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device_left_router =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(left_router_devices.Get(0));
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device_right_router =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(right_router_devices.Get(0)); 
+
+  net_device_left_router->SetInterframeGap(ns3::Time::FromInteger(0, ns3::Time::NS));
+  net_device_right_router->SetInterframeGap(ns3::Time::FromInteger(0, ns3::Time::NS));
+}
+
+void add_dumbbell_left_node(std::string host_name, std::string ip, std::string mask, ns3::Time ifg, std::string mac,
+                       std::string boot_command, std::vector<std::string> boot_args) {
+  // Create P2P link with the router
+  LOG("Creating P2P link between left node and left router");
+  ns3::NetDeviceContainer nd = left_P2P.Install(left_router.Get(0), left_nodes.Get(n_left_nodes));
+  left_router_devices.Add(nd.Get(0));
+  left_nodes_devices.Add(nd.Get(1));
+
+  // Assign address to the node
+  LOG("Assigning IP addresses");
+
+  ns3::Ptr<ns3::Ipv4> ipv4 = left_nodes.Get(n_left_nodes)->GetObject<ns3::Ipv4>();
+  int32_t interface = ipv4->AddInterface(left_nodes_devices.Get(n_left_nodes));
+  ns3::Ipv4InterfaceAddress address =
+      ns3::Ipv4InterfaceAddress(ns3::Ipv4Address(ip.c_str()), ns3::Ipv4Mask(mask.c_str()));
+
+  ipv4->AddAddress(interface, address);
+
+  ipv4->SetUp(interface);
+
+  ns3::Ipv4InterfaceContainer node_ipv4_container;
+
+  node_ipv4_container.Add(ipv4, interface);
+
+  left_nodes_interfaces.Add(node_ipv4_container);
+
+  // Assign address to the router
+  left_router_address_helper.Assign(left_router_devices.Get(n_left_nodes + 1));
+
+  // Get net_devices
+  LOG("Getting net devices");
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(left_nodes_devices.Get(n_left_nodes));
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device_router =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(left_router_devices.Get(n_left_nodes + 1)); // +1 because n°0 is the bottleneck link
+
+  // Set MAC address
+  LOG("Setting MAC addresses");
+  ns3::Address mac_address = ns3::Mac48Address(mac.c_str());
+  net_device->SetAddress(mac_address);
+
+  // Set Inter Frame Gap
+  LOG("Setting IFG");
+  net_device->SetInterframeGap(ifg);
+  net_device_router->SetInterframeGap(ifg);
+
+  // Get address
+  LOG("Getting IP address");
+  ns3::Address ip_ns3 = left_nodes_interfaces.GetAddress(n_left_nodes);
+
+  // Set infinite queue size on node
+  LOG("Setting infinite queue size on node");
+  ns3::QueueSizeValue queue_size = ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, UINT32_MAX);
+  ns3::PointerValue ptr;
+  net_device->GetAttribute("TxQueue", ptr);
+  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue = ptr.Get<ns3::Queue<ns3::Packet>>();
+  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq = txQueue->GetObject<ns3::DropTailQueue<ns3::Packet>>();
+  dtq->SetAttribute("MaxSize", queue_size);
+
+  n_left_nodes++;
+
+  LOG("Converting IP to string");
+  ns3::Ipv4Address ip_ns3_ipv4 = ns3::Ipv4Address::ConvertFrom(ip_ns3);
+  uint8_t buf[4];
+  ip_ns3_ipv4.Serialize(buf);
+  std::string ip_str = std::to_string(buf[0]) + "." + std::to_string(buf[1]) + "." + std::to_string(buf[2]) + "." +
+                       std::to_string(buf[3]);
+  LOG("IP string is " << ip_str);
+
+  // Create TANSIV actor
+  tansiv_actor(net_device, ip_ns3, mac_address, host_name, ip_str, boot_command, boot_args);
+}
+
+
+void add_dumbbell_right_node(std::string host_name, std::string ip, std::string mask, ns3::Time ifg, std::string mac,
+                       std::string boot_command, std::vector<std::string> boot_args) {
+  // Create P2P link with the router
+  LOG("Creating P2P link between right node and right router");
+  ns3::NetDeviceContainer nd = right_P2P.Install(right_router.Get(0), right_nodes.Get(n_right_nodes));
+  right_router_devices.Add(nd.Get(0));
+  right_nodes_devices.Add(nd.Get(1));
+
+  // Assign address to the node
+  LOG("Assigning IP addresses");
+
+  ns3::Ptr<ns3::Ipv4> ipv4 = right_nodes.Get(n_right_nodes)->GetObject<ns3::Ipv4>();
+  int32_t interface = ipv4->AddInterface(right_nodes_devices.Get(n_right_nodes));
+  ns3::Ipv4InterfaceAddress address =
+      ns3::Ipv4InterfaceAddress(ns3::Ipv4Address(ip.c_str()), ns3::Ipv4Mask(mask.c_str()));
+
+  ipv4->AddAddress(interface, address);
+
+  ipv4->SetUp(interface);
+
+  ns3::Ipv4InterfaceContainer node_ipv4_container;
+
+  node_ipv4_container.Add(ipv4, interface);
+
+  right_nodes_interfaces.Add(node_ipv4_container);
+
+  // Assign address to the router
+  right_router_address_helper.Assign(right_router_devices.Get(n_right_nodes + 1));
+
+  // Get net_devices
+  LOG("Getting net devices");
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(right_nodes_devices.Get(n_right_nodes));
+  ns3::Ptr<ns3::PointToPointNetDevice> net_device_router =
+      ns3::StaticCast<ns3::PointToPointNetDevice>(right_router_devices.Get(n_right_nodes + 1)); // +1 because n°0 is the bottleneck link
+
+  // Set MAC address
+  LOG("Setting MAC addresses");
+  ns3::Address mac_address = ns3::Mac48Address(mac.c_str());
+  net_device->SetAddress(mac_address);
+
+  // Set Inter Frame Gap
+  LOG("Setting IFG");
+  net_device->SetInterframeGap(ifg);
+  net_device_router->SetInterframeGap(ifg);
+
+  // Get address
+  LOG("Getting IP address");
+  ns3::Address ip_ns3 = right_nodes_interfaces.GetAddress(n_right_nodes);
+
+  // Set infinite queue size on node
+  LOG("Setting infinite queue size on node");
+  ns3::QueueSizeValue queue_size = ns3::QueueSize(ns3::QueueSizeUnit::PACKETS, UINT32_MAX);
+  ns3::PointerValue ptr;
+  net_device->GetAttribute("TxQueue", ptr);
+  ns3::Ptr<ns3::Queue<ns3::Packet>> txQueue = ptr.Get<ns3::Queue<ns3::Packet>>();
+  ns3::Ptr<ns3::DropTailQueue<ns3::Packet>> dtq = txQueue->GetObject<ns3::DropTailQueue<ns3::Packet>>();
+  dtq->SetAttribute("MaxSize", queue_size);
+
+  n_right_nodes++;
+
+  LOG("Converting IP to string");
+  ns3::Ipv4Address ip_ns3_ipv4 = ns3::Ipv4Address::ConvertFrom(ip_ns3);
+  uint8_t buf[4];
+  ip_ns3_ipv4.Serialize(buf);
+  std::string ip_str = std::to_string(buf[0]) + "." + std::to_string(buf[1]) + "." + std::to_string(buf[2]) + "." +
+                       std::to_string(buf[3]);
+  LOG("IP string is " << ip_str);
+
+  // Create TANSIV actor
+  tansiv_actor(net_device, ip_ns3, mac_address, host_name, ip_str, boot_command, boot_args);
+}
+
+
 void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3::Time ifg, std::string mac,
                     std::string boot_command, std::vector<std::string> boot_args) {
   // Create P2P link with the hub
@@ -348,6 +591,7 @@ void add_star_spoke(std::string host_name, std::string ip, std::string mask, ns3
 std::string parse_actor_field(tinyxml2::XMLElement *actor, const char *field) {
   tinyxml2::XMLElement *element = actor->FirstChildElement(field);
   std::string element_text = element->Attribute("value");
+  assert(!element_text.empty());
   LOG(field << " is " << element_text);
   return element_text;
 }
@@ -385,17 +629,16 @@ std::string bandwdith_str_to_bps(std::string bandwidth) {
 }
 
 int main(int argc, char *argv[]) {
+  std::string bandwidth;
   // Parse coordinator args
   std::string socket_name = lookup_args_str("--socket_name", DEFAULT_SOCKET_NAME, argc, argv);
-
-  force_min_latency = lookup_args_double("--force", -1, argc, argv);
-
-  LOG("Forcing the minimum latency to " << force_min_latency);
 
   vms_interface = new vsg::VmsInterface(socket_name);
 
   // Set up dummy IP addresses for the hub interfaces
   hub_address_helper.SetBase("0.0.0.0", "255.255.255.0");
+  left_router_address_helper.SetBase("0.0.1.0", "255.255.255.0");
+  right_router_address_helper.SetBase("0.0.2.0", "255.255.255.0");
 
   // Parse platform file
   tinyxml2::XMLDocument platform;
@@ -405,12 +648,29 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   tinyxml2::XMLElement *platform_elem = platform.FirstChildElement("platform");
-  std::string bandwidth = parse_actor_field(platform_elem, "bandwidth");
-  std::string latency = parse_actor_field(platform_elem, "latency");
-  min_latency = std::stod(parse_actor_field(platform_elem, "min_latency"));
-  header_size = std::stoi(parse_actor_field(platform_elem, "header_size"));
 
-  create_star(latency, bandwidth);
+  type =  parse_actor_field(platform_elem, "type");
+
+  if (!type.compare("dumbbell")) {
+    bandwidth = parse_actor_field(platform_elem, "bandwidth");
+    std::string left_latency = parse_actor_field(platform_elem, "left_latency");
+    std::string right_latency = parse_actor_field(platform_elem, "right_latency");
+    std::string bottleneck_latency = parse_actor_field(platform_elem, "bottleneck_latency");
+    min_latency = std::stod(parse_actor_field(platform_elem, "min_latency"));
+    header_size = std::stoi(parse_actor_field(platform_elem, "header_size"));
+    LOG("Creating dumbbell topology");
+    create_dumbbell(left_latency, right_latency, bottleneck_latency, bandwidth);
+  }
+  else { // We assume star is the default topology
+    bandwidth = parse_actor_field(platform_elem, "bandwidth");
+    std::string latency = parse_actor_field(platform_elem, "latency");
+    min_latency = std::stod(parse_actor_field(platform_elem, "min_latency"));
+    header_size = std::stoi(parse_actor_field(platform_elem, "header_size"));
+    LOG("Creating star topology");
+    create_star(latency, bandwidth);
+  }
+  
+
 
   // Parse deployment file
   tinyxml2::XMLDocument deployment;
@@ -453,7 +713,20 @@ int main(int argc, char *argv[]) {
 
     ns3::Time ifg_time = ns3::Time::FromDouble((ifg * 8) / bandwidth_str_to_double(bandwidth), ns3::Time::S);
     LOG("ifg_time is " << ifg_time);
-    add_star_spoke(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);
+
+    if (!type.compare("dumbbell")) {
+      // Check which on size the VM is
+      std::string side = parse_actor_field(actor, "side");
+      if (!side.compare("left")) {
+        add_dumbbell_left_node(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);
+      }
+      else if (!side.compare("right")) {
+        add_dumbbell_right_node(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);
+      }
+    }
+    else {
+      add_star_spoke(host_name, ip, mask, ifg_time, mac, boot_script, boot_args);
+    }
 
     actor = actor->NextSiblingElement("actor");
   }
